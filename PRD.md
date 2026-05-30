@@ -2,13 +2,13 @@
 
 ## Problem Statement
 
-Businesses and individuals want to accept and pay with Zcash (private cryptocurrency) but current tooling is complex, requires expertise in cryptography and blockchain infrastructure, and offers poor integration for desktop applications and agentic workflows. There needs to be a simple, secure, non-custodial wallet that works for both human users and autonomous agents, enabling privacy-preserving commerce without requiring deep Zcash protocol knowledge.
+Businesses and individuals want to accept and pay with Zcash (private cryptocurrency) but the current focus is on mobile applications and terminal based tooling is mainly linked to running a full node, requires expertise in blockchain infrastructure, and offers poor integration for desktop applications and agentic workflows. There needs to be a simple, secure, non-custodial wallet that works for both human users and autonomous agents, enabling privacy-preserving commerce that is a delight to use without requiring deep Zcash protocol knowledge.
 
 ## Solution
 
-Build Paypunk — a shielded Zcash wallet infrastructure with layered interfaces:
+Build Paypunk Wallet — a shielded Zcash wallet tool with layered interfaces:
 
-1. **Wallet API** — Core library providing sapling-only Zcash operations (address generation, balance tracking, transaction construction) via blind LSP chain scanning
+1. **Wallet API** — Core Rust library providing Zcash operations (address generation, balance tracking, transaction construction) via blind LSP chain scanning
 2. **CLI** — Command-line interface wrapping the wallet API for scripting and automation
 3. **TUI** — Terminal-based user interface replacing CLI for interactive human use
 
