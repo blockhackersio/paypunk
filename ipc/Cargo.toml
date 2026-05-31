@@ -1,0 +1,16 @@
+[package]
+name = "paypunk-ipc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tactix = "1.0"
+tokio = { version = "1", features = ["net", "io-util"] }
+thiserror = "2"
+bytes = "1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros"] }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
