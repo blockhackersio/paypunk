@@ -6,7 +6,7 @@
 
 Three-process architecture from v1:
 
-- **`keypunkd`** — Long-running daemon hosting KeyActor. Responsible for key generation, signing, and proving. Runs as a separate system user with restricted access. Only accepts IPC from `paypunkd`.
+- **`keypunkd`** — Long-running daemon hosting KeyActor. Responsible for key generation, signing, and proving. Runs as a separate system user for defense-in-depth. IPC auth is per-message HMAC using X25519 shared secret — any process can connect, but only a registered client with the correct keypair can send valid messages. Password is additionally required for `Unlock`. See ADR-001.
 - **`paypunkd`** — Long-running daemon hosting WalletActor, usecases, and service orchestration. Exposes IPC over Unix domain socket. Never holds key material — delegates signing to `keypunkd`.
 - **`paypunk`** — CLI binary. Connects to `paypunkd` over Unix socket for all operations. Includes TUI mode (ratatui) for interactive use. Uses `api` library which hides IPC details.
 
@@ -120,7 +120,9 @@ paypunk/
 
 ### 1.5 Architecture Decision Records
 
-(To be created as decisions are made.)
+| # | Title | Status |
+|---|-------|--------|
+| 1 | [IPC Authentication Model](adr/001-ipc-auth-model.md) | Accepted |
 
 ## 2. Data Model
 
@@ -458,7 +460,7 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 
 ## 9. Security
 
-- **Auth model**: No auth on Unix socket (filesystem permissions protect the socket). Password required to unlock the KeyActor.
+- **Auth model**: Per-message HMAC using X25519 shared secret between process keypairs. Client registers its public key on connect; every subsequent message is authenticated with an HMAC tag derived from the DH shared secret. Password is additionally required for `Unlock`. See ADR-001.
 - **Secrets management**: Seed encrypted with Argon2id in `seed.enc`. KeyActor holds decrypted key in mlocked memory. Password sourced from stdin, env var, or secrets file.
 - **Data protection**: SQLite wallet state encrypted with separate HKDF-derived key. Socket file permissions restricted to owner.
 - **Rate limiting**: Not applicable for v1 (local Unix socket, single user).

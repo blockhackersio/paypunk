@@ -32,11 +32,11 @@ Funds received into the wallet detected via LSP chain scanning of the current Ad
 _Avoid_: Receipt
 
 **keypunkd**:
-Long-running daemon hosting the KeyActor. Responsible for key generation, signing, and proving. Runs as a separate system user with restricted access. Only accepts IPC from paypunkd.
+Long-running daemon hosting the KeyActor. Responsible for key generation, signing, and proving. Runs as a separate system user for defense-in-depth (file/memory isolation). IPC auth is per-message HMAC using X25519 shared secret — any process can connect, but only a client holding the registered keypair can send valid messages. Password is additionally required for `Unlock`. See ADR-001.
 _Avoid_: Key daemon
 
 **paypunkd**:
-Long-running daemon hosting the WalletActor, usecases, and service orchestration. Exposes IPC over Unix socket. Never holds key material — delegates signing to keypunkd.
+Long-running daemon hosting the WalletActor, usecases, and service orchestration. Exposes IPC over Unix socket. Runs as the user's login UID. Never holds key material — delegates signing to keypunkd via IPC.
 _Avoid_: App daemon
 
 **ipc**:
