@@ -16,11 +16,12 @@ Rationale: Three-process separation enforces the security boundary — neither t
 graph TD
   cli --> api
   tui --> api
-  api --> ipc
-  ipc --> paypunkd
+  api --> ipc_paypunkd
+  ipc_paypunkd --> paypunkd
   paypunkd --> usecase
   usecase --> service_api
-  service_api --> keypunkd
+  service_api --> ipc_keypunkd
+  ipc_keypunkd --> keypunkd
   service_api --> account_store
   account_store --> db
   keypunkd --> key_usecase
@@ -38,16 +39,14 @@ graph TD
     service_api
     account_store
     db
+    ipc_paypunkd
   end
 
   subgraph "keypunkd (key daemon)"
     keypunkd
     key_usecase
     keystore
-  end
-
-  subgraph "ipc crate"
-    ipc
+    ipc_keypunkd
   end
 ```
 
