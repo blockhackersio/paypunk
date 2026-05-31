@@ -106,12 +106,12 @@ impl KeyStore {
 // Client side — ephemeral keypair for a single GenerateSeed call
 // ---------------------------------------------------------------------------
 
-pub struct ClientCrypto {
+pub struct CryptoSession {
     secret: [u8; 32],
     public: [u8; 32],
 }
 
-impl ClientCrypto {
+impl CryptoSession {
     pub fn new() -> Self {
         let (secret, public) = generate_keypair();
         Self { secret, public }
@@ -121,13 +121,13 @@ impl ClientCrypto {
         self.public
     }
 
-    pub fn wrap_password(&self, password: &str, server_pk: &[u8; 32]) -> Vec<u8> {
+    pub fn seal_password(&self, password: &str, server_pk: &[u8; 32]) -> Vec<u8> {
         let shared = x25519_dalek::x25519(self.secret, *server_pk);
         let key = derive_aes_key(&shared);
         encrypt(&key, password.as_bytes())
     }
 
-    pub fn unwrap_mnemonic(
+    pub fn open_mnemonic(
         &self,
         encrypted: &[u8],
         server_pk: &[u8; 32],
@@ -146,10 +146,10 @@ mod tests {
     #[test]
     fn test_password_roundtrip() {
         let server = KeyStore::new();
-        let client = ClientCrypto::new();
+        let client = CryptoSession::new();
 
         let password = "my-secret-password";
-        let encrypted = client.wrap_password(password, &server.public_key());
+        let encrypted = client.seal_password(password, &server.public_key());
         let decrypted = server.decrypt_password(&encrypted, &client.public_key()).unwrap();
 
         assert_eq!(decrypted, password);
@@ -158,11 +158,11 @@ mod tests {
     #[test]
     fn test_mnemonic_roundtrip() {
         let server = KeyStore::new();
-        let client = ClientCrypto::new();
+        let client = CryptoSession::new();
 
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let encrypted = server.encrypt_mnemonic(mnemonic, &client.public_key());
-        let decrypted = client.unwrap_mnemonic(&encrypted, &server.public_key()).unwrap();
+        let decrypted = client.open_mnemonic(&encrypted, &server.public_key()).unwrap();
 
         assert_eq!(decrypted, mnemonic);
     }
@@ -171,10 +171,10 @@ mod tests {
     fn test_wrong_key_fails() {
         let server = KeyStore::new();
         let other_server = KeyStore::new();
-        let client = ClientCrypto::new();
+        let client = CryptoSession::new();
 
         let password = "secret";
-        let encrypted = client.wrap_password(password, &server.public_key());
+        let encrypted = client.seal_password(password, &server.public_key());
 
         let result = other_server.decrypt_password(&encrypted, &client.public_key());
         assert!(result.is_err());
@@ -190,12 +190,12 @@ mod tests {
     #[test]
     fn test_server_reuses_key() {
         let server = KeyStore::new();
-        let client1 = ClientCrypto::new();
-        let client2 = ClientCrypto::new();
+        let client1 = CryptoSession::new();
+        let client2 = CryptoSession::new();
 
         // Server should handle multiple clients with the same key
-        let enc1 = client1.wrap_password("pw1", &server.public_key());
-        let enc2 = client2.wrap_password("pw2", &server.public_key());
+        let enc1 = client1.seal_password("pw1", &server.public_key());
+        let enc2 = client2.seal_password("pw2", &server.public_key());
 
         assert_eq!(server.decrypt_password(&enc1, &client1.public_key()).unwrap(), "pw1");
         assert_eq!(server.decrypt_password(&enc2, &client2.public_key()).unwrap(), "pw2");
