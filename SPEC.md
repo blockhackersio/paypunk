@@ -87,10 +87,10 @@ paypunk/
 │       └── main.rs
 ├── ipc/                  # Tactix actor router for interprocess comms (library)
 │   └── src/
-│       ├── router.rs     # IPC actor that serializes/deserializes messages
-│       ├── client.rs     # Client connection stub
-│       ├── server.rs     # Server connection handler
-│       └── messages.rs   # Shared message types (IpcRequest, IpcResponse)
+│       ├── lib.rs        # Crate root, re-exports IpcMessage, IpcActor, IpcServer
+│       ├── router.rs     # IpcActor: tactix actor wrapping a UnixStream (connect + send/recv)
+│       ├── server.rs     # IpcServer: Unix socket listener, dispatches to handler actor
+│       └── messages.rs   # IpcMessage type (tactix Message wrapping Vec<u8>)
 ├── chains/               # Chain-specific implementations
 │   ├── zcash/            # Zcash: address derivation, LSP scanning, transfer construction
 │   │   └── src/
@@ -280,33 +280,33 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 ### `ipc` crate
 
-- **Responsibility**: Tactix actor that serializes messages over Unix domain sockets. Serves as the communication router between all processes. Both `api` and daemons use this crate.
-- **Dependencies**: `postcard`, `serde`, `tactix`
+- **Responsibility**: Tactix actor that sends/receives raw bytes over Unix domain sockets. Serves as the transport layer between all processes. Both `api` and daemons use this crate. The `IpcActor` implements the same tactix `Handler<IpcMessage>` trait as any in-process actor, making cross-process calls referentially transparent with local ones.
+- **Dependencies**: `tactix`, `tokio` (net + io-util), `thiserror`, `bytes`
 - **Key interfaces**:
   ```rust
-  // Shared message types — the IPC contract
-  enum IpcRequest {
-      GetBalance,
-      GetAddress,
-      CreateTransfer { to: String, amount: u64, memo: Option<String> },
-      Sync,
-      GetHistory,
-      Unlock { password: String },
-      Lock,
-  }
-  enum IpcResponse {
-      Balance(Balance),
-      Address(String),
-      Transfer(Transfer),
-      SyncComplete,
-      History(Vec<Transfer>),
-      Ok,
-      Error(String),
-  }
+  /// Universal IPC message — raw bytes over the wire.
+  /// Sender and receiver each handle their own serialization.
+  #[derive(Message)]
+  #[response(Result<Vec<u8>, String>)]
+  struct IpcMessage(Vec<u8>);
 
-  // IPC actor — wraps a Unix socket connection as a tactix actor
-  struct IpcActor { /* serializes/deserializes, routes messages */ }
+  /// IPC actor — wraps a UnixStream as a tactix actor.
+  /// Connect to a socket, send/receive length-prefixed frames.
+  struct IpcActor { stream: UnixStream, read_buf: BytesMut }
+  impl IpcActor {
+      async fn connect(path: &str) -> Result<Addr<Self>, IpcError>;
+  }
+  impl Handler<IpcMessage> for IpcActor { /* write raw bytes, read response */ }
+
+  /// Server — listens on a Unix socket and dispatches requests.
+  struct IpcServer { listener: UnixListener }
+  impl IpcServer {
+      async fn bind(path: impl AsRef<Path>) -> Result<Self, IpcError>;
+      async fn serve<H>(&self, handler: Addr<H>) -> Result<(), IpcError>
+          where H: Actor + Handler<IpcMessage>;
+  }
   ```
+- **Wire format**: length-prefixed frames (4-byte LE length, then payload). Response prepends a status byte: `0` = success, `1` = error string.
 
 ### `chains/zcash` crate
 
@@ -381,8 +381,8 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 ## 6. Build Sequence
 
 ### Step 1: Core types + IPC tactix protocol
-- **What to implement**: `ipc` crate scaffold with shared message types (IpcRequest, IpcResponse, Address, Amount, Balance, Transfer, TransactionStatus). Tactix IPC actor that serializes/deserializes messages with postcard over Unix sockets. Client connection stub and server connection handler.
-- **Validation checkpoint**: can connect two processes over Unix socket, send a message, get a response
+- **What to implement**: `ipc` crate with raw-bytes message type (`IpcMessage`), tactix IPC actor wrapping a Unix socket (`IpcActor`), server connection handler (`IpcServer`), length-prefixed frame wire format with success/error status byte. Serialization is left to the caller — the IPC layer is purely a transport.
+- **Validation checkpoint**: can connect two processes over Unix socket, send a message, get a response (9 tests passing: echo, binary, large messages, error handling, referential transparency)
 - **Dependencies**: none
 
 ### Step 2: api scaffold
@@ -419,6 +419,19 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 - **What to implement**: Error handling refinement, structured logging (tracing), config file, documentation, integration tests
 - **Validation checkpoint**: manual QA pass across all commands
 - **Dependencies**: Step 7
+
+### Build Checklist
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Core types + IPC tactix protocol (`ipc` crate) | ✅ Done |
+| 2 | `api` scaffold | ☐ Pending |
+| 3 | `keypunkd` daemon | ☐ Pending |
+| 4 | `paypunkd` daemon — usecases + services | ☐ Pending |
+| 5 | `chains/zcash` integration | ☐ Pending |
+| 6 | CLI commands | ☐ Pending |
+| 7 | TUI | ☐ Pending |
+| 8 | Polish | ☐ Pending |
 
 ### Deferred (post-v1)
 - Tauri desktop app

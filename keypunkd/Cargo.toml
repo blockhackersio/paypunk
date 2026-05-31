@@ -1,0 +1,26 @@
+[package]
+name = "keypunkd"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "keypunkd"
+path = "src/main.rs"
+
+[dependencies]
+paypunk-ipc = { path = "../ipc" }
+tactix = "1.0"
+tokio = { version = "1", features = ["net", "io-util", "rt", "macros", "signal"] }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
+bip39 = { version = "2", features = ["rand"] }
+argon2 = "0.5"
+aes-gcm = "0.10"
+rand = "0.8"
+x25519-dalek = "2"
+blake2 = "0.10"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
