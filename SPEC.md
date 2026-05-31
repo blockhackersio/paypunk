@@ -112,7 +112,13 @@ paypunk/
 └── tests/                # Integration tests
 ```
 
-### 1.4 Architecture Decision Records
+### 1.4 Daemon Lifecycle
+
+- **Lazy start**: When any CLI command (e.g., `balance`, `send`, `sync`) is issued, the `api` library checks whether `paypunkd` is reachable on its Unix socket. If not, it spawns `paypunkd`, which in turn spawns `keypunkd`. The daemons remain running after the CLI exits.
+- **Explicit stop**: `paypunk down` (aliased as `stop`) sends a graceful shutdown IPC message to `paypunkd`, which relays shutdown to `keypunkd`. Both daemons exit cleanly.
+- **Crash recovery**: If a daemon has crashed, the next CLI command auto-starts it. No manual intervention needed.
+
+### 1.5 Architecture Decision Records
 
 (To be created as decisions are made.)
 
@@ -318,7 +324,7 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 - **Responsibility**: CLI binary. Uses `api` for all operations. No direct IPC or actor knowledge.
 - **Dependencies**: `api`, `tui`
-- **Subcommands**: `init`, `balance`, `address`, `send`, `history`, `sync`, `tui`
+- **Subcommands**: `init`, `balance`, `address`, `send`, `history`, `sync`, `tui`, `down` (aliased as `stop`)
 
 ### `tui` crate
 
