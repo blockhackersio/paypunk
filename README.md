@@ -1,33 +1,33 @@
 # Paypunk
 
-Shielded Zcash wallet infrastructure for desktop and agentic commerce.
-
-Paypunk makes it easy to send, receive, and manage Zcash with strong privacy guarantees. It uses a blind light client approach — your view keys never leave the machine — so you get full chain awareness without trusting third parties with sensitive data.
+Zcash wallet infrastructure for privacy-preserving commerce on desktop and agentic workflows.
 
 ## Architecture
 
-Layered design that grows with your needs:
+Layered, multi-process design:
 
-- **Wallet API** — Core library for shielded (sapling) Zcash operations
-- **CLI** — Scriptable command-line interface wrapping the wallet API
-- **TUI** — Terminal-based interactive UI (planned)
-- **Tauri desktop** — Native desktop app (future)
+- **`api`** — Chain-agnostic library. Accepts an asset type (Zcash, Ethereum) and dispatches to the appropriate chain backend. Hides IPC and actor details from consumers.
+- **`paypunkd`** — App daemon. Hosts WalletActor, usecases, service orchestration, chain backend injection.
+- **`keypunkd`** — Key daemon. Hosts KeyActor. Seed generation, signing, proving. Runs as a separate system user.
+- **`ipc`** — Tactix actor router for interprocess communication over Unix sockets.
+- **`cli`** — Command-line interface using `api` for scripting and automation.
+- **`tui`** — Terminal-based interactive UI (ratatui).
 
-### Dual-daemon design
+### Process model
 
-Two components with a strict security boundary:
+Three processes with a strict security boundary:
 
-- **Key Daemon** — Holds decrypted keys in memory. Only accepts sign/prove requests, never exposes raw keys.
-- **Wallet Daemon** — Manages addresses, chain sync via blind LSP, balance tracking, and transaction construction. Delegates signing to the Key Daemon.
+- **keypunkd** — Holds decrypted keys in protected memory. Only accepts sign/prove requests from paypunkd, never exposes raw key material.
+- **paypunkd** — Manages addresses, chain sync, balance tracking, and transfer construction. Delegates signing to keypunkd. Never holds key material.
+- **paypunk** — CLI/TUI binary. Connects to paypunkd via the `api` library. Never touches key material directly.
 
 ## Privacy
 
-- Sapling shielded pool only — all transactions are private
+- All shielded pools: Sapling and Orchard
 - Blind LSP scanning — view keys never leave your machine, only diversifier prefixes are sent to public servers
 - Seed encrypted at rest with Argon2id-derived key
-- Separate encryption for wallet state database
-- One-time addresses — each incoming payment gets a new address, never reused
+- Separate encryption for wallet state database via HKDF-split key
 
 ## Getting started
 
-*Coming soon.* Build from source once the initial wallet API is functional.
+*Coming soon.* Build from source once the initial `api` is functional.

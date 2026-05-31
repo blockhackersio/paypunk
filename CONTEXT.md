@@ -40,11 +40,11 @@ Long-running daemon hosting the WalletActor, usecases, and service orchestration
 _Avoid_: App daemon
 
 **ipc**:
-Library crate providing a tactix actor that serializes/deserializes messages with postcard over Unix domain sockets. The communication router between all processes. wallet-api, paypunkd, and keypunkd all use it.
+Library crate providing a tactix actor that serializes/deserializes messages with postcard over Unix domain sockets. The communication router between all processes. api, paypunkd, and keypunkd all use it.
 _Avoid_: Transport, wire
 
-**wallet-api**:
-Public-facing library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, etc.) and hides IPC/tactix details from consumers. Internally communicates with paypunkd via the ipc crate.
+**api**:
+Public-facing library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, etc.) that accept an asset type and dispatch to the appropriate chain backend. Hides IPC/tactix details from consumers. Internally communicates with paypunkd via the ipc crate.
 _Avoid_: SDK
 
 **chains**:
@@ -55,18 +55,18 @@ _Avoid_: protocol, adapters
 
 - Single context repo. No CONTEXT-MAP.md needed.
 - Three-process architecture: `keypunkd` (key daemon), `paypunkd` (app daemon), and `paypunk` (CLI/TUI)
-- Layers: paypunk (CLI/TUI) → wallet-api → ipc → paypunkd → ipc → keypunkd
+- Layers: paypunk (CLI/TUI) → api → ipc → paypunkd → ipc → keypunkd
 - IPC: Unix domain socket, serde + postcard, tactix actor wrapping each connection
 
 ## Product Layers
 
-**wallet-api**: Library providing the public API. Hides IPC and actor details from consumers.
+**api**: Chain-agnostic library providing the public API. Accepts an asset type to dispatch to the correct chain backend. Hides IPC and actor details from consumers.
 
 **keypunkd**: Key daemon — hosts KeyActor. Seed generation, signing, proving. Runs as a separate system user.
 
 **paypunkd**: App daemon — hosts WalletActor, usecases, service orchestration, chain backend injection.
 
-**paypunk**: CLI binary. Connects to paypunkd via wallet-api. Includes TUI mode (ratatui) for interactive use.
+**paypunk**: CLI binary. Connects to paypunkd via api. Includes TUI mode (ratatui) for interactive use.
 
 **TUI** (future Tauri): Terminal-based user interface, ships inside the CLI binary. Planned migration to Tauri later.
 

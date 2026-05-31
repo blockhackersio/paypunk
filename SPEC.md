@@ -8,9 +8,48 @@ Three-process architecture from v1:
 
 - **`keypunkd`** — Long-running daemon hosting KeyActor. Responsible for key generation, signing, and proving. Runs as a separate system user with restricted access. Only accepts IPC from `paypunkd`.
 - **`paypunkd`** — Long-running daemon hosting WalletActor, usecases, and service orchestration. Exposes IPC over Unix domain socket. Never holds key material — delegates signing to `keypunkd`.
-- **`paypunk`** — CLI binary. Connects to `paypunkd` over Unix socket for all operations. Includes TUI mode (ratatui) for interactive use. Uses `wallet-api` library which hides IPC details.
+- **`paypunk`** — CLI binary. Connects to `paypunkd` over Unix socket for all operations. Includes TUI mode (ratatui) for interactive use. Uses `api` library which hides IPC details.
 
 Rationale: Three-process separation enforces the security boundary — neither the CLI nor the application daemon ever hold key material. Only `keypunkd` does. The IPC tactix actor makes cross-process calls look like local actor messages, so the actor protocol is the same whether in-process or over the wire.
+
+```mermaid
+graph TD
+  cli --> api
+  tui --> api
+  api --> ipc
+  ipc --> paypunkd
+  paypunkd --> usecase
+  usecase --> service_api
+  service_api --> keypunkd
+  service_api --> account_store
+  account_store --> db
+  keypunkd --> key_usecase
+  key_usecase --> keystore
+
+  subgraph "paypunk (CLI/TUI)"
+    cli
+    tui
+    api
+  end
+
+  subgraph "paypunkd (app daemon)"
+    paypunkd
+    usecase
+    service_api
+    account_store
+    db
+  end
+
+  subgraph "keypunkd (key daemon)"
+    keypunkd
+    key_usecase
+    keystore
+  end
+
+  subgraph "ipc crate"
+    ipc
+  end
+```
 
 ### 1.2 Stack
 
@@ -30,7 +69,7 @@ Rationale: Three-process separation enforces the security boundary — neither t
 
 ```
 paypunk/
-├── wallet-api/           # Public API library (CLI/TUI depend on this)
+├── api/                  # Chain-agnostic public API library (CLI/TUI depend on this)
 │   └── src/
 │       ├── lib.rs        # High-level functions, hides IPC/tactix from consumers
 │       └── ...
@@ -66,7 +105,7 @@ paypunk/
 │   └── src/
 │       ├── screens/      # Full-screen views (dashboard, send, history)
 │       └── widgets/      # Reusable UI components
-├── cli/                  # CLI binary (uses wallet-api)
+├── cli/                  # CLI binary (uses api)
 │   └── src/
 │       ├── commands/     # Subcommand implementations
 │       ├── config/       # Config loading, socket path, endpoints
@@ -147,25 +186,25 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 ## 3. Module Specification
 
-### `wallet-api` crate
+### `api` crate
 
-- **Responsibility**: Public-facing library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, `sync`, etc.) that hide IPC and tactix details from consumers.
+- **Responsibility**: Chain-agnostic public library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, `sync`, etc.) that accept an asset type parameter and dispatch to the appropriate chain backend. Hides IPC, tactix, and chain-specific details from consumers.
 - **Dependencies**: `ipc`
 - **Key interfaces**:
   ```rust
-  // Consumers see only this — no IPC, no actors, no messages.
-  pub fn get_balance() -> Result<Balance>;
-  pub fn get_address() -> Result<Address>;
-  pub fn create_transfer(to: Address, amount: Amount, memo: Option<String>) -> Result<Transfer>;
-  pub fn sync() -> Result<()>;
-  pub fn get_history() -> Result<Vec<Transfer>>;
+  // Consumers see only this — no IPC, no actors, no chain details.
+  pub fn get_balance(asset: Asset) -> Result<Balance>;
+  pub fn get_address(asset: Asset) -> Result<Address>;
+  pub fn create_transfer(asset: Asset, to: Address, amount: Amount, memo: Option<String>) -> Result<Transfer>;
+  pub fn sync(asset: Asset) -> Result<()>;
+  pub fn get_history(asset: Asset) -> Result<Vec<Transfer>>;
   pub fn unlock(password: String) -> Result<()>;
   pub fn lock() -> Result<()>;
   ```
 
 ### `paypunkd` crate
 
-- **Responsibility**: Long-running daemon. Hosts WalletActor, usecase functions, and service orchestration. Receives IPC from `wallet-api`, delegates signing to `keypunkd`.
+- **Responsibility**: Long-running daemon. Hosts WalletActor, usecase functions, and service orchestration. Receives IPC from `api`, delegates signing to `keypunkd`.
 - **Dependencies**: `ipc`, `chains`
 - **Sub-modules**:
 
@@ -236,7 +275,7 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 ### `ipc` crate
 
-- **Responsibility**: Tactix actor that serializes messages over Unix domain sockets. Serves as the communication router between all processes. Both `wallet-api` and daemons use this crate.
+- **Responsibility**: Tactix actor that serializes messages over Unix domain sockets. Serves as the communication router between all processes. Both `api` and daemons use this crate.
 - **Dependencies**: `postcard`, `serde`, `tactix`
 - **Key interfaces**:
   ```rust
@@ -278,14 +317,14 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 ### `cli` crate
 
-- **Responsibility**: CLI binary. Uses `wallet-api` for all operations. No direct IPC or actor knowledge.
-- **Dependencies**: `wallet-api`, `tui`
+- **Responsibility**: CLI binary. Uses `api` for all operations. No direct IPC or actor knowledge.
+- **Dependencies**: `api`, `tui`
 - **Subcommands**: `init`, `balance`, `address`, `send`, `history`, `sync`, `tui`
 
 ### `tui` crate
 
 - **Responsibility**: Ratatui screens and widgets for interactive wallet management.
-- **Dependencies**: `wallet-api`
+- **Dependencies**: `api`
 - **Screens**: Dashboard (balance + recent transfers), Send form, History list, Sync status
 
 ## 4. Critical Logic
@@ -319,9 +358,9 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 ### 4.4 IPC Request Flow
 
 ```
-CLI → wallet-api → ipc (postcard) → paypunkd dispatcher → WalletActor message
+CLI → api → ipc (postcard) → paypunkd dispatcher → WalletActor message
                                                                 → (if sign needed) ipc → keypunkd → KeyActor message
-                                                                → response → wallet-api → CLI
+                                                                → response → api → CLI
 ```
 
 ## 5. API Contracts
@@ -341,8 +380,8 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 - **Validation checkpoint**: can connect two processes over Unix socket, send a message, get a response
 - **Dependencies**: none
 
-### Step 2: wallet-api scaffold
-- **What to implement**: `wallet-api` crate with high-level public API functions. Internally calls `paypunkd` via the `ipc` crate. CLI and TUI depend only on this crate.
+### Step 2: api scaffold
+- **What to implement**: `api` crate with high-level public API functions. Internally calls `paypunkd` via the `ipc` crate. CLI and TUI depend only on this crate.
 - **Validation checkpoint**: `cargo test` passes, API compiles
 - **Dependencies**: Step 1
 
@@ -395,7 +434,7 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 
 ## 8. Error Handling
 
-- **Hierarchy**: Top-level `Error` enum in `wallet-api` with module-specific variants (KeyError, WalletError, IpcError, ZcashError)
+- **Hierarchy**: Top-level `Error` enum in `api` with module-specific variants (KeyError, WalletError, IpcError). Chain-specific errors are handled within their respective crates and surfaced as typed variants.
 - **Propagation**: Actors return `Result<T, Error>` through ReplyTo channels. IPC layer serializes errors as `IpcResponse::Error(String)`.
 - **UI handling**: CLI formats errors as stderr messages. TUI shows error dialogs.
 

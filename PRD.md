@@ -8,8 +8,8 @@ Businesses and individuals want to accept and pay with Zcash (private cryptocurr
 
 Build Paypunk Wallet — a Zcash wallet tool with layered interfaces, targeting all pools (Sapling, Orchard, and transparent):
 
-1. **wallet-api** — Core Rust library providing high-level wallet operations via the ipc crate. Hides actor/IPC details from consumers.
-2. **CLI** — Command-line interface using wallet-api for scripting and automation. Integrates the TUI as a library for interactive use.
+1. **api** — Chain-agnostic Rust library providing high-level wallet operations. Accepts an asset type to dispatch to the appropriate chain backend. Hides IPC, actor, and chain-specific details from consumers.
+2. **CLI** — Command-line interface using api for scripting and automation. Integrates the TUI as a library for interactive use.
 3. **TUI** — Terminal-based user interface (ratatui) for interactive human use. Ships alongside the CLI as a reusable library crate.
 
 The architecture is designed to eventually support a Tauri desktop interface, agent-to-agent commerce flows, and FROST multi-signature workflows where an agent proposes transactions that require human approval.
@@ -52,13 +52,13 @@ Individual privacy-conscious users, including developers and agent operators run
 
 ### Crate Layout
 
-- **`wallet-api`** (library) — Public-facing API. Hides IPC/tactix details. CLI and TUI depend on this.
+- **`api`** (library) — Chain-agnostic public API. Accepts asset type to dispatch to the correct chain backend. Hides IPC/tactix details. CLI and TUI depend on this.
 - **`paypunkd`** (binary) — App daemon. Hosts WalletActor, usecases, service orchestration, chain backend injection.
 - **`keypunkd`** (binary) — Key daemon. Hosts KeyActor. Seed generation, signing, proving. Runs as separate system user.
-- **`ipc`** (library) — Tactix actor router for interprocess communication. Used by wallet-api, paypunkd, and keypunkd.
+- **`ipc`** (library) — Tactix actor router for interprocess communication. Used by api, paypunkd, and keypunkd.
 - **`chains/{zcash,ethereum}`** — Chain-specific implementations. Each implements the `ChainService` trait.
 - **`tui`** (library) — Ratatui screens and widgets. Reusable by future Tauri desktop app.
-- **`cli`** (binary) — Links `wallet-api` and `tui`. Runs in CLI mode (single command) or TUI mode (interactive session).
+- **`cli`** (binary) — Links `api` and `tui`. Runs in CLI mode (single command) or TUI mode (interactive session).
 
 ### Passphrase Input
 
