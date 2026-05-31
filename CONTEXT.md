@@ -41,4 +41,22 @@ _Avoid_: Receipt
 ## Architecture
 
 - Single context repo. No CONTEXT-MAP.md needed.
-- Layers: Wallet API → CLI → TUI → (future) Tauri desktop interface
+- Two-process architecture: `paypunkd` (daemon) and `paypunk` (CLI/TUI)
+- Layers: Wallet API → paypunkd (daemon) → paypunk (CLI/TUI) → (future) Tauri desktop interface
+- IPC: Unix domain socket, serde + bincode, same message types as actor protocol
+
+## Product Layers
+
+**Wallet API**: Core library providing Zcash operations. The foundation everything else is built on.
+
+**paypunkd**: Long-running daemon hosting KeyActor + WalletActor. Exposes IPC over Unix socket. Runs as a separate system user.
+
+**paypunk**: CLI binary. Connects to daemon over Unix socket. Includes TUI mode (ratatui) for interactive use.
+
+**TUI** (future Tauri): Terminal-based user interface, ships inside the CLI binary. Planned migration to Tauri later.
+
+## Data Model
+
+All entity types are chain-agnostic primitives (strings, numbers, enums). No generics or trait objects on the data types. Chain-specific logic lives inside actor implementations.
+
+**Types**: Address(String), Amount(u64), TransferId(String), BlockHeight(u64), Balance { spendable, pending, total }, TransactionStatus { Pending, Confirmed(BlockHeight), Failed(String) }, Transfer { id, from, to, amount, fee, memo, status, created_at }
