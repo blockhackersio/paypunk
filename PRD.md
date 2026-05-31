@@ -8,8 +8,8 @@ Businesses and individuals want to accept and pay with Zcash (private cryptocurr
 
 Build Paypunk Wallet — a Zcash wallet tool with layered interfaces, targeting all pools (Sapling, Orchard, and transparent):
 
-1. **Wallet API** — Core Rust library providing Zcash operations (key derivation, address generation, balance tracking, LSP chain scanning, transfer construction) via a tactix actor model
-2. **CLI** — Command-line interface wrapping the wallet API for scripting and automation. Integrates the TUI as a library for interactive use.
+1. **wallet-api** — Core Rust library providing high-level wallet operations via the ipc crate. Hides actor/IPC details from consumers.
+2. **CLI** — Command-line interface using wallet-api for scripting and automation. Integrates the TUI as a library for interactive use.
 3. **TUI** — Terminal-based user interface (ratatui) for interactive human use. Ships alongside the CLI as a reusable library crate.
 
 The architecture is designed to eventually support a Tauri desktop interface, agent-to-agent commerce flows, and FROST multi-signature workflows where an agent proposes transactions that require human approval.
@@ -46,53 +46,19 @@ Individual privacy-conscious users, including developers and agent operators run
 
 ### Architecture
 
-- **Actor model** — Two tactix actors with typed message protocols, running in-process for v1. Future process separation uses Unix domain sockets with the same message types.
-- **KeyActor** — Holds the decrypted spending key in process-protected memory (mlock). Security boundary — only accepts `Unlock`, `Lock`, `SignTransaction`, and `Prove` messages. Never exposes raw key material.
-- **WalletActor** — Manages non-secret operations: address derivation, LSP sync via `zcash_client_backend`, balance tracking, transfer construction. Owns the SQLite wallet state database. Delegates signing to the KeyActor.
-- **Key isolation** — The KeyActor must never expose raw private keys. It accepts sign/prove requests and returns only results (signatures, protocol proofs).
+- **Three-process model** — `keypunkd` (key daemon), `paypunkd` (app daemon), `paypunk` (CLI/TUI). Process separation from v1 enforces the security boundary — neither the CLI nor the application daemon ever hold key material.
+- **Key isolation** — The KeyActor (in keypunkd) must never expose raw private keys. It accepts sign/prove requests and returns only results (signatures, protocol proofs).
+- **IPC** — A tactix actor wrapping Unix domain sockets with postcard serialization. The message types are the IPC contract — the same protocol regardless of whether actors are in-process or cross-process.
 
 ### Crate Layout
 
-- **`wallet-api`** (library) — Defines actors, message types, and all wallet logic (key derivation, encryption, LSP scanning, address derivation, transfer construction, balance tracking). Uses `zcash_client_backend`, `zcash_client_sqlite`, `zcash_keys`, `zcash_primitives`, `zcash_protocol`, `zcash_proofs`.
+- **`wallet-api`** (library) — Public-facing API. Hides IPC/tactix details. CLI and TUI depend on this.
+- **`paypunkd`** (binary) — App daemon. Hosts WalletActor, usecases, service orchestration, chain backend injection.
+- **`keypunkd`** (binary) — Key daemon. Hosts KeyActor. Seed generation, signing, proving. Runs as separate system user.
+- **`ipc`** (library) — Tactix actor router for interprocess communication. Used by wallet-api, paypunkd, and keypunkd.
+- **`chains/{zcash,ethereum}`** — Chain-specific implementations. Each implements the `ChainService` trait.
 - **`tui`** (library) — Ratatui screens and widgets. Reusable by future Tauri desktop app.
-- **`cli`** (binary) — Links both `wallet-api` and `tui`. Runs in CLI mode (single command) or TUI mode (interactive session).
-
-Future crates: `key-daemon` (binary running KeyActor over socket), `wallet-daemon` (binary running WalletActor over socket) — created when process-split is needed.
-
-### Pool Support
-
-- All pools in v1: Sapling (shielded), Orchard (shielded), and transparent (non-shielded).
-- Default to Orchard for outgoing transactions where possible.
-- Transparent support via `transparent-inputs` feature on `zcash_client_backend`.
-
-### Seed Lifecycle
-
-- **Creation**: 12-word BIP39 mnemonic. User confirms by re-entering words.
-- **Storage**: Encrypted seed in a dedicated file (`seed.enc`) separate from the wallet state SQLite DB. This separation allows wiping and resyncing state without losing the seed. Eventually the seed file is owned by a different system user than the wallet process.
-- **Restore**: User enters 12-word mnemonic + sets a new password. The encrypted seed file is written from scratch.
-- **Unlock**: KeyActor reads the encrypted seed file, decrypts with Argon2id-derived key, derives `UnifiedSpendingKey`, holds it in protected memory for the session.
-
-### Encryption
-
-- Single Argon2id call from user password → one master key → HKDF-split into two sub-keys: one for seed file encryption, one for SQLite wallet state encryption.
-- This avoids paying Argon2id cost twice while keeping the two encryption domains independent.
-
-### LSP Scanning
-
-- **v1 trigger**: Manual `paypunk sync` command + automatic sync on startup. WalletActor resumes from the last-scanned height stored in SQLite.
-- **Endpoints**: Ship with 2-3 public lightwalletd endpoints, round-robin with fallback on failure. Allow override via configuration.
-- **TUI**: Background polling loop added when the TUI ships (long-running process).
-- **Privacy**: Blind LSP scanning — send only diversifier prefixes for block hints, scan candidates locally. View keys never leave the machine.
-
-### Address Derivation
-
-- Hierarchical deterministic (BIP32/44 / ZIP 32) key derivation from seed.
-- Produces a unique shielded receiving address for each new Incoming Payment opportunity.
-- One address per transaction — never reused.
-
-### Transaction Broadcast
-
-- Via the same lightwalletd gRPC connection used for chain scanning.
+- **`cli`** (binary) — Links `wallet-api` and `tui`. Runs in CLI mode (single command) or TUI mode (interactive session).
 
 ### Passphrase Input
 
@@ -104,16 +70,6 @@ Future crates: `key-daemon` (binary running KeyActor over socket), `wallet-daemo
 - LSP endpoint list (with defaults)
 - Secrets file path (for agent mode)
 
-## Testing Decisions
-
-- **Testing philosophy** — Only test external behavior, not internal implementation details. Tests should verify that given certain inputs, the correct outputs are produced across the module boundary.
-- **Modules to test**:
-  - **Key derivation module** (deep) — Seed generation/validation, BIP39 recovery phrase handling, BIP32/44/ZIP 32 path derivation from seed, Argon2id key derivation correctness
-  - **Encryption module** (deep) — Encrypt/decrypt roundtrip for both seed and SQLite storage keys with Argon2id-derived keys, HKDF splitting correctness
-  - **Address derivation module** (deep) — Deterministic address generation: given a seed + path, always produces the same address. Uniqueness across paths. Diversifier prefix extraction correctness.
-  - **Balance tracking module** (deep) — Given a set of known tx outputs and spending proofs, compute correct available balance across all pools
-  - **Transfer construction module** (deep) — Given inputs (source wallet, destination address, amount, memo), produce a valid transaction proposal that the KeyActor can sign. Invalid input rejection (insufficient balance, invalid address, unsupported pool).
-
 ## Out of Scope
 
 - Invoice generation and payment request processing (planned for sister project)
@@ -122,8 +78,3 @@ Future crates: `key-daemon` (binary running KeyActor over socket), `wallet-daemo
 - n8n integration and merchant invoicing tools (separate product)
 - Tauri desktop interface (future migration target)
 - OS keyring integration (post-v1 enhancement)
-- Separate daemon processes (added when agent isolation requirements are concrete)
-
-## Further Notes
-
-The actor model currently runs both KeyActor and WalletActor in-process using tactix mailboxes. The message types between them are the IPC contract — when process separation is needed, each actor gets extracted into its own binary with Unix socket transport, but the message protocol doesn't change. This keeps development velocity high for v1 while preserving the security boundary as an architectural invariant.

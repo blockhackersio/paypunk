@@ -2,33 +2,26 @@
 
 Zcash wallet infrastructure for privacy-preserving commerce on desktop and agentic workflows.
 
-## Product Layers
-
-**Wallet API**: Core library providing Zcash operations. The foundation everything else is built on.
-
-**CLI**: Command-line interface wrapping the wallet API. Minimal, scriptable.
-
-**TUI**: Terminal-based user interface. Replaces CLI for interactive use. Planned migration to Tauri later.
-
 ## Language
 
 **Wallet**:
-A Zcash key manager capable of generating Addresses, checking Balance, building outgoing Transfers, and scanning the chain for incoming funds via LSP. Split into two actors: KeyActor and WalletActor.
+A Zcash key manager capable of generating Addresses, checking Balance, building outgoing Transfers, and scanning the chain for incoming funds via LSP. Split across three processes: KeyActor in keypunkd, WalletActor in paypunkd, IPC routing via the ipc crate.
 _Avoid_: Vault, safe
 
 **KeyActor**:
-An actor (tactix) that holds the decrypted spending key in protected memory. The security boundary — only accepts `Unlock`, `Lock`, `SignTransaction`, and `Prove` messages. Never exposes raw key material.
+An actor (tactix) that holds the decrypted spending key in protected memory. Lives inside `keypunkd`. The security boundary — only accepts `Unlock`, `Lock`, `SignTransaction`, and `Prove` messages. Never exposes raw key material.
 _Avoid_: Key Daemon, signer
 
 **WalletActor**:
-An actor (tactix) managing non-secret operations: address derivation, LSP sync, balance tracking, transfer construction. Owns the SQLite wallet state database. Delegates signing to the KeyActor when a transfer needs finalization.
+An actor (tactix) managing non-secret operations: address derivation, LSP sync, balance tracking, transfer construction. Lives inside `paypunkd`. Owns the SQLite wallet state database. Delegates signing to the KeyActor (in `keypunkd`) via IPC when a transfer needs finalization.
 _Avoid_: Wallet Daemon
 
 **Seed**:
 A 12-word BIP39 mnemonic phrase from which all wallet keys are deterministically derived. Stored at rest in a dedicated file (`seed.enc`), encrypted with an Argon2id-derived key from the user's password. The seed file is eventually owned by a different system user than the wallet process for security compartmentalization.
 
 **Address**:
-A unique receiving address derived for each incoming payment. One address per transaction — never reused.
+A unique receiving address derived for each incoming payment. One address per payment — never reused (post-v1 goal; address reuse is acceptable for initial build).
+_Avoid_: Reuse
 
 **Transfer**:
 An outbound payment from the wallet to a recipient's Zcash Address, including an Amount and an optional Memo. Initiated by the user or an agent acting on their behalf.
@@ -38,25 +31,47 @@ _Avoid_: Transaction (ambiguous with chain-level tx), sending
 Funds received into the wallet detected via LSP chain scanning of the current Address.
 _Avoid_: Receipt
 
+**keypunkd**:
+Long-running daemon hosting the KeyActor. Responsible for key generation, signing, and proving. Runs as a separate system user with restricted access. Only accepts IPC from paypunkd.
+_Avoid_: Key daemon
+
+**paypunkd**:
+Long-running daemon hosting the WalletActor, usecases, and service orchestration. Exposes IPC over Unix socket. Never holds key material — delegates signing to keypunkd.
+_Avoid_: App daemon
+
+**ipc**:
+Library crate providing a tactix actor that serializes/deserializes messages with postcard over Unix domain sockets. The communication router between all processes. wallet-api, paypunkd, and keypunkd all use it.
+_Avoid_: Transport, wire
+
+**wallet-api**:
+Public-facing library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, etc.) and hides IPC/tactix details from consumers. Internally communicates with paypunkd via the ipc crate.
+_Avoid_: SDK
+
+**chains**:
+Directory of chain-specific implementation crates (e.g., `chains/zcash`, `chains/ethereum`). Each implements the `ChainService` trait from paypunkd::services.
+_Avoid_: protocol, adapters
+
 ## Architecture
 
 - Single context repo. No CONTEXT-MAP.md needed.
-- Two-process architecture: `paypunkd` (daemon) and `paypunk` (CLI/TUI)
-- Layers: Wallet API → paypunkd (daemon) → paypunk (CLI/TUI) → (future) Tauri desktop interface
-- IPC: Unix domain socket, serde + bincode, same message types as actor protocol
+- Three-process architecture: `keypunkd` (key daemon), `paypunkd` (app daemon), and `paypunk` (CLI/TUI)
+- Layers: paypunk (CLI/TUI) → wallet-api → ipc → paypunkd → ipc → keypunkd
+- IPC: Unix domain socket, serde + postcard, tactix actor wrapping each connection
 
 ## Product Layers
 
-**Wallet API**: Core library providing Zcash operations. The foundation everything else is built on.
+**wallet-api**: Library providing the public API. Hides IPC and actor details from consumers.
 
-**paypunkd**: Long-running daemon hosting KeyActor + WalletActor. Exposes IPC over Unix socket. Runs as a separate system user.
+**keypunkd**: Key daemon — hosts KeyActor. Seed generation, signing, proving. Runs as a separate system user.
 
-**paypunk**: CLI binary. Connects to daemon over Unix socket. Includes TUI mode (ratatui) for interactive use.
+**paypunkd**: App daemon — hosts WalletActor, usecases, service orchestration, chain backend injection.
+
+**paypunk**: CLI binary. Connects to paypunkd via wallet-api. Includes TUI mode (ratatui) for interactive use.
 
 **TUI** (future Tauri): Terminal-based user interface, ships inside the CLI binary. Planned migration to Tauri later.
 
 ## Data Model
 
-All entity types are chain-agnostic primitives (strings, numbers, enums). No generics or trait objects on the data types. Chain-specific logic lives inside actor implementations.
+All entity types are chain-agnostic primitives (strings, numbers, enums). No generics or trait objects on the data types. Chain-specific logic lives inside chain implementation crates (`chains/zcash`, `chains/ethereum`).
 
 **Types**: Address(String), Amount(u64), TransferId(String), BlockHeight(u64), Balance { spendable, pending, total }, TransactionStatus { Pending, Confirmed(BlockHeight), Failed(String) }, Transfer { id, from, to, amount, fee, memo, status, created_at }

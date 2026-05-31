@@ -4,12 +4,13 @@
 
 ### 1.1 Shape
 
-Two-process architecture from v1:
+Three-process architecture from v1:
 
-- **`paypunkd`** — Long-running daemon hosting KeyActor + WalletActor. Exposes IPC over Unix domain socket.
-- **`paypunk`** — CLI binary. Connects to daemon over Unix socket for all operations. Includes TUI mode (ratatui) for interactive use.
+- **`keypunkd`** — Long-running daemon hosting KeyActor. Responsible for key generation, signing, and proving. Runs as a separate system user with restricted access. Only accepts IPC from `paypunkd`.
+- **`paypunkd`** — Long-running daemon hosting WalletActor, usecases, and service orchestration. Exposes IPC over Unix domain socket. Never holds key material — delegates signing to `keypunkd`.
+- **`paypunk`** — CLI binary. Connects to `paypunkd` over Unix socket for all operations. Includes TUI mode (ratatui) for interactive use. Uses `wallet-api` library which hides IPC details.
 
-Rationale: Process separation from day one enforces the security boundary — the CLI never holds key material. The daemon can run as a different system user. The message protocol between actors doubles as the IPC contract, so future changes (e.g., network transport) don't require protocol changes.
+Rationale: Three-process separation enforces the security boundary — neither the CLI nor the application daemon ever hold key material. Only `keypunkd` does. The IPC tactix actor makes cross-process calls look like local actor messages, so the actor protocol is the same whether in-process or over the wire.
 
 ### 1.2 Stack
 
@@ -17,7 +18,7 @@ Rationale: Process separation from day one enforces the security boundary — th
 |-------|--------|
 | Runtime | Rust (stable), Tokio async runtime |
 | Actor framework | tactix |
-| IPC | Unix domain socket (serde + bincode) |
+| IPC | Unix domain socket (serde + postcard) |
 | Database | SQLite via `zcash_client_sqlite` |
 | gRPC client | lightwalletd via `zcash_client_backend` |
 | TUI | ratatui |
@@ -29,24 +30,45 @@ Rationale: Process separation from day one enforces the security boundary — th
 
 ```
 paypunk/
-├── wallet-api/           # Core library: actors, messages, wallet logic
+├── wallet-api/           # Public API library (CLI/TUI depend on this)
 │   └── src/
-│       ├── actors/       # KeyActor, WalletActor
-│       ├── key/          # Seed generation, derivation, encryption
-│       ├── scanning/     # LSP chain scanning
-│       ├── transfer/     # Transfer construction
-│       └── balance/      # Balance tracking
-├── paypunkd/             # Daemon binary (hosts actors, Unix socket listener)
+│       ├── lib.rs        # High-level functions, hides IPC/tactix from consumers
+│       └── ...
+├── paypunkd/             # Daemon binary: usecases, actors, service orchestration
 │   └── src/
+│       ├── usecases/     # Business logic functions
+│       ├── actors/       # WalletActor
+│       ├── services/     # Service trait definitions, chain injection
 │       ├── server/       # Unix socket listener, request dispatch
 │       └── main.rs
+├── keypunkd/             # Daemon binary: key generation, signing, proving
+│   └── src/
+│       ├── actors/       # KeyActor
+│       ├── key/          # Seed generation, derivation, encryption
+│       ├── server/       # Unix socket listener
+│       └── main.rs
+├── ipc/                  # Tactix actor router for interprocess comms (library)
+│   └── src/
+│       ├── router.rs     # IPC actor that serializes/deserializes messages
+│       ├── client.rs     # Client connection stub
+│       ├── server.rs     # Server connection handler
+│       └── messages.rs   # Shared message types (IpcRequest, IpcResponse)
+├── chains/               # Chain-specific implementations
+│   ├── zcash/            # Zcash: address derivation, LSP scanning, transfer construction
+│   │   └── src/
+│   │       ├── address.rs
+│   │       ├── scanning.rs
+│   │       ├── transfer.rs
+│   │       └── balance.rs
+│   └── ethereum/         # Ethereum: TBD
+│       └── src/
 ├── tui/                  # Ratatui screens and widgets (library crate)
 │   └── src/
 │       ├── screens/      # Full-screen views (dashboard, send, history)
 │       └── widgets/      # Reusable UI components
-├── cli/                  # CLI binary (connects to daemon, includes TUI mode)
+├── cli/                  # CLI binary (uses wallet-api)
 │   └── src/
-│       ├── commands/     # Subcommand implementations (IPC client calls)
+│       ├── commands/     # Subcommand implementations
 │       ├── config/       # Config loading, socket path, endpoints
 │       └── main.rs
 └── tests/                # Integration tests
@@ -120,68 +142,105 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 ### 2.5 Domain Invariants
 - **INV-01**: A Transfer amount + fee must never exceed the spendable balance at construction time.
-- **INV-02**: Addresses must never be reused for different Incoming Payments.
+- **INV-02**: Addresses must never be reused for different Incoming Payments. *(Deferred to post-v1 — single-use addresses are the long-term goal, but address reuse is acceptable for the initial build.)*
 - **INV-03**: The KeyActor must never expose raw key material — only signed/proved outputs.
 
 ## 3. Module Specification
 
 ### `wallet-api` crate
 
-#### `types`
-- **Responsibility**: Uniform chain-agnostic data types
-- **Dependencies**: none
+- **Responsibility**: Public-facing library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, `sync`, etc.) that hide IPC and tactix details from consumers.
+- **Dependencies**: `ipc`
 - **Key interfaces**:
   ```rust
-  struct Address(String);
-  struct Amount(u64);
-  struct TransferId(String);
-  struct BlockHeight(u64);
-  struct Balance { spendable: Amount, pending: Amount, total: Amount }
-  enum TransactionStatus { Pending, Confirmed(BlockHeight), Failed(String) }
-  struct Transfer { id: TransferId, from: Address, to: Address, amount: Amount, fee: Amount, memo: Option<String>, status: TransactionStatus, created_at: OffsetDateTime }
+  // Consumers see only this — no IPC, no actors, no messages.
+  pub fn get_balance() -> Result<Balance>;
+  pub fn get_address() -> Result<Address>;
+  pub fn create_transfer(to: Address, amount: Amount, memo: Option<String>) -> Result<Transfer>;
+  pub fn sync() -> Result<()>;
+  pub fn get_history() -> Result<Vec<Transfer>>;
+  pub fn unlock(password: String) -> Result<()>;
+  pub fn lock() -> Result<()>;
   ```
 
-#### `key`
-- **Responsibility**: Seed generation, BIP39 mnemonic, Argon2id encryption/decryption, HKDF key splitting
-- **Dependencies**: `types`
+### `paypunkd` crate
+
+- **Responsibility**: Long-running daemon. Hosts WalletActor, usecase functions, and service orchestration. Receives IPC from `wallet-api`, delegates signing to `keypunkd`.
+- **Dependencies**: `ipc`, `chains`
+- **Sub-modules**:
+
+  #### `usecases`
+  - **Responsibility**: Business logic functions that orchestrate service calls
+  - **Key interfaces**:
+    ```rust
+    fn handle_get_balance(services: &ServiceApi) -> Result<Balance>;
+    fn handle_get_address(services: &ServiceApi) -> Result<Address>;
+    fn handle_create_transfer(services: &ServiceApi, to: Address, amount: Amount, memo: Option<String>) -> Result<Transfer>;
+    fn handle_sync(services: &ServiceApi) -> Result<()>;
+    ```
+
+  #### `actors`
+  - **Responsibility**: WalletActor definition, message types
+  - **Dependencies**: `types`, `ipc`
+  - **Key interfaces**:
+    ```rust
+    enum WalletActorMessage {
+        GetBalance { resp: ReplyTo<Balance> },
+        GetAddress { resp: ReplyTo<Address> },
+        CreateTransfer { to: Address, amount: Amount, memo: Option<String>, resp: ReplyTo<Transfer> },
+        Sync { resp: ReplyTo<()> },
+        GetHistory { resp: ReplyTo<Vec<Transfer>> },
+    }
+    ```
+
+  #### `services`
+  - **Responsibility**: Service trait definitions and chain-specific injection. Abstracts chain backend so usecases are chain-agnostic.
+  - **Key interfaces**:
+    ```rust
+    trait ChainService {
+        fn derive_address(&self) -> Result<Address>;
+        fn scan_blocks(&self, from: BlockHeight) -> Result<ScanResult>;
+        fn build_transfer(&self, to: Address, amount: Amount, memo: Option<String>) -> Result<Proposal>;
+        fn get_balance(&self) -> Result<Balance>;
+    }
+    ```
+
+### `keypunkd` crate
+
+- **Responsibility**: Long-running daemon. Hosts KeyActor. Only accepts IPC from `paypunkd`. Never exposes raw key material.
+- **Dependencies**: `ipc`
+- **Sub-modules**:
+
+  #### `actors`
+  - **Responsibility**: KeyActor definition, message types
+  - **Key interfaces**:
+    ```rust
+    enum KeyActorMessage {
+        Unlock { password: String },
+        Lock,
+        SignTransaction { proposal: Vec<u8> },
+        Prove { proposal: Vec<u8> },
+    }
+    ```
+
+  #### `key`
+  - **Responsibility**: Seed generation, BIP39 mnemonic, Argon2id encryption/decryption, HKDF key splitting, ZIP 32 derivation
+  - **Dependencies**: none (pure functions)
+  - **Key interfaces**:
+    ```rust
+    fn generate_seed() -> Seed;
+    fn encrypt_seed(seed: &Seed, password: &str) -> EncryptedSeed;
+    fn decrypt_seed(encrypted: &EncryptedSeed, password: &str) -> Result<Seed>;
+    fn derive_key(password: &str) -> (StorageKey, SeedKey);
+    ```
+
+### `ipc` crate
+
+- **Responsibility**: Tactix actor that serializes messages over Unix domain sockets. Serves as the communication router between all processes. Both `wallet-api` and daemons use this crate.
+- **Dependencies**: `postcard`, `serde`, `tactix`
 - **Key interfaces**:
   ```rust
-  fn generate_seed() -> Seed;
-  fn encrypt_seed(seed: &Seed, password: &str) -> EncryptedSeed;
-  fn decrypt_seed(encrypted: &EncryptedSeed, password: &str) -> Result<Seed>;
-  fn derive_key(password: &str) -> (StorageKey, SeedKey); // HKDF split
-  ```
-
-#### `actors`
-- **Responsibility**: KeyActor and WalletActor definitions, message types, actor protocol
-- **Dependencies**: `types`, `key`
-- **Key interfaces**:
-  ```rust
-  enum KeyActorMessage {
-      Unlock { password: String },
-      Lock,
-      SignTransaction { proposal: Vec<u8> },
-      Prove { proposal: Vec<u8> },
-  }
-  enum WalletActorMessage {
-      GetBalance { resp: ReplyTo<Balance> },
-      GetAddress { resp: ReplyTo<Address> },
-      CreateTransfer { to: Address, amount: Amount, memo: Option<String>, resp: ReplyTo<Transfer> },
-      Sync { resp: ReplyTo<()> },
-      GetHistory { resp: ReplyTo<Vec<Transfer>> },
-  }
-  ```
-
-#### `zcash`
-- **Responsibility**: Zcash-specific logic — address derivation via ZIP 32, LSP chain scanning via `zcash_client_backend`, transfer construction, balance computation
-- **Dependencies**: `types`, `actors`
-- **Critical logic**: Wraps `zcash_client_sqlite` traits (`WalletRead`/`WalletWrite`/`InputSource`), manages lightwalletd gRPC connection, orchestrates scan → decrypt → witness → build → sign → broadcast pipeline
-
-#### `ipc`
-- **Responsibility**: Unix socket protocol — request/response serialization, client connection stub, server connection handler
-- **Dependencies**: `types`, `actors`
-- **Key interfaces**:
-  ```rust
+  // Shared message types — the IPC contract
   enum IpcRequest {
       GetBalance,
       GetAddress,
@@ -200,20 +259,32 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
       Ok,
       Error(String),
   }
+
+  // IPC actor — wraps a Unix socket connection as a tactix actor
+  struct IpcActor { /* serializes/deserializes, routes messages */ }
   ```
 
-### `paypunkd` crate
-- **Responsibility**: Long-running daemon. Initializes SQLite, spawns KeyActor + WalletActor, listens on Unix socket, dispatches IPC requests to actors
-- **Dependencies**: `wallet-api`
-- **Startup sequence**: Load config → init SQLite → spawn actors → bind Unix socket → accept loop
+### `chains/zcash` crate
+
+- **Responsibility**: Zcash-specific logic — address derivation via ZIP 32, LSP chain scanning via `zcash_client_backend`, transfer construction, balance computation, lightwalletd gRPC connection.
+- **Dependencies**: `ipc` (for types)
+- **Critical logic**: Wraps `zcash_client_sqlite` traits (`WalletRead`/`WalletWrite`/`InputSource`), orchestrates scan → decrypt → witness → build → sign → broadcast pipeline. Implements `ChainService` trait from `paypunkd::services`.
+
+### `chains/ethereum` crate
+
+- **Responsibility**: Ethereum-specific logic. TBD.
+- **Dependencies**: `ipc` (for types)
+- **Status**: Scaffold only for v1. Implements `ChainService` trait.
 
 ### `cli` crate
-- **Responsibility**: CLI binary. Connects to daemon Unix socket, sends IPC requests, formats output. Includes TUI mode.
+
+- **Responsibility**: CLI binary. Uses `wallet-api` for all operations. No direct IPC or actor knowledge.
 - **Dependencies**: `wallet-api`, `tui`
 - **Subcommands**: `init`, `balance`, `address`, `send`, `history`, `sync`, `tui`
 
 ### `tui` crate
-- **Responsibility**: Ratatui screens and widgets for interactive wallet management
+
+- **Responsibility**: Ratatui screens and widgets for interactive wallet management.
 - **Dependencies**: `wallet-api`
 - **Screens**: Dashboard (balance + recent transfers), Send form, History list, Sync status
 
@@ -221,10 +292,10 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 ### 4.1 Concurrency Model
 
-- **KeyActor**: Sequential message processing (tactix mailbox). Single point for signing — serializes all `SignTransaction` and `Prove` requests. Never exposes raw key material.
-- **WalletActor**: Sequential message processing. Serializes SQLite access (handled by `zcash_client_sqlite` writer lock). Orchestrates scanning, balance tracking, transfer construction.
-- **IPC server**: Accepts connections in a loop, spawns a lightweight async handler per connection. Each handler sends actor messages and awaits responses.
-- **No shared mutable state** between actors — communication is message-passing only. No locks needed beyond SQLite's internal write lock.
+- **KeyActor (keypunkd)**: Sequential message processing (tactix mailbox). Single point for signing — serializes all `SignTransaction` and `Prove` requests. Never exposes raw key material.
+- **WalletActor (paypunkd)**: Sequential message processing. Serializes SQLite access (handled by `zcash_client_sqlite` writer lock). Orchestrates scanning, balance tracking, transfer construction. Delegates signing to `keypunkd` via IPC.
+- **IPC actor (ipc crate)**: Tactix actor wrapping each Unix socket connection. Serializes/deserializes messages with postcard. Routes requests to the appropriate daemon.
+- **No shared mutable state** between processes — communication is message-passing over Unix sockets. No locks needed beyond SQLite's internal write lock.
 
 ### 4.2 Scan Pipeline (WalletActor)
 
@@ -248,9 +319,9 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 ### 4.4 IPC Request Flow
 
 ```
-CLI → Unix socket → IpcRequest → daemon dispatcher → WalletActor message
-                                                      → (if sign needed) KeyActor message
-                                                      → response → CLI
+CLI → wallet-api → ipc (postcard) → paypunkd dispatcher → WalletActor message
+                                                                → (if sign needed) ipc → keypunkd → KeyActor message
+                                                                → response → wallet-api → CLI
 ```
 
 ## 5. API Contracts
@@ -265,46 +336,53 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 
 ## 6. Build Sequence
 
-### Step 1: Core types + key module
-- **What to implement**: `wallet-api` crate scaffold, `types` module (Address, Amount, Balance, Transfer, TransactionStatus), `key` module (seed generation, BIP39 mnemonic, Argon2id encrypt/decrypt, HKDF split)
-- **Validation checkpoint**: `cargo test` passes, seed encrypt/decrypt roundtrip works
+### Step 1: Core types + IPC tactix protocol
+- **What to implement**: `ipc` crate scaffold with shared message types (IpcRequest, IpcResponse, Address, Amount, Balance, Transfer, TransactionStatus). Tactix IPC actor that serializes/deserializes messages with postcard over Unix sockets. Client connection stub and server connection handler.
+- **Validation checkpoint**: can connect two processes over Unix socket, send a message, get a response
 - **Dependencies**: none
 
-### Step 2: Actors + IPC protocol
-- **What to implement**: `actors` module (KeyActorMessage, WalletActorMessage enums, ReplyTo pattern), `ipc` module (IpcRequest, IpcResponse, Unix socket client connection stub, server connection handler)
-- **Validation checkpoint**: can connect to daemon, send a message, get a response
+### Step 2: wallet-api scaffold
+- **What to implement**: `wallet-api` crate with high-level public API functions. Internally calls `paypunkd` via the `ipc` crate. CLI and TUI depend only on this crate.
+- **Validation checkpoint**: `cargo test` passes, API compiles
 - **Dependencies**: Step 1
 
-### Step 3: paypunkd daemon
-- **What to implement**: `paypunkd` crate, Unix socket listener, actor spawning and wiring, request dispatch loop, config loading (data dir, socket path, LSP endpoints)
-- **Validation checkpoint**: daemon starts, accepts connections, responds to IPC requests
-- **Dependencies**: Step 2
+### Step 3: keypunkd daemon
+- **What to implement**: `keypunkd` crate. KeyActor, key module (seed generation, BIP39, Argon2id encrypt/decrypt, HKDF split, ZIP 32 derivation). Unix socket listener, IPC dispatch.
+- **Validation checkpoint**: daemon starts, accepts IPC, responds to Unlock/Lock/Sign
+- **Dependencies**: Step 1
 
-### Step 4: Zcash integration
-- **What to implement**: `zcash` module wrapping `zcash_client_backend`/`zcash_client_sqlite`, address derivation via ZIP 32, LSP chain scanning, transfer construction, balance computation, WalletActor wired to real Zcash operations
+### Step 4: paypunkd daemon — usecases + services
+- **What to implement**: `paypunkd` crate. Usecase functions (handle_get_balance, handle_create_transfer, etc.), service trait definitions (ChainService), WalletActor, service locator/injection for chain backends. Unix socket listener.
+- **Validation checkpoint**: daemon starts, accepts IPC, routes requests to WalletActor and keypunkd
+- **Dependencies**: Step 1, Step 3
+
+### Step 5: chains/zcash integration
+- **What to implement**: `chains/zcash` crate wrapping `zcash_client_backend`/`zcash_client_sqlite`. Implements ChainService trait. Address derivation via ZIP 32, LSP chain scanning, transfer construction, balance computation.
 - **Validation checkpoint**: can sync with Zcash testnet, get balance, create a transfer
-- **Dependencies**: Step 1, Step 2
+- **Dependencies**: Step 4
 
-### Step 5: CLI commands
+### Step 6: CLI commands
 - **What to implement**: `cli` crate with clap subcommands: `init`, `balance`, `address`, `send`, `history`, `sync`, `tui`; password input modes (interactive prompt, env var, secrets file)
-- **Validation checkpoint**: each command works end-to-end against a running daemon
-- **Dependencies**: Step 3, Step 4
+- **Validation checkpoint**: each command works end-to-end against running paypunkd + keypunkd
+- **Dependencies**: Step 2, Step 5
 
-### Step 6: TUI
+### Step 7: TUI
 - **What to implement**: `tui` crate with ratatui screens (Dashboard with balance + recent transfers, Send form, History list, Sync status indicator); background polling loop for wallet updates
 - **Validation checkpoint**: interactive wallet management works in terminal
-- **Dependencies**: Step 5
+- **Dependencies**: Step 6
 
-### Step 7: Polish
+### Step 8: Polish
 - **What to implement**: Error handling refinement, structured logging (tracing), config file, documentation, integration tests
 - **Validation checkpoint**: manual QA pass across all commands
-- **Dependencies**: Step 6
+- **Dependencies**: Step 7
 
 ### Deferred (post-v1)
 - Tauri desktop app
 - Multi-account support
 - FROST multi-signature / agent approval workflows
 - OS keyring integration
+- chains/ethereum implementation
+- Address reuse policy enforcement (INV-02)
 - Agent-to-agent commerce flows
 - n8n integration and merchant invoicing tools (sister project)
 
@@ -346,3 +424,6 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 - How to handle proving parameters? Download on first use or bundle?
 - Single account or configurable account count for v1?
 - Exact lightwalletd endpoints to ship as defaults?
+- How should domain entities (Address, Amount, Transfer) be extended for Ethereum? Same types with different validation, or chain-specific subtypes?
+- What's the Ethereum equivalent of LSP scanning? (e.g., RPC polling, WebSocket subscriptions, The Graph?)
+- How does the `ChainService` trait need to differ between UTXO (Zcash) and account-based (Ethereum) models?
