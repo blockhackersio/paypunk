@@ -1,6 +1,8 @@
 use paypunk_ipc::IpcMessage;
 use tactix::{Recipient, Sender};
 
+use crate::messages::{PaypunkdRequest, PaypunkdResponse};
+
 pub struct PaypunkService {
     recipient: Recipient<IpcMessage>,
 }
@@ -11,19 +13,16 @@ impl PaypunkService {
     }
 
     pub async fn get_keypunk_public_key(&self) -> Result<[u8; 32], String> {
-        let request = crate::messages::PaypunkdRequest::GetKeypunkPublicKey;
+        let request = PaypunkdRequest::GetKeypunkPublicKey;
         let payload =
             postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
-        let msg = IpcMessage {
-            payload,
-            sender_public_key: None,
-        };
+        let msg = IpcMessage::new(payload);
         let response_bytes = self.recipient.ask(msg).await?;
-        let response: crate::messages::PaypunkdResponse =
+        let response: PaypunkdResponse =
             postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
         match response {
-            crate::messages::PaypunkdResponse::KeypunkPublicKey { key } => Ok(key),
-            crate::messages::PaypunkdResponse::Error { message } => Err(message),
+            PaypunkdResponse::KeypunkPublicKey { key } => Ok(key),
+            PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }
     }
@@ -33,24 +32,19 @@ impl PaypunkService {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     ) -> Result<Vec<u8>, String> {
-        let request = crate::messages::PaypunkdRequest::GenerateSeed {
+        let request = PaypunkdRequest::GenerateSeed {
             encrypted_password,
             client_public_key,
         };
         let payload =
             postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
-        let msg = IpcMessage {
-            payload,
-            sender_public_key: None,
-        };
+        let msg = IpcMessage::new(payload);
         let response_bytes = self.recipient.ask(msg).await?;
-        let response: crate::messages::PaypunkdResponse =
+        let response: PaypunkdResponse =
             postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
         match response {
-            crate::messages::PaypunkdResponse::SeedGenerated { encrypted_mnemonic } => {
-                Ok(encrypted_mnemonic)
-            }
-            crate::messages::PaypunkdResponse::Error { message } => Err(message),
+            PaypunkdResponse::SeedGenerated { encrypted_mnemonic } => Ok(encrypted_mnemonic),
+            PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }
     }

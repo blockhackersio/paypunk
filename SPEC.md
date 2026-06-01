@@ -56,13 +56,14 @@ graph TD
 |-------|--------|
 | Runtime | Rust (stable), Tokio async runtime |
 | Actor framework | tactix |
-| IPC | Unix domain socket (serde + postcard) |
-| Database | SQLite via `zcash_client_sqlite` |
-| gRPC client | lightwalletd via `zcash_client_backend` |
-| TUI | ratatui |
+| IPC | Unix domain socket (serde + postcard), X25519 per-message HMAC auth |
+| Database | SQLite via `zcash_client_sqlite` (planned) |
+| gRPC client | lightwalletd via `zcash_client_backend` (planned) |
+| TUI | ratatui (planned) |
 | CLI args | clap |
-| Encryption | Argon2id + AES-256-GCM |
-| Key derivation | BIP39 (12-word mnemonic), BIP32/44 / ZIP 32 |
+| Encryption | Argon2id + AES-256-GCM (seed), X25519 + AES-256-GCM (wire) |
+| Key derivation | BIP39 (12-word mnemonic) |
+| Logging | tracing + tracing-subscriber (env-filter) |
 
 ### 1.3 Repository Structure
 
@@ -73,49 +74,45 @@ paypunk/
 │       └── lib.rs        # Address, Amount, Balance, Transfer, etc.
 ├── api/                  # Chain-agnostic public API library (CLI/TUI depend on this)
 │   └── src/
-│       ├── lib.rs        # High-level functions, hides IPC/tactix from consumers
-│       └── ...
+│       ├── lib.rs        # Re-exports Client, functions
+│       ├── client.rs     # Client: connects to paypunkd, wraps PaypunkService
+│       └── functions.rs  # High-level functions (generate_seed)
 ├── paypunkd/             # Daemon binary: usecases, actors, service orchestration
 │   └── src/
-│       ├── usecases/     # Business logic functions
-│       ├── actors/       # WalletActor
-│       ├── services/     # Service trait definitions, chain injection
-│       ├── server/       # Unix socket listener, request dispatch
-│       └── main.rs
+│       ├── lib.rs        # Crate root, re-exports modules
+│       ├── main.rs       # CLI entry point, daemon bootstrap
+│       ├── messages.rs   # PaypunkdRequest, PaypunkdResponse types
+│       ├── dispatcher.rs # Tactix actor: deserialize → forward to keypunkd → serialize
+│       ├── services.rs   # PaypunkService wrapping Recipient<IpcMessage>
+│       └── usecases.rs   # Business logic: get_keypunk_public_key, generate_seed
 ├── keypunkd/             # Daemon binary: key generation, signing, proving
 │   └── src/
 │       ├── lib.rs        # Crate root, re-exports public modules
 │       ├── main.rs       # CLI entry point, daemon bootstrap
 │       ├── messages.rs   # KeypunkdRequest, KeypunkdResponse types
-│       ├── dispatcher.rs # Tactix actor: deserialize → dispatch → serialize
+│       ├── dispatcher.rs # Tactix actor: deserialize → dispatch → serialize, session mgmt
 │       ├── key.rs        # Seed generation, BIP39, Argon2id encrypt/decrypt
-│       ├── crypto.rs     # X25519 KeyStore + CryptoSession for encrypted IPC
+│       ├── crypto.rs     # X25519 Keypair for encrypted IPC exchange
+│       ├── services.rs   # KeypunkService wrapping Recipient<IpcMessage>
+│       ├── usecases.rs   # Business logic: generate_seed (decrypt → gen → encrypt → persist)
+│       ├── errors.rs     # GenerateError enum
 │       └── seed_store.rs # SeedStore trait, FilesystemSeedStore, InMemorySeedStore
 ├── ipc/                  # Tactix actor sender for interprocess comms (library)
 │   └── src/
-│       ├── lib.rs        # Crate root, re-exports IpcMessage, IpcSender, IpcReceiver
-│       ├── sender.rs     # IpcSender: tactix actor wrapping a UnixStream (connect + send/recv)
+│       ├── lib.rs        # Crate root, re-exports IpcMessage, IpcSender, IpcReceiver, IpcError
+│       ├── transport.rs  # UnixSocketTransport: framed read/write over UnixStream
+│       ├── sender.rs     # IpcSender: tactix actor wrapping a transport (connect + send/recv)
 │       ├── receiver.rs   # IpcReceiver: Unix socket listener, dispatches to handler actor
-│       └── messages.rs   # IpcMessage type (tactix Message wrapping Vec<u8>), wire protocol type bytes
-├── chains/               # Chain-specific implementations
-│   ├── zcash/            # Zcash: address derivation, LSP scanning, transfer construction
-│   │   └── src/
-│   │       ├── address.rs
-│   │       ├── scanning.rs
-│   │       ├── transfer.rs
-│   │       └── balance.rs
-│   └── ethereum/         # Ethereum: TBD
-│       └── src/
-├── tui/                  # Ratatui screens and widgets (library crate)
-│   └── src/
-│       ├── screens/      # Full-screen views (dashboard, send, history)
-│       └── widgets/      # Reusable UI components
+│       └── messages.rs   # IpcMessage type (tactix Message), wire protocol type bytes
 ├── cli/                  # CLI binary (uses api)
 │   └── src/
-│       ├── commands/     # Subcommand implementations
-│       ├── config/       # Config loading, socket path, endpoints
-│       └── main.rs
-└── tests/                # Integration tests
+│       └── main.rs       # Subcommand: generate-seed
+├── tests/                # Integration tests (future)
+├── adr/                  # Architecture Decision Records
+│   └── 001-ipc-auth-model.md
+├── PRD.md
+├── SPEC.md
+└── CONTEXT.md
 ```
 
 ### 1.4 Daemon Lifecycle
@@ -201,66 +198,59 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 ### `api` crate
 
-- **Responsibility**: Chain-agnostic public library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, `sync`, etc.) that accept an asset type parameter and dispatch to the appropriate chain backend. Hides IPC, tactix, and chain-specific details from consumers.
-- **Dependencies**: `ipc`
+- **Responsibility**: Chain-agnostic public library that CLI and TUI depend on. Provides high-level functions (`generate_seed`, etc.) that accept an asset type parameter and dispatch to the appropriate chain backend. Hides IPC, tactix, and chain-specific details from consumers.
+- **Dependencies**: `paypunkd`, `keypunkd`, `paypunk-ipc`, `tactix`, `zeroize`
 - **Key interfaces**:
   ```rust
-  // Consumers see only this — no IPC, no actors, no chain details.
-  pub fn get_balance(asset: Asset) -> Result<Balance>;
-  pub fn get_address(asset: Asset) -> Result<Address>;
-  pub fn create_transfer(asset: Asset, to: Address, amount: Amount, memo: Option<String>) -> Result<Transfer>;
-  pub fn sync(asset: Asset) -> Result<()>;
-  pub fn get_history(asset: Asset) -> Result<Vec<Transfer>>;
-  pub fn unlock(password: String) -> Result<()>;
-  pub fn lock() -> Result<()>;
+  pub struct Client { service: PaypunkService }
+  impl Client {
+      pub async fn connect(socket_path: &str) -> Result<Self, String>;
+      pub async fn generate_seed(&self, password: Zeroizing<String>) -> Result<Zeroizing<String>, String>;
+  }
   ```
 
 ### `paypunkd` crate
 
-- **Responsibility**: Long-running daemon. Hosts WalletActor, usecase functions, and service orchestration. Receives IPC from `api`, delegates signing to `keypunkd`.
-- **Dependencies**: `ipc`, `chains`
+- **Responsibility**: Long-running daemon. Hosts dispatcher actor, usecase functions, and service orchestration. Receives IPC from `api`, delegates signing/key operations to `keypunkd`.
+- **Dependencies**: `paypunk-ipc`, `keypunkd`, `tactix`, `tokio`, `serde`/`postcard`, `clap`, `thiserror`, `tracing`, `tracing-subscriber`
 - **Sub-modules**:
+
+  #### `messages`
+  - **Responsibility**: Request/response types serialized over IPC
+  - **Key interfaces**:
+    ```rust
+    #[derive(Serialize, Deserialize)]
+    enum PaypunkdRequest {
+        GetKeypunkPublicKey,
+        GenerateSeed { encrypted_password: Vec<u8>, client_public_key: [u8; 32] },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum PaypunkdResponse {
+        KeypunkPublicKey { key: [u8; 32] },
+        SeedGenerated { encrypted_mnemonic: Vec<u8> },
+        Error { message: String },
+    }
+    ```
+
+  #### `dispatcher`
+  - **Responsibility**: Tactix actor receiving IPC messages, deserializing requests, forwarding to keypunkd via `KeypunkService`, serializing responses
+
+  #### `services`
+  - **Responsibility**: `PaypunkService` wrapping a `Recipient<IpcMessage>` for IPC calls to keypunkd
 
   #### `usecases`
   - **Responsibility**: Business logic functions that orchestrate service calls
   - **Key interfaces**:
     ```rust
-    fn handle_get_balance(services: &ServiceApi) -> Result<Balance>;
-    fn handle_get_address(services: &ServiceApi) -> Result<Address>;
-    fn handle_create_transfer(services: &ServiceApi, to: Address, amount: Amount, memo: Option<String>) -> Result<Transfer>;
-    fn handle_sync(services: &ServiceApi) -> Result<()>;
-    ```
-
-  #### `actors`
-  - **Responsibility**: WalletActor definition, message types
-  - **Dependencies**: `types`, `ipc`
-  - **Key interfaces**:
-    ```rust
-    enum WalletActorMessage {
-        GetBalance { resp: ReplyTo<Balance> },
-        GetAddress { resp: ReplyTo<Address> },
-        CreateTransfer { to: Address, amount: Amount, memo: Option<String>, resp: ReplyTo<Transfer> },
-        Sync { resp: ReplyTo<()> },
-        GetHistory { resp: ReplyTo<Vec<Transfer>> },
-    }
-    ```
-
-  #### `services`
-  - **Responsibility**: Service trait definitions and chain-specific injection. Abstracts chain backend so usecases are chain-agnostic.
-  - **Key interfaces**:
-    ```rust
-    trait ChainService {
-        fn derive_address(&self) -> Result<Address>;
-        fn scan_blocks(&self, from: BlockHeight) -> Result<ScanResult>;
-        fn build_transfer(&self, to: Address, amount: Amount, memo: Option<String>) -> Result<Proposal>;
-        fn get_balance(&self) -> Result<Balance>;
-    }
+    pub async fn get_keypunk_public_key(service: &KeypunkService) -> Result<[u8; 32], String>;
+    pub async fn generate_seed(service: &KeypunkService, encrypted_password: Vec<u8>, client_public_key: [u8; 32]) -> Result<Vec<u8>, String>;
     ```
 
 ### `keypunkd` crate
 
 - **Responsibility**: Long-running daemon. Hosts the dispatcher actor for key operations. Only accepts IPC from `paypunkd`. Never exposes raw key material.
-- **Dependencies**: `ipc`, `tactix`, `tokio`, `serde`/`postcard`, `bip39`, `argon2`, `aes-gcm`, `x25519-dalek`, `blake2`, `rand`, `clap`, `thiserror`
+- **Dependencies**: `paypunk-ipc`, `tactix`, `tokio`, `serde`/`postcard`, `bip39`, `argon2`, `aes-gcm`, `x25519-dalek`, `blake2`, `rand`, `clap`, `thiserror`, `zeroize`, `tracing`, `tracing-subscriber`
 - **Sub-modules**:
 
   #### `messages`
@@ -297,23 +287,16 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
     ```
 
   #### `crypto`
-  - **Responsibility**: X25519 key exchange and AES-256-GCM encryption for IPC message confidentiality
+  - **Responsibility**: X25519 keypair for encrypted IPC exchange. Used by both the server (keypunkd) and client (api/paypunkd) to encrypt/decrypt secrets over the wire.
   - **Key interfaces**:
     ```rust
-    struct KeyStore { /* long-lived server X25519 keypair */ }
-    impl KeyStore {
+    struct Keypair { /* X25519 secret + public */ }
+    impl Keypair {
         fn new() -> Self;
         fn public_key(&self) -> [u8; 32];
-        fn decrypt_password(&self, encrypted: &[u8], client_pk: &[u8; 32]) -> Result<String>;
-        fn encrypt_mnemonic(&self, mnemonic: &str, client_pk: &[u8; 32]) -> Result<Vec<u8>>;
-    }
-
-    struct CryptoSession { /* ephemeral client X25519 keypair */ }
-    impl CryptoSession {
-        fn new() -> Self;
-        fn public_key(&self) -> [u8; 32];
-        fn seal_password(&self, password: &str, server_pk: &[u8; 32]) -> Result<Vec<u8>>;
-        fn open_mnemonic(&self, encrypted: &[u8], server_pk: &[u8; 32]) -> Result<String>;
+        fn keypair(&self) -> ([u8; 32], [u8; 32]);     // (secret, public)
+        fn encrypt<T: Zeroize + AsRef<[u8]>>(&self, secret_message: Zeroizing<T>, peer_pk: &[u8; 32]) -> Vec<u8>;
+        fn decrypt(&self, encrypted: &[u8], peer_pk: &[u8; 32]) -> Result<Zeroizing<String>, CryptoError>;
     }
     ```
 
@@ -330,34 +313,60 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
     ```
 
   #### `dispatcher`
-  - **Responsibility**: Tactix actor receiving IPC messages, deserializing requests, dispatching to key/crypto/seed_store modules
+  - **Responsibility**: Tactix actor receiving IPC messages, deserializing requests, dispatching to key/crypto/seed_store modules. Verifies sender authentication — rejects in-process messages (`sender_public_key` is `None`) unless `skip_session_auth` is enabled (for tests).
   - **Generic over**: `S: Storage` (any SeedStore implementation)
+  - **Key behavior**:
+    ```rust
+    struct Dispatcher<S: Storage> {
+        keystore: Keypair,
+        seed_store: S,
+        session: Option<[u8; 32]>,
+        skip_session_auth: bool,
+    }
+    ```
+    - `verify_message`: Rejects messages where `sender_public_key` is `None` (in-process) unless `skip_session_auth` is set.
+    - `set_session`: On successful password-authenticated requests, records the sender's public key.
 
 ### `ipc` crate
 
 - **Responsibility**: Tactix actor that sends/receives raw bytes over Unix domain sockets. Serves as the transport layer between all processes. Both `api` and daemons use this crate. The `IpcSender` implements the same tactix `Handler<IpcMessage>` trait as any in-process actor, making cross-process calls referentially transparent with local ones. Includes built-in X25519-based per-message authentication (see ADR-001).
-- **Dependencies**: `tactix`, `tokio` (net + io-util), `thiserror`, `bytes`, `x25519-dalek`, `blake2`, `rand`
+- **Dependencies**: `tactix`, `tokio` (net + io-util), `thiserror`, `bytes`, `x25519-dalek`, `blake2`, `rand`, `tracing`
 - **Key interfaces**:
   ```rust
   /// Universal IPC message — raw bytes over the wire.
   /// Sender and receiver each handle their own serialization.
+  /// `sender_public_key` is populated by the receiver with the
+  /// client's X25519 public key from the IPC handshake.
   #[derive(Message)]
   #[response(Result<Vec<u8>, String>)]
-  struct IpcMessage(Vec<u8>);
+  struct IpcMessage {
+      payload: Vec<u8>,
+      sender_public_key: Option<[u8; 32]>,
+  }
 
-  /// IPC actor — wraps a UnixStream as a tactix actor.
+  /// Low-level transport: framed reads/writes over UnixStream.
+  struct UnixSocketTransport { stream: UnixStream, read_buf: BytesMut }
+  impl UnixSocketTransport {
+      async fn connect(path: &str) -> Result<Self, IpcError>;
+      fn from_stream(stream: UnixStream) -> Self;
+      async fn read_frame(&mut self) -> Result<Vec<u8>, IpcError>;
+      async fn write_frame(&mut self, data: &[u8]) -> Result<(), IpcError>;
+  }
+
+  /// IPC client actor — wraps a transport as a tactix actor.
   /// Connect to a socket, perform X25519 handshake, send/receive authenticated frames.
-  struct IpcSender { stream: UnixStream, read_buf: BytesMut, hmac_key: [u8; 32] }
+  struct IpcSender { transport: UnixSocketTransport, hmac_key: [u8; 32] }
   impl IpcSender {
       async fn connect(path: &str) -> Result<Addr<Self>, IpcError>;
   }
   impl Handler<IpcMessage> for IpcSender { /* compute MAC, write type byte + payload + MAC, read response */ }
 
   /// Server — listens on a Unix socket and dispatches requests.
-  struct IpcReceiver { listener: UnixListener, secret: StaticSecret, public: PublicKey }
+  struct IpcReceiver { listener: UnixListener, secret: [u8; 32], public: [u8; 32] }
   impl IpcReceiver {
       async fn bind(path: impl AsRef<Path>) -> Result<Self, IpcError>;
-      async fn new(listener: UnixListener, secret: StaticSecret, public: PublicKey) -> Self;
+      fn new(listener: UnixListener, secret: [u8; 32], public: [u8; 32]) -> Self;
+      fn public_key(&self) -> [u8; 32];
       async fn serve<H>(&self, handler: Addr<H>) -> Result<(), IpcError>
           where H: Actor + Handler<IpcMessage>;
   }
@@ -370,29 +379,29 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
   - `0x04` = MSG_APPLICATION (authenticated application payload, followed by 32-byte HMAC tag)
 - **Response prepends a status byte**: `0` = success, `1` = error string.
 
-### `chains/zcash` crate
+### `chains/zcash` crate (planned)
 
 - **Responsibility**: Zcash-specific logic — address derivation via ZIP 32, LSP chain scanning via `zcash_client_backend`, transfer construction, balance computation, lightwalletd gRPC connection.
-- **Dependencies**: `ipc` (for types)
+- **Dependencies**: `paypunk-ipc` (for types)
 - **Critical logic**: Wraps `zcash_client_sqlite` traits (`WalletRead`/`WalletWrite`/`InputSource`), orchestrates scan → decrypt → witness → build → sign → broadcast pipeline. Implements `ChainService` trait from `paypunkd::services`.
 
-### `chains/ethereum` crate
+### `chains/ethereum` crate (planned)
 
 - **Responsibility**: Ethereum-specific logic. TBD.
-- **Dependencies**: `ipc` (for types)
-- **Status**: Scaffold only for v1. Implements `ChainService` trait.
+- **Dependencies**: `paypunk-ipc` (for types)
+- **Status**: Not yet implemented.
 
 ### `cli` crate
 
 - **Responsibility**: CLI binary. Uses `api` for all operations. No direct IPC or actor knowledge.
-- **Dependencies**: `api`, `tui`
-- **Subcommands**: `init`, `balance`, `address`, `send`, `history`, `sync`, `tui`, `down` (aliased as `stop`)
+- **Dependencies**: `paypunk-api`, `tokio`, `clap`, `zeroize`
+- **Subcommands**: `generate-seed` (initializes wallet)
 
-### `tui` crate
+### `tui` crate (planned)
 
 - **Responsibility**: Ratatui screens and widgets for interactive wallet management.
 - **Dependencies**: `api`
-- **Screens**: Dashboard (balance + recent transfers), Send form, History list, Sync status
+- **Status**: Not yet implemented.
 
 ## 4. Critical Logic
 
@@ -447,10 +456,10 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 - **Validation checkpoint**: can connect two processes over Unix socket, send a message, get a response (9 tests passing: echo, binary, large messages, error handling, referential transparency)
 - **Dependencies**: none
 
-### Step 2: api scaffold
-- **What to implement**: `api` crate with high-level public API functions. Internally calls `paypunkd` via the `ipc` crate. CLI and TUI depend only on this crate.
-- **Validation checkpoint**: `cargo test` passes, API compiles
-- **Dependencies**: Step 1
+### Step 2: api + paypunkd + CLI scaffold
+- **What to implement**: `api` crate with high-level public API functions, `paypunkd` daemon with dispatcher/services/usecases, `cli` binary with `generate-seed` command. Internally calls `paypunkd` via the `ipc` crate, which forwards to `keypunkd`. CLI and TUI depend only on `api`.
+- **Validation checkpoint**: `cargo build` compiles, daemons start and accept IPC, end-to-end `generate-seed` flow works
+- **Dependencies**: Step 1, Step 3
 
 ### Step 3: keypunkd daemon
 - **What to implement**: `keypunkd` crate. Dispatcher actor, messages module (`KeypunkdRequest`/`KeypunkdResponse`), key module (seed generation via BIP39, Argon2id + AES-256-GCM encryption), crypto module (X25519 KeyStore + CryptoSession for encrypted password/mnemonic exchange), seed_store module (`SeedStore` trait with `FilesystemSeedStore` and `InMemorySeedStore`), Unix socket listener with `IpcReceiver::new()` sharing the KeyStore keypair.
@@ -458,8 +467,8 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 - **Dependencies**: Step 1
 
 ### Step 4: paypunkd daemon — usecases + services
-- **What to implement**: `paypunkd` crate. Usecase functions (handle_get_balance, handle_create_transfer, etc.), service trait definitions (ChainService), WalletActor, service locator/injection for chain backends. Unix socket listener.
-- **Validation checkpoint**: daemon starts, accepts IPC, routes requests to WalletActor and keypunkd
+- **What to implement**: `paypunkd` crate. Usecase functions (get_keypunk_public_key, generate_seed), PaypunkService wrapping IPC recipient, Dispatcher actor, PaypunkdRequest/PaypunkdResponse message types. Unix socket listener. Forwards key operations to keypunkd.
+- **Validation checkpoint**: daemon starts, accepts IPC, routes requests to keypunkd
 - **Dependencies**: Step 1, Step 3
 
 ### Step 5: chains/zcash integration
@@ -487,13 +496,13 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 | # | Step | Status |
 |---|------|--------|
 | 1 | Core types + IPC tactix protocol (`types` + `ipc` crates) | ✅ Done |
-| 2 | `api` scaffold | ☐ Pending |
+| 2 | `api` + `paypunkd` + `cli` scaffold | ✅ Done |
 | 3 | `keypunkd` daemon | ✅ Done |
-| 4 | `paypunkd` daemon — usecases + services | ☐ Pending |
+| 4 | `paypunkd` daemon — usecases + services | ✅ Done |
 | 5 | `chains/zcash` integration | ☐ Pending |
-| 6 | CLI commands | ☐ Pending |
+| 6 | CLI commands | ✅ Done (`generate-seed`) |
 | 7 | TUI | ☐ Pending |
-| 8 | Polish | ☐ Pending |
+| 8 | Polish (tracing, config, docs) | 🔄 In Progress |
 
 ### Deferred (post-v1)
 - Tauri desktop app
@@ -507,16 +516,15 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 
 ## 7. Testing Strategy
 
-- **Unit tests**: `key` module (seed gen/validation, encrypt/decrypt roundtrip, Argon2id correctness), `crypto` module (password roundtrip, mnemonic roundtrip, wrong key fails, invalid blob fails, server reuses key), `seed_store` module (atomic write, in-memory store), `zcash` module (address derivation determinism, balance computation)
-- **Integration tests**: IPC protocol (connect daemon, send/receive messages, auth handshake, referential transparency), keypunkd daemon (GetPublicKey, GenerateSeed with encrypted password flow, empty password handling), Zcash sync (testnet scanning)
-- **E2E tests**: Full CLI command flows against a running daemon on testnet
-- **Coverage targets**: 80%+ on `key` + `crypto` modules, 70%+ on `zcash` module, smoke tests on CLI + daemon
+- **Unit tests**: `key` module (seed gen/validation, encrypt/decrypt roundtrip, Argon2id correctness), `crypto` module (password roundtrip, mnemonic roundtrip, wrong key fails, invalid blob fails, server reuses key), `seed_store` module (atomic write, in-memory store)
+- **Integration tests**: IPC protocol (9 tests: echo, binary, large messages, error handling, referential transparency over direct and socket paths), keypunkd daemon (4 tests: GetPublicKey, GenerateSeed with encrypted password flow, empty password handling, rejects in-process messages)
+- **Coverage targets**: 80%+ on `key` + `crypto` modules, smoke tests on CLI + daemon
 
 ## 8. Error Handling
 
-- **Hierarchy**: Top-level `Error` enum in `api` with module-specific variants (KeyError, WalletError, IpcError). Chain-specific errors are handled within their respective crates and surfaced as typed variants.
-- **Propagation**: Actors return `Result<T, Error>` through ReplyTo channels. IPC layer serializes errors as `IpcResponse::Error(String)`.
-- **UI handling**: CLI formats errors as stderr messages. TUI shows error dialogs.
+- **Hierarchy**: Module-specific error types (`IpcError`, `CryptoError`, `KeyError`, `SeedStoreError`, `GenerateError`). Actors return `Result<T, String>` through the IPC layer. IPC serializes errors as status byte `1` followed by error string.
+- **Propagation**: Errors bubble up from keypunkd → paypunkd → api → CLI. Each layer wraps errors in its own context. IPC transport errors (e.g., disconnected peer) are logged at warn level and surfaced as `"IO error: ..."` strings.
+- **UI handling**: CLI formats errors as stderr messages via `eprintln`.
 
 ## 9. Security
 
@@ -527,7 +535,7 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 
 ## 10. Observability
 
-- **Logging**: Structured logging via `tracing`. Info-level for operations (sync start/complete, transfer created), debug-level for scan details, warn/error for failures.
+- **Logging**: Structured logging via `tracing` + `tracing-subscriber` with env-filter. Info-level for operations (daemon start/stop, connection accepted, request dispatched, seed generated), debug-level for connection lifecycle and usecase substeps, trace-level for frame I/O, warn/error for failures. Controlled via `RUST_LOG` environment variable (default: `info`).
 - **Metrics**: Deferred to post-v1.
 - **Alerts**: Not applicable for v1.
 

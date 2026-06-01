@@ -48,17 +48,19 @@ Individual privacy-conscious users, including developers and agent operators run
 
 - **Three-process model** — `keypunkd` (key daemon), `paypunkd` (app daemon), `paypunk` (CLI/TUI). Process separation from v1 enforces the security boundary — neither the CLI nor the application daemon ever hold key material.
 - **Key isolation** — The KeyActor (in keypunkd) must never expose raw private keys. It accepts sign/prove requests and returns only results (signatures, protocol proofs).
-- **IPC** — A tactix actor wrapping Unix domain sockets with postcard serialization. The message types are the IPC contract — the same protocol regardless of whether actors are in-process or cross-process.
+- **IPC** — A tactix actor wrapping Unix domain sockets with postcard serialization. The message types are the IPC contract — the same protocol regardless of whether actors are in-process or cross-process. Includes X25519-based per-message authentication (see ADR-001).
+- **Structured logging** — `tracing` crate with env-filter support. Info-level for operations, debug for scan details, warn/error for failures.
 
 ### Crate Layout
 
+- **`types`** (library) — Chain-agnostic domain types (`Address`, `Amount`, `Balance`, `Transfer`, etc.). No chain-specific logic.
 - **`api`** (library) — Chain-agnostic public API. Accepts asset type to dispatch to the correct chain backend. Hides IPC/tactix details. CLI and TUI depend on this.
 - **`paypunkd`** (binary) — App daemon. Hosts WalletActor, usecases, service orchestration, chain backend injection.
 - **`keypunkd`** (binary) — Key daemon. Hosts KeyActor. Seed generation, signing, proving. Runs as separate system user.
 - **`ipc`** (library) — Tactix actor sender for interprocess communication. Used by api, paypunkd, and keypunkd.
-- **`chains/{zcash,ethereum}`** — Chain-specific implementations. Each implements the `ChainService` trait.
-- **`tui`** (library) — Ratatui screens and widgets. Reusable by future Tauri desktop app.
-- **`cli`** (binary) — Links `api` and `tui`. Runs in CLI mode (single command) or TUI mode (interactive session).
+- **`chains/{zcash,ethereum}`** (planned) — Chain-specific implementations. Each implements the `ChainService` trait.
+- **`tui`** (planned) — Ratatui screens and widgets. Reusable by future Tauri desktop app.
+- **`cli`** (binary) — Links `api` and (future) `tui`. Runs in CLI mode (single command) or TUI mode (interactive session).
 
 ### Passphrase Input
 

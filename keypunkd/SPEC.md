@@ -61,34 +61,26 @@ fn encrypt_seed(seed: &[u8; 64], password: &str) -> Result<Vec<u8>>;
 
 ### Crypto Module
 
-X25519 key exchange and AES-256-GCM encryption for confidential IPC — the password and returned mnemonic never cross the wire in plaintext.
+X25519 keypair for encrypted IPC exchange — the password and returned mnemonic never cross the wire in plaintext. Unlike the IPC transport HMAC (which authenticates but does not encrypt), this module provides **confidentiality** for the end-to-end secret exchange between the CLI client and keypunkd.
 
 ```rust
-/// Long-lived server keypair, generated at daemon startup.
-struct KeyStore { /* X25519 secret + public */ }
-impl KeyStore {
+/// Keypair used by both server (keypunkd) and client (api).
+/// Encrypts/decrypts using X25519 shared secret + AES-256-GCM.
+struct Keypair { /* X25519 secret + public */ }
+impl Keypair {
     fn new() -> Self;
     fn public_key(&self) -> [u8; 32];
-    fn decrypt_password(&self, encrypted: &[u8], client_pk: &[u8; 32]) -> Result<String>;
-    fn encrypt_mnemonic(&self, mnemonic: &str, client_pk: &[u8; 32]) -> Result<Vec<u8>>;
-}
-
-/// Ephemeral client keypair, generated per-request by the caller.
-struct CryptoSession { /* X25519 secret + public */ }
-impl CryptoSession {
-    fn new() -> Self;
-    fn public_key(&self) -> [u8; 32];
-    fn seal_password(&self, password: &str, server_pk: &[u8; 32]) -> Result<Vec<u8>>;
-    fn open_mnemonic(&self, encrypted: &[u8], server_pk: &[u8; 32]) -> Result<String>;
+    fn keypair(&self) -> ([u8; 32], [u8; 32]);     // (secret, public)
+    fn encrypt<T: Zeroize + AsRef<[u8]>>(&self, secret_message: Zeroizing<T>, peer_pk: &[u8; 32]) -> Vec<u8>;
+    fn decrypt(&self, encrypted: &[u8], peer_pk: &[u8; 32]) -> Result<Zeroizing<String>, CryptoError>;
 }
 ```
 
 - Shared secret derived via X25519 DH between the two keypairs.
 - AES-256-GCM key derived from shared secret via Blake2b.
-- `decrypt_password`: Used by KeyStore to recover the plaintext password for Argon2id seed encryption.
-- `encrypt_mnemonic`: Used by KeyStore to encrypt the generated mnemonic back to the requesting client.
-- `seal_password`: Used by the client (CryptoSession) to encrypt the password for keypunkd.
-- `open_mnemonic`: Used by the client to decrypt the returned mnemonic.
+- `encrypt`: Encrypts a secret message (password or mnemonic) to a peer's public key. Returns `nonce(12) + ciphertext`.
+- `decrypt`: Decrypts a message from a peer. Returns the plaintext as `Zeroizing<String>`.
+- Both sides use the same `Keypair` type — there is no separate `KeyStore`/`CryptoSession` split. The server creates one at startup; the client creates one per request.
 
 ### Seed Store
 
@@ -109,16 +101,17 @@ struct InMemorySeedStore { blob: Mutex<Option<Vec<u8>>> }
 ### Daemon Entry Point
 
 ```
-keypunkd [--socket-path /path/to/keypunkd.sock] [--data-dir /path/to/data]
+keypunkd [--socket-path /tmp/keypunkd.sock] [--data-dir /tmp/paypunk/data]
 ```
 
 1. Parse CLI args (`--socket-path`, `--data-dir`)
-2. Create `KeyStore` (generates X25519 keypair for IPC encryption)
+2. Create `Keypair` (generates X25519 keypair for IPC encryption)
 3. Create `FilesystemSeedStore` pointing at `{data_dir}/seed.enc`
 4. Create `Dispatcher` actor with keystore and seed store
-5. Bind `UnixListener` at `--socket-path` (default: `$DATA_DIR/keypunkd.sock`)
-6. Create `IpcReceiver::new(listener, secret, public)` — shares the KeyStore keypair so the IPC handshake key matches the encryption key
-7. Serve connections until Ctrl+C
+5. Bind `UnixListener` at `--socket-path` (default: `/tmp/keypunkd.sock`)
+6. Create `IpcReceiver::new(listener, secret, public)` — shares the Keypair so the IPC handshake key matches the encryption key
+7. Initialize `tracing` subscriber with env-filter support
+8. Serve connections until Ctrl+C
 
 ### Dispatcher Actor
 
@@ -126,11 +119,16 @@ A tactix actor generic over any `SeedStore` implementation:
 
 ```rust
 struct Dispatcher<S: Storage> {
-    keystore: KeyStore,
+    keystore: Keypair,
     seed_store: S,
-    session: Option<[u8; 32]>,     // sender_public_key of the active session
+    session: Option<[u8; 32]>,       // sender_public_key of the active session
+    skip_session_auth: bool,          // bypass sender check (for tests)
 }
 ```
+
+Message authentication:
+- `verify_message`: Rejects messages where `sender_public_key` is `None` (in-process calls) unless `skip_session_auth` is enabled. This ensures all IPC requests come from an authenticated peer (the IPC handshake sets `sender_public_key`).
+- `set_session`: On successful password-authenticated requests (`GenerateSeed`), records the sender's public key as the active session. (Future `Unlock` will do the same.)
 
 Session management:
 - `session` stores the `sender_public_key` from the last successful password-authenticated request (`GenerateSeed`, and future `Unlock`).
@@ -142,20 +140,21 @@ This ensures only one process at a time can hold an authenticated session with k
 
 Message flow:
 
-1. Receives `IpcMessage` (raw bytes)
-2. Deserializes bytes → `KeypunkdRequest` via `postcard`
-3. Matches on the request variant:
+1. Receives `IpcMessage` (raw bytes with `sender_public_key` set by IPC handshake)
+2. `verify_message` — rejects if `sender_public_key` is `None` (in-process message without auth bypass)
+3. Deserializes bytes → `KeypunkdRequest` via `postcard`
+4. Matches on the request variant:
    - `GetPublicKey` → returns `KeypunkdResponse::PublicKey { key }` (no session check)
-   - `GenerateSeed { encrypted_password, client_public_key }` → calls `handle_generate_seed()`:
-     - Decrypts password using `KeyStore::decrypt_password()`
+   - `GenerateSeed { encrypted_password, client_public_key }` → calls `generate_seed()` usecase:
+     - Decrypts password using `Keypair::decrypt()`
      - Calls `key::generate_seed()` to create 64-byte seed + mnemonic
      - Calls `key::encrypt_seed()` with the recovered password
      - Persists via `SeedStore::write()`
-     - Encrypts mnemonic back to client's public key via `KeyStore::encrypt_mnemonic()`
+     - Encrypts mnemonic back to client's public key via `Keypair::encrypt()`
      - On success, sets `session = msg.sender_public_key`
      - Returns `KeypunkdResponse::SeedGenerated { encrypted_mnemonic }`
-4. Serializes `KeypunkdResponse` → response bytes via `postcard`
-5. Returns bytes through the IPC actor
+5. Serializes `KeypunkdResponse` → response bytes via `postcard`
+6. Returns bytes through the IPC actor
 
 ### Directory Structure
 
@@ -163,13 +162,18 @@ Message flow:
 keypunkd/
 ├── SPEC.md              # This file
 ├── Cargo.toml
+├── tests/
+│   └── generate_seed_test.rs  # Integration tests (4 tests)
 └── src/
     ├── lib.rs            # Crate root, re-exports public modules
     ├── main.rs           # CLI entry point, daemon bootstrap
     ├── messages.rs       # KeypunkdRequest, KeypunkdResponse types
-    ├── dispatcher.rs     # Tactix actor: deserialize → dispatch → serialize
+    ├── dispatcher.rs     # Tactix actor: deserialize → dispatch → serialize, session mgmt
     ├── key.rs            # Seed generation, BIP39, Argon2id encrypt/decrypt
-    ├── crypto.rs         # X25519 KeyStore + CryptoSession for encrypted IPC
+    ├── crypto.rs         # X25519 Keypair for encrypted IPC exchange
+    ├── services.rs       # KeypunkService wrapping Recipient<IpcMessage>
+    ├── usecases.rs       # Business logic: generate_seed
+    ├── errors.rs         # GenerateError enum
     └── seed_store.rs     # SeedStore trait, FilesystemSeedStore, InMemorySeedStore
 ```
 
@@ -189,18 +193,20 @@ keypunkd/
 | `rand` | Random nonce / salt generation |
 | `clap` | CLI argument parsing |
 | `thiserror` | Error types |
+| `zeroize` | Secure memory clearing |
+| `tracing` / `tracing-subscriber` | Structured logging |
 
 ### Validation Checkpoint
 
 Tests that:
-1. Start keypunkd on a temp socket path
-2. Connect via `IpcSender` (performs X25519 handshake automatically)
+1. Start keypunkd dispatcher in-process with `InMemorySeedStore`
+2. Connect via direct actor `ask()` (simulating IPC with `sender_public_key` set)
 3. Send a `GetPublicKey` request, receive a 32-byte public key
-4. Create a `CryptoSession`, seal the password to keypunkd's public key
+4. Create a client `Keypair`, seal the password to keypunkd's public key
 5. Send a `GenerateSeed` request with encrypted password + client public key
 6. Receive `SeedGenerated` response with encrypted mnemonic
-7. Decrypt the mnemonic using the CryptoSession — verify it is a valid 12-word BIP39 phrase
-8. Verify `seed.enc` exists and is non-empty (filesystem variant)
+7. Decrypt the mnemonic using the client `Keypair` — verify it is a valid 12-word BIP39 phrase
+8. Verify that in-process messages (without `sender_public_key`) are rejected
 9. (Optional) Verify the encrypted blob can be decrypted with the same password
 
 ### Build Checklist (Phase 1)
@@ -210,9 +216,12 @@ Tests that:
 | 1 | Create `keypunkd` crate with `Cargo.toml` | ✅ Done |
 | 2 | Define `KeypunkdRequest` / `KeypunkdResponse` message types (`GetPublicKey`, `GenerateSeed` with encrypted fields) | ✅ Done |
 | 3 | Implement `key` module: `generate_seed`, `derive_key`, `encrypt_seed` | ✅ Done |
-| 4 | Implement `crypto` module: `KeyStore` + `CryptoSession` (X25519 + AES-256-GCM) | ✅ Done |
+| 4 | Implement `crypto` module: `Keypair` (X25519 + AES-256-GCM encrypt/decrypt) | ✅ Done |
 | 5 | Implement `seed_store` module: `SeedStore` trait, `FilesystemSeedStore`, `InMemorySeedStore` | ✅ Done |
-| 6 | Implement `dispatcher` actor: deserialize → dispatch (GetPublicKey, GenerateSeed) → serialize | ✅ Done |
-| 7 | Implement `main.rs`: CLI args, socket bind, keystore bootstrap, server loop | ✅ Done |
-| 8 | Unit tests: crypto (5), key (2), seed_store (2) | ✅ Done |
-| 9 | Integration tests: GetPublicKey, GenerateSeed (encrypted flow), empty password (3 tests) | ✅ Done |
+| 6 | Implement `dispatcher` actor: verify_message → deserialize → dispatch (GetPublicKey, GenerateSeed) → serialize | ✅ Done |
+| 7 | Implement `services` module: `KeypunkService` wrapping `Recipient<IpcMessage>` for IPC calls | ✅ Done |
+| 8 | Implement `usecases` module: `generate_seed` (decrypt → gen → encrypt → persist → encrypt response) | ✅ Done |
+| 9 | Implement `errors` module: `GenerateError` enum | ✅ Done |
+| 10 | Implement `main.rs`: CLI args, socket bind, keystore bootstrap, tracing init, server loop | ✅ Done |
+| 11 | Unit tests: crypto (5), key (2), seed_store (2) | ✅ Done |
+| 12 | Integration tests: GetPublicKey, GenerateSeed (encrypted flow), empty password, rejects in-process (4 tests) | ✅ Done |
