@@ -38,12 +38,15 @@ impl<S: Storage> Dispatcher<S> {
 
     /// Returns the verified sender public key, or bails if the message
     /// is in-process and session auth is enabled.
-    fn verify_message(&self, msg: &IpcMessage) -> Result<[u8; 32], String> {
+    fn verify_message(&self, msg: &IpcMessage) -> Result<(), String> {
         if self.skip_session_auth {
-            return Ok([0u8; 32]);
+            return Ok(());
         }
+
         msg.sender_public_key
-            .ok_or_else(|| "rejecting in-process message: no sender public key".to_string())
+            .ok_or_else(|| "rejecting in-process message: no sender public key".to_string())?;
+
+        Ok(())
     }
 
     /// Sets the active session from the message's sender public key.
