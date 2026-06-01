@@ -81,11 +81,11 @@ pub fn decrypt_seed(blob: &[u8], password: &str) -> Result<[u8; 64], KeyError> {
     seed.copy_from_slice(&plaintext);
     Ok(seed)
 }
-mod tests {
-    use super::*;
+pub mod tests {
+    pub use super::*;
 
     #[test]
-    fn test_generate_seed_returns_64_bytes_and_mnemonic() {
+    pub fn test_generate_seed_returns_64_bytes_and_mnemonic() {
         let (seed, mnemonic) = generate_seed();
         assert_eq!(seed.len(), 64);
         assert!(!mnemonic.is_empty());
@@ -93,7 +93,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encrypt_decrypt_seed_roundtrip() {
+    pub fn test_encrypt_decrypt_seed_roundtrip() {
         let (seed, _) = generate_seed();
         let password = "my-wallet-password";
 
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decrypt_seed_wrong_password_fails() {
+    pub fn test_decrypt_seed_wrong_password_fails() {
         let (seed, _) = generate_seed();
         let encrypted = encrypt_seed(&seed, "correct-password").unwrap();
 
@@ -113,13 +113,13 @@ mod tests {
     }
 
     #[test]
-    fn test_decrypt_seed_invalid_blob_fails() {
+    pub fn test_decrypt_seed_invalid_blob_fails() {
         let result = decrypt_seed(&[0u8; 5], "password");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_encrypt_decrypt_roundtrip() {
+    pub fn test_encrypt_decrypt_roundtrip() {
         let (seed, _) = generate_seed();
         let password = "test-password-123";
 
