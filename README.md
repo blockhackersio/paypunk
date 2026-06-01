@@ -1,4 +1,4 @@
-# Paypunk
+# Paypunk Wallet
 
 > 'Private money, punk.'
 
