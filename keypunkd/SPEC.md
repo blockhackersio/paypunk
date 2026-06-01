@@ -62,7 +62,7 @@ keypunkd [--socket-path /path/to/keypunkd.sock] [--data-dir /path/to/data]
 1. Parse CLI args
 2. Bind Unix socket at `--socket-path` (default: `$DATA_DIR/keypunkd.sock`)
 3. Create dispatcher actor that handles `KeypunkdRequest` messages
-4. Start `IpcServer` with the dispatcher as handler
+4. Start `IpcReceiver` with the dispatcher as handler
 5. Loop accepting connections until shutdown
 
 ### Dispatcher Actor
@@ -92,7 +92,7 @@ keypunkd/
 
 | Crate | Purpose |
 |-------|---------|
-| `paypunk-ipc` | Raw-bytes IPC transport (IpcServer, IpcActor, IpcMessage) |
+| `paypunk-ipc` | Raw-bytes IPC transport (IpcReceiver, IpcSender, IpcMessage) |
 | `tactix` | Actor framework |
 | `tokio` | Async runtime |
 | `serde` / `postcard` | Message serialization |
@@ -106,7 +106,7 @@ keypunkd/
 
 A test that:
 1. Starts keypunkd on a temp socket path
-2. Connects via `IpcActor`
+2. Connects via `IpcSender`
 3. Sends a `GenerateSeed` request with a password
 4. Receives `SeedGenerated` response
 5. Verifies `seed.enc` exists and is non-empty

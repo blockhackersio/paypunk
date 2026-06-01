@@ -87,9 +87,9 @@ paypunk/
 │       └── main.rs
 ├── ipc/                  # Tactix actor router for interprocess comms (library)
 │   └── src/
-│       ├── lib.rs        # Crate root, re-exports IpcMessage, IpcActor, IpcServer
-│       ├── router.rs     # IpcActor: tactix actor wrapping a UnixStream (connect + send/recv)
-│       ├── server.rs     # IpcServer: Unix socket listener, dispatches to handler actor
+│       ├── lib.rs        # Crate root, re-exports IpcMessage, IpcSender, IpcReceiver
+│       ├── router.rs     # IpcSender: tactix actor wrapping a UnixStream (connect + send/recv)
+│       ├── server.rs     # IpcReceiver: Unix socket listener, dispatches to handler actor
 │       └── messages.rs   # IpcMessage type (tactix Message wrapping Vec<u8>)
 ├── chains/               # Chain-specific implementations
 │   ├── zcash/            # Zcash: address derivation, LSP scanning, transfer construction
@@ -282,7 +282,7 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 ### `ipc` crate
 
-- **Responsibility**: Tactix actor that sends/receives raw bytes over Unix domain sockets. Serves as the transport layer between all processes. Both `api` and daemons use this crate. The `IpcActor` implements the same tactix `Handler<IpcMessage>` trait as any in-process actor, making cross-process calls referentially transparent with local ones.
+- **Responsibility**: Tactix actor that sends/receives raw bytes over Unix domain sockets. Serves as the transport layer between all processes. Both `api` and daemons use this crate. The `IpcSender` implements the same tactix `Handler<IpcMessage>` trait as any in-process actor, making cross-process calls referentially transparent with local ones.
 - **Dependencies**: `tactix`, `tokio` (net + io-util), `thiserror`, `bytes`
 - **Key interfaces**:
   ```rust
@@ -294,15 +294,15 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
   /// IPC actor — wraps a UnixStream as a tactix actor.
   /// Connect to a socket, send/receive length-prefixed frames.
-  struct IpcActor { stream: UnixStream, read_buf: BytesMut }
-  impl IpcActor {
+  struct IpcSender { stream: UnixStream, read_buf: BytesMut }
+  impl IpcSender {
       async fn connect(path: &str) -> Result<Addr<Self>, IpcError>;
   }
-  impl Handler<IpcMessage> for IpcActor { /* write raw bytes, read response */ }
+  impl Handler<IpcMessage> for IpcSender { /* write raw bytes, read response */ }
 
   /// Server — listens on a Unix socket and dispatches requests.
-  struct IpcServer { listener: UnixListener }
-  impl IpcServer {
+  struct IpcReceiver { listener: UnixListener }
+  impl IpcReceiver {
       async fn bind(path: impl AsRef<Path>) -> Result<Self, IpcError>;
       async fn serve<H>(&self, handler: Addr<H>) -> Result<(), IpcError>
           where H: Actor + Handler<IpcMessage>;
@@ -383,7 +383,7 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 ## 6. Build Sequence
 
 ### Step 1: Core types + IPC tactix protocol
-- **What to implement**: `ipc` crate with raw-bytes message type (`IpcMessage`), tactix IPC actor wrapping a Unix socket (`IpcActor`), server connection handler (`IpcServer`), length-prefixed frame wire format with success/error status byte. Serialization is left to the caller — the IPC layer is purely a transport.
+- **What to implement**: `ipc` crate with raw-bytes message type (`IpcMessage`), tactix IPC actor wrapping a Unix socket (`IpcSender`), server connection handler (`IpcReceiver`), length-prefixed frame wire format with success/error status byte. Serialization is left to the caller — the IPC layer is purely a transport.
 - **Validation checkpoint**: can connect two processes over Unix socket, send a message, get a response (9 tests passing: echo, binary, large messages, error handling, referential transparency)
 - **Dependencies**: none
 

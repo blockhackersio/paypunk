@@ -8,6 +8,9 @@ tactix = "1.0"
 tokio = { version = "1", features = ["net", "io-util"] }
 thiserror = "2"
 bytes = "1"
+x25519-dalek = "2"
+blake2 = "0.10"
+rand = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

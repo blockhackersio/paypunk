@@ -1,4 +1,4 @@
-use paypunk_ipc::{IpcActor, IpcMessage, IpcServer};
+use paypunk_ipc::{IpcMessage, IpcReceiver, IpcSender};
 use tactix::{Actor, Addr, Ctx, Handler, Sender};
 use tempfile::TempDir;
 
@@ -75,7 +75,7 @@ where
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.sock");
     let path_str = path.to_str().unwrap().to_owned();
-    let server = IpcServer::bind(&path).await.unwrap();
+    let server = IpcReceiver::bind(&path).await.unwrap();
     tokio::spawn(async move {
         server.serve(handler).await.unwrap();
     });
@@ -86,7 +86,7 @@ where
 #[tokio::test]
 async fn test_echo_over_ipc() {
     let (_dir, path) = serve_handler(EchoHandler.start()).await;
-    let ipc = IpcActor::connect(&path).await.unwrap();
+    let ipc = IpcSender::connect(&path).await.unwrap();
     let input = b"hello over ipc".to_vec();
     let result = ipc.ask(IpcMessage(input.clone())).await;
     assert_eq!(result, Ok(input));
@@ -95,7 +95,7 @@ async fn test_echo_over_ipc() {
 #[tokio::test]
 async fn test_binary_over_ipc() {
     let (_dir, path) = serve_handler(EchoHandler.start()).await;
-    let ipc = IpcActor::connect(&path).await.unwrap();
+    let ipc = IpcSender::connect(&path).await.unwrap();
     let input = vec![0u8, 255, 128, 64, 32];
     let result = ipc.ask(IpcMessage(input.clone())).await;
     assert_eq!(result, Ok(input));
@@ -104,7 +104,7 @@ async fn test_binary_over_ipc() {
 #[tokio::test]
 async fn test_large_message_over_ipc() {
     let (_dir, path) = serve_handler(EchoHandler.start()).await;
-    let ipc = IpcActor::connect(&path).await.unwrap();
+    let ipc = IpcSender::connect(&path).await.unwrap();
     let input = vec![42u8; 100_000];
     let result = ipc.ask(IpcMessage(input.clone())).await;
     assert_eq!(result, Ok(input));
@@ -113,7 +113,7 @@ async fn test_large_message_over_ipc() {
 #[tokio::test]
 async fn test_error_over_ipc() {
     let (_dir, path) = serve_handler(ErrorHandler.start()).await;
-    let ipc = IpcActor::connect(&path).await.unwrap();
+    let ipc = IpcSender::connect(&path).await.unwrap();
     let result = ipc.ask(IpcMessage(vec![1, 2, 3])).await;
     assert_eq!(result, Err("something went wrong".into()));
 }
@@ -130,7 +130,7 @@ async fn test_referential_transparency() {
 
     // IPC path — over socket
     let (_dir, path) = serve_handler(EchoHandler.start()).await;
-    let ipc = IpcActor::connect(&path).await.unwrap();
+    let ipc = IpcSender::connect(&path).await.unwrap();
     let ipc_recipient = ipc.recipient();
 
     // Both recipients have the same type: Recipient<IpcMessage>

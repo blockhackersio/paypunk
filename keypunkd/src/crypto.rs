@@ -84,6 +84,10 @@ impl KeyStore {
         self.public
     }
 
+    pub fn keypair(&self) -> ([u8; 32], [u8; 32]) {
+        (self.secret, self.public)
+    }
+
     pub fn decrypt_password(
         &self,
         encrypted: &[u8],

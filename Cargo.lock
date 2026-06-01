@@ -734,13 +734,16 @@ dependencies = [
 name = "paypunk-ipc"
 version = "0.1.0"
 dependencies = [
+ "blake2",
  "bytes",
  "postcard",
+ "rand",
  "serde",
  "tactix",
  "tempfile",
  "thiserror",
  "tokio",
+ "x25519-dalek",
 ]
 
 [[package]]
