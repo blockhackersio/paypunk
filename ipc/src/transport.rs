@@ -1,6 +1,7 @@
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tracing::trace;
 
 /// Error type for IPC transport operations.
 #[derive(Debug, thiserror::Error)]
@@ -48,7 +49,9 @@ impl UnixSocketTransport {
         let len = u32::from_le_bytes(len_buf) as usize;
         self.read_buf.resize(len, 0);
         self.stream.read_exact(&mut self.read_buf[..len]).await?;
-        Ok(self.read_buf[..len].to_vec())
+        let data = self.read_buf[..len].to_vec();
+        trace!(frame_len = len, "read frame");
+        Ok(data)
     }
 
     /// Write a length-prefixed frame: 4-byte LE length followed by payload.
@@ -57,6 +60,7 @@ impl UnixSocketTransport {
         self.stream.write_all(&len.to_le_bytes()).await?;
         self.stream.write_all(data).await?;
         self.stream.flush().await?;
+        trace!(frame_len = data.len(), "wrote frame");
         Ok(())
     }
 }

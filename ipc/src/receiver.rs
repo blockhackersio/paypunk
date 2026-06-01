@@ -5,6 +5,7 @@ use blake2::Digest;
 use rand::RngCore;
 use tactix::{Actor, Addr, Handler, Sender};
 use tokio::net::{UnixListener, UnixStream};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::messages::{
     IpcMessage, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY,
@@ -105,13 +106,14 @@ impl IpcReceiver {
         H: Actor + Handler<IpcMessage>,
     {
         loop {
-            let (stream, _) = self.listener.accept().await?;
+            let (stream, peer_addr) = self.listener.accept().await?;
+            info!(peer = ?peer_addr, "accepted connection");
             let handler = handler.clone();
             let secret = self.secret;
             let public = self.public;
             tokio::spawn(async move {
                 if let Err(e) = handle_connection(stream, handler, secret, public).await {
-                    eprintln!("IPC connection error: {e}");
+                    warn!(error = %e, "connection handler error");
                 }
             });
         }
@@ -131,18 +133,26 @@ async fn handle_connection<H>(
 where
     H: Actor + Handler<IpcMessage>,
 {
+    let peer_addr = stream.peer_addr().ok();
     let mut transport = UnixSocketTransport::from_stream(stream);
     let mut auth = ConnectionAuth::new();
+
+    debug!(peer = ?peer_addr, "starting IPC connection");
 
     loop {
         let frame = match transport.read_frame().await {
             Ok(frame) => frame,
             Err(IpcError::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Ok(()); // client disconnected — normal
+                debug!(peer = ?peer_addr, "client disconnected");
+                return Ok(());
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                error!(peer = ?peer_addr, error = %e, "frame read error");
+                return Err(e);
+            }
         };
         if frame.is_empty() {
+            debug!(peer = ?peer_addr, "empty frame, closing connection");
             return Ok(());
         }
 
@@ -151,14 +161,17 @@ where
 
         match msg_type {
             MSG_GET_PUBLIC_KEY => {
+                trace!(peer = ?peer_addr, "handshake: GetPublicKey");
                 let mut response = vec![MSG_PUBLIC_KEY];
                 response.extend_from_slice(&public);
                 transport.write_frame(&response).await?;
+                debug!(peer = ?peer_addr, "handshake: sent public key");
             }
 
             MSG_REGISTER_CLIENT => {
                 if payload.len() != 32 {
-                    return Ok(()); // invalid, drop connection
+                    warn!(peer = ?peer_addr, "handshake: invalid client public key length");
+                    return Ok(());
                 }
                 let mut client_pk = [0u8; 32];
                 client_pk.copy_from_slice(payload);
@@ -168,23 +181,28 @@ where
                 auth.registered = true;
                 auth.client_public_key = Some(client_pk);
                 transport.write_frame(&[MSG_REGISTER_CLIENT_ACK]).await?;
+                debug!(peer = ?peer_addr, "handshake: client registered");
             }
 
             MSG_APPLICATION => {
                 if !auth.registered {
-                    return Ok(()); // must register first
+                    warn!(peer = ?peer_addr, "application message before registration");
+                    return Ok(());
                 }
                 if payload.len() < MAC_LEN {
-                    return Ok(()); // malformed
+                    warn!(peer = ?peer_addr, "malformed application message (too short)");
+                    return Ok(());
                 }
                 let (msg_payload, msg_mac) = payload.split_at(payload.len() - MAC_LEN);
                 let hmac_key = auth.hmac_key.as_ref().unwrap();
                 let expected_mac = compute_mac(hmac_key, msg_payload);
                 if msg_mac != expected_mac {
-                    return Ok(()); // MAC mismatch, drop connection
+                    warn!(peer = ?peer_addr, "MAC mismatch, dropping connection");
+                    return Ok(());
                 }
 
-                // Forward to handler with the client's public key
+                debug!(peer = ?peer_addr, payload_len = msg_payload.len(), "dispatching application message");
+
                 let response = handler
                     .ask(IpcMessage {
                         payload: msg_payload.to_vec(),
@@ -194,15 +212,17 @@ where
 
                 match response {
                     Ok(bytes) => {
+                        trace!(peer = ?peer_addr, response_len = bytes.len(), "handler succeeded");
                         let mut frame = Vec::with_capacity(1 + bytes.len());
-                        frame.push(0u8); // status 0 = success
+                        frame.push(0u8);
                         frame.extend_from_slice(&bytes);
                         transport.write_frame(&frame).await?;
                     }
                     Err(e) => {
+                        warn!(peer = ?peer_addr, error = %e, "handler returned error");
                         let err_bytes = e.into_bytes();
                         let mut frame = Vec::with_capacity(1 + err_bytes.len());
-                        frame.push(1u8); // status 1 = error
+                        frame.push(1u8);
                         frame.extend_from_slice(&err_bytes);
                         transport.write_frame(&frame).await?;
                     }
@@ -210,7 +230,8 @@ where
             }
 
             _ => {
-                return Ok(()); // unknown message type, drop connection
+                warn!(peer = ?peer_addr, msg_type, "unknown message type");
+                return Ok(());
             }
         }
     }

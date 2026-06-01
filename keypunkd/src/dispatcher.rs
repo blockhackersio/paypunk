@@ -1,5 +1,6 @@
 use paypunk_ipc::IpcMessage;
 use tactix::{Actor, Ctx, Handler};
+use tracing::{debug, info, warn};
 
 use crate::crypto::Keypair;
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
@@ -65,31 +66,45 @@ impl<S: Storage> Handler<IpcMessage> for Dispatcher<S> {
         let request: KeypunkdRequest =
             postcard::from_bytes(&msg.payload).map_err(|e| format!("deserialize error: {e}"))?;
 
+        debug!(?request, "dispatching request");
+
         let response = match request {
             // Always allowed — no session check.
-            KeypunkdRequest::GetPublicKey => KeypunkdResponse::PublicKey {
-                key: self.keystore.public_key(),
-            },
+            KeypunkdRequest::GetPublicKey => {
+                info!("handling GetPublicKey");
+                KeypunkdResponse::PublicKey {
+                    key: self.keystore.public_key(),
+                }
+            }
             // Password-authenticated — sets session on success.
             KeypunkdRequest::GenerateSeed {
                 encrypted_password,
                 client_public_key,
-            } => match usecases::generate_seed(
-                &self.keystore,
-                &encrypted_password,
-                &client_public_key,
-                &self.seed_store,
-            ) {
-                Ok(encrypted_mnemonic) => {
-                    self.set_session(&msg);
-                    KeypunkdResponse::SeedGenerated { encrypted_mnemonic }
+            } => {
+                info!("handling GenerateSeed");
+                match usecases::generate_seed(
+                    &self.keystore,
+                    &encrypted_password,
+                    &client_public_key,
+                    &self.seed_store,
+                ) {
+                    Ok(encrypted_mnemonic) => {
+                        self.set_session(&msg);
+                        info!("seed generated successfully");
+                        KeypunkdResponse::SeedGenerated { encrypted_mnemonic }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "GenerateSeed failed");
+                        KeypunkdResponse::Error {
+                            message: e.to_string(),
+                        }
+                    }
                 }
-                Err(e) => KeypunkdResponse::Error {
-                    message: e.to_string(),
-                },
-            },
+            }
         };
 
-        postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))
+        let encoded = postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))?;
+        debug!(response_len = encoded.len(), "sending response");
+        Ok(encoded)
     }
 }

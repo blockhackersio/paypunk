@@ -11,6 +11,7 @@ bytes = "1"
 x25519-dalek = "2"
 blake2 = "0.10"
 rand = "0.8"
+tracing = "0.1"
 
 [dev-dependencies]
 tempfile = "3"

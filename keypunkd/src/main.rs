@@ -7,6 +7,8 @@ use keypunkd::seed_store::FilesystemSeedStore;
 use paypunk_ipc::IpcReceiver;
 use tactix::Actor;
 use tokio::net::UnixListener;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(name = "keypunkd", about = "Key daemon for Paypunk wallet")]
@@ -22,7 +24,19 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
     let args = Args::parse();
+
+    info!(
+        socket_path = %args.socket_path,
+        data_dir = %args.data_dir.display(),
+        "keypunkd starting"
+    );
 
     let keystore = Keypair::new();
     let (secret, public) = keystore.keypair();
@@ -36,16 +50,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let listener = UnixListener::bind(socket_path)?;
     let server = IpcReceiver::new(listener, secret, public);
-    eprintln!("keypunkd listening on {}", socket_path);
+    info!("keypunkd listening on {}", socket_path);
 
     let serve = tokio::spawn(async move {
         if let Err(e) = server.serve(dispatcher).await {
-            eprintln!("server error: {e}");
+            tracing::error!(error = %e, "server error");
         }
     });
 
     tokio::signal::ctrl_c().await?;
-    eprintln!("shutting down");
+    info!("shutting down");
     serve.abort();
     Ok(())
 }

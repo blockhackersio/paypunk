@@ -2,6 +2,7 @@ use blake2::digest::consts::U32;
 use blake2::Digest;
 use rand::RngCore;
 use tactix::{Actor, Addr, Ctx, Handler};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::messages::{
     IpcMessage, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY, MSG_REGISTER_CLIENT,
@@ -52,12 +53,15 @@ impl IpcSender {
     /// 3. Register our public key with the server
     /// 4. Derive a shared HMAC key for message authentication
     pub async fn connect(path: &str) -> Result<Addr<Self>, IpcError> {
+        info!(path, "connecting to IPC server");
+
         let mut transport = UnixSocketTransport::connect(path).await?;
 
         // Generate our keypair
         let (client_secret, client_public) = generate_keypair();
 
         // Step 1: Send GetPublicKey
+        debug!("handshake: sending GetPublicKey");
         transport.write_frame(&[MSG_GET_PUBLIC_KEY]).await?;
 
         // Step 2: Receive server's public key
@@ -69,6 +73,7 @@ impl IpcSender {
         }
         let mut server_public = [0u8; 32];
         server_public.copy_from_slice(&frame[1..33]);
+        debug!("handshake: received server public key");
 
         // Step 3: Send RegisterClient with our public key
         let mut reg = vec![MSG_REGISTER_CLIENT];
@@ -82,6 +87,7 @@ impl IpcSender {
                 "client registration rejected".into(),
             ));
         }
+        debug!("handshake: client registered successfully");
 
         // Derive shared HMAC key
         let shared = x25519_dalek::x25519(client_secret, server_public);
@@ -92,6 +98,7 @@ impl IpcSender {
             hmac_key,
         };
 
+        info!(path, "IPC connection established");
         Ok(actor.start())
     }
 }
@@ -100,6 +107,8 @@ impl Actor for IpcSender {}
 
 impl Handler<IpcMessage> for IpcSender {
     async fn handle(&mut self, msg: IpcMessage, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
+        trace!(payload_len = msg.payload.len(), "sending IPC message");
+
         // Build application frame: type byte + payload + MAC
         let mac = compute_mac(&self.hmac_key, &msg.payload);
         let mut frame = Vec::with_capacity(1 + msg.payload.len() + MAC_LEN);
@@ -110,23 +119,38 @@ impl Handler<IpcMessage> for IpcSender {
         self.transport
             .write_frame(&frame)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(error = %e, "failed to write IPC frame");
+                e.to_string()
+            })?;
 
         let raw = self
             .transport
             .read_frame()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(error = %e, "failed to read IPC response");
+                e.to_string()
+            })?;
+
         if raw.is_empty() {
+            error!("empty IPC response");
             return Err("empty response".into());
         }
         match raw[0] {
-            0 => Ok(raw[1..].to_vec()),
+            0 => {
+                trace!(response_len = raw[1..].len(), "IPC response OK");
+                Ok(raw[1..].to_vec())
+            }
             1 => {
                 let msg = String::from_utf8_lossy(&raw[1..]).to_string();
+                warn!(error = %msg, "IPC remote error");
                 Err(msg)
             }
-            _ => Err("invalid response status".into()),
+            _ => {
+                warn!(status = raw[0], "invalid IPC response status");
+                Err("invalid response status".into())
+            }
         }
     }
 }
