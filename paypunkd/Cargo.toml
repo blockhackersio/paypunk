@@ -1,0 +1,18 @@
+[package]
+name = "paypunkd"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "paypunkd"
+path = "src/main.rs"
+
+[dependencies]
+paypunk-ipc = { path = "../ipc" }
+keypunkd = { path = "../keypunkd" }
+tactix = "1.0"
+tokio = { version = "1", features = ["net", "io-util", "rt", "macros", "signal"] }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
