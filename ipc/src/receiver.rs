@@ -2,17 +2,15 @@ use std::path::Path;
 
 use blake2::digest::consts::U32;
 use blake2::Digest;
-use bytes::BytesMut;
 use rand::RngCore;
 use tactix::{Actor, Addr, Handler, Sender};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::messages::{
     IpcMessage, APPROVE_CONNECTION, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY,
     MSG_REGISTER_CLIENT, MSG_REGISTER_CLIENT_ACK,
 };
-use crate::sender::IpcError;
+use crate::transport::{IpcError, UnixSocketTransport};
 
 // ---------------------------------------------------------------------------
 // Keypair generation (X25519)
@@ -121,32 +119,11 @@ impl IpcReceiver {
 }
 
 // ---------------------------------------------------------------------------
-// Frame read/write helpers
-// ---------------------------------------------------------------------------
-
-async fn read_frame(stream: &mut UnixStream, buf: &mut BytesMut) -> Result<Vec<u8>, IpcError> {
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_le_bytes(len_buf) as usize;
-    buf.resize(len, 0);
-    stream.read_exact(&mut buf[..len]).await?;
-    Ok(buf[..len].to_vec())
-}
-
-async fn write_frame(stream: &mut UnixStream, data: &[u8]) -> Result<(), IpcError> {
-    let len = data.len() as u32;
-    stream.write_all(&len.to_le_bytes()).await?;
-    stream.write_all(data).await?;
-    stream.flush().await?;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
 // Per-connection handler
 // ---------------------------------------------------------------------------
 
 async fn handle_connection<H>(
-    mut stream: UnixStream,
+    stream: UnixStream,
     handler: Addr<H>,
     secret: [u8; 32],
     public: [u8; 32],
@@ -154,11 +131,11 @@ async fn handle_connection<H>(
 where
     H: Actor + Handler<IpcMessage>,
 {
-    let mut buf = BytesMut::with_capacity(4096);
+    let mut transport = UnixSocketTransport::from_stream(stream);
     let mut auth = ConnectionAuth::new();
 
     loop {
-        let frame = read_frame(&mut stream, &mut buf).await?;
+        let frame = transport.read_frame().await?;
         if frame.is_empty() {
             return Ok(());
         }
@@ -170,7 +147,7 @@ where
             MSG_GET_PUBLIC_KEY => {
                 let mut response = vec![MSG_PUBLIC_KEY];
                 response.extend_from_slice(&public);
-                write_frame(&mut stream, &response).await?;
+                transport.write_frame(&response).await?;
             }
 
             MSG_REGISTER_CLIENT => {
@@ -183,7 +160,7 @@ where
                 let hmac_key = compute_mac(&shared, b"paypunk-ipc-hmac");
                 auth.hmac_key = Some(hmac_key);
                 auth.registered = true;
-                write_frame(&mut stream, &[MSG_REGISTER_CLIENT_ACK]).await?;
+                transport.write_frame(&[MSG_REGISTER_CLIENT_ACK]).await?;
             }
 
             MSG_APPLICATION => {
@@ -207,25 +184,23 @@ where
                     Ok(bytes) => {
                         if !bytes.is_empty() && bytes[0] == APPROVE_CONNECTION {
                             auth.approved = true;
-                            let len = (bytes.len() - 1 + 1) as u32; // +1 for status
-                            stream.write_all(&len.to_le_bytes()).await?;
-                            stream.write_all(&[0u8]).await?; // status 0 = success
-                            stream.write_all(&bytes[1..]).await?;
+                            let mut frame = Vec::with_capacity(1 + bytes.len() - 1);
+                            frame.push(0u8); // status 0 = success
+                            frame.extend_from_slice(&bytes[1..]);
+                            transport.write_frame(&frame).await?;
                         } else {
-                            let len = (bytes.len() + 1) as u32;
-                            stream.write_all(&len.to_le_bytes()).await?;
-                            stream.write_all(&[0u8]).await?;
-                            stream.write_all(&bytes).await?;
+                            let mut frame = Vec::with_capacity(1 + bytes.len());
+                            frame.push(0u8); // status 0 = success
+                            frame.extend_from_slice(&bytes);
+                            transport.write_frame(&frame).await?;
                         }
-                        stream.flush().await?;
                     }
                     Err(e) => {
                         let err_bytes = e.into_bytes();
-                        let len = (err_bytes.len() + 1) as u32;
-                        stream.write_all(&len.to_le_bytes()).await?;
-                        stream.write_all(&[1u8]).await?; // status 1 = error
-                        stream.write_all(&err_bytes).await?;
-                        stream.flush().await?;
+                        let mut frame = Vec::with_capacity(1 + err_bytes.len());
+                        frame.push(1u8); // status 1 = error
+                        frame.extend_from_slice(&err_bytes);
+                        transport.write_frame(&frame).await?;
                     }
                 }
             }

@@ -1,28 +1,13 @@
 use blake2::digest::consts::U32;
 use blake2::Digest;
-use bytes::BytesMut;
 use rand::RngCore;
 use tactix::{Actor, Addr, Ctx, Handler};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
 
 use crate::messages::{
     IpcMessage, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY, MSG_REGISTER_CLIENT,
     MSG_REGISTER_CLIENT_ACK,
 };
-
-/// Error type for IPC transport operations.
-#[derive(Debug, thiserror::Error)]
-pub enum IpcError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("Connection closed")]
-    ConnectionClosed,
-
-    #[error("Handshake failed: {0}")]
-    HandshakeFailed(String),
-}
+use crate::transport::{IpcError, UnixSocketTransport};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,12 +34,11 @@ fn compute_mac(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
 }
 
 // ---------------------------------------------------------------------------
-// IpcSender — wraps a UnixStream as a tactix actor
+// IpcSender — wraps a transport as a tactix actor
 // ---------------------------------------------------------------------------
 
 pub struct IpcSender {
-    stream: UnixStream,
-    read_buf: BytesMut,
+    transport: UnixSocketTransport,
     hmac_key: [u8; 32],
 }
 
@@ -68,17 +52,16 @@ impl IpcSender {
     /// 3. Register our public key with the server
     /// 4. Derive a shared HMAC key for message authentication
     pub async fn connect(path: &str) -> Result<Addr<Self>, IpcError> {
-        let mut stream = UnixStream::connect(path).await?;
-        let mut buf = BytesMut::with_capacity(4096);
+        let mut transport = UnixSocketTransport::connect(path).await?;
 
         // Generate our keypair
         let (client_secret, client_public) = generate_keypair();
 
         // Step 1: Send GetPublicKey
-        write_frame(&mut stream, &[MSG_GET_PUBLIC_KEY]).await?;
+        transport.write_frame(&[MSG_GET_PUBLIC_KEY]).await?;
 
         // Step 2: Receive server's public key
-        let frame = read_frame(&mut stream, &mut buf).await?;
+        let frame = transport.read_frame().await?;
         if frame.len() != 33 || frame[0] != MSG_PUBLIC_KEY {
             return Err(IpcError::HandshakeFailed(
                 "unexpected response to GetPublicKey".into(),
@@ -90,10 +73,10 @@ impl IpcSender {
         // Step 3: Send RegisterClient with our public key
         let mut reg = vec![MSG_REGISTER_CLIENT];
         reg.extend_from_slice(&client_public);
-        write_frame(&mut stream, &reg).await?;
+        transport.write_frame(&reg).await?;
 
         // Step 4: Wait for registration ack
-        let ack = read_frame(&mut stream, &mut buf).await?;
+        let ack = transport.read_frame().await?;
         if ack.len() != 1 || ack[0] != MSG_REGISTER_CLIENT_ACK {
             return Err(IpcError::HandshakeFailed(
                 "client registration rejected".into(),
@@ -105,29 +88,11 @@ impl IpcSender {
         let hmac_key = compute_mac(&shared, b"paypunk-ipc-hmac");
 
         let actor = Self {
-            stream,
-            read_buf: BytesMut::with_capacity(4096),
+            transport,
             hmac_key,
         };
 
         Ok(actor.start())
-    }
-
-    async fn read_raw(&mut self) -> Result<Vec<u8>, IpcError> {
-        let mut len_buf = [0u8; 4];
-        self.stream.read_exact(&mut len_buf).await?;
-        let len = u32::from_le_bytes(len_buf) as usize;
-        self.read_buf.resize(len, 0);
-        self.stream.read_exact(&mut self.read_buf[..len]).await?;
-        Ok(self.read_buf[..len].to_vec())
-    }
-
-    async fn write_raw(&mut self, data: &[u8]) -> Result<(), IpcError> {
-        let len = data.len() as u32;
-        self.stream.write_all(&len.to_le_bytes()).await?;
-        self.stream.write_all(data).await?;
-        self.stream.flush().await?;
-        Ok(())
     }
 }
 
@@ -142,9 +107,16 @@ impl Handler<IpcMessage> for IpcSender {
         frame.extend_from_slice(&msg.0);
         frame.extend_from_slice(&mac);
 
-        self.write_raw(&frame).await.map_err(|e| e.to_string())?;
+        self.transport
+            .write_frame(&frame)
+            .await
+            .map_err(|e| e.to_string())?;
 
-        let raw = self.read_raw().await.map_err(|e| e.to_string())?;
+        let raw = self
+            .transport
+            .read_frame()
+            .await
+            .map_err(|e| e.to_string())?;
         if raw.is_empty() {
             return Err("empty response".into());
         }
@@ -157,25 +129,4 @@ impl Handler<IpcMessage> for IpcSender {
             _ => Err("invalid response status".into()),
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Frame I/O helpers (duplicated from server to keep sender self-contained)
-// ---------------------------------------------------------------------------
-
-async fn read_frame(stream: &mut UnixStream, buf: &mut BytesMut) -> Result<Vec<u8>, IpcError> {
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_le_bytes(len_buf) as usize;
-    buf.resize(len, 0);
-    stream.read_exact(&mut buf[..len]).await?;
-    Ok(buf[..len].to_vec())
-}
-
-async fn write_frame(stream: &mut UnixStream, data: &[u8]) -> Result<(), IpcError> {
-    let len = data.len() as u32;
-    stream.write_all(&len.to_le_bytes()).await?;
-    stream.write_all(data).await?;
-    stream.flush().await?;
-    Ok(())
 }
