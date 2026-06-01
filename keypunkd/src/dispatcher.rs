@@ -27,7 +27,7 @@ impl<S: Storage> Actor for Dispatcher<S> {}
 impl<S: Storage> Handler<IpcMessage> for Dispatcher<S> {
     async fn handle(&mut self, msg: IpcMessage, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
         let request: KeypunkdRequest =
-            postcard::from_bytes(&msg.0).map_err(|e| format!("deserialize error: {e}"))?;
+            postcard::from_bytes(&msg.payload).map_err(|e| format!("deserialize error: {e}"))?;
 
         let response = match request {
             KeypunkdRequest::GetPublicKey => KeypunkdResponse::PublicKey {

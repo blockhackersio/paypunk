@@ -101,10 +101,10 @@ impl Actor for IpcSender {}
 impl Handler<IpcMessage> for IpcSender {
     async fn handle(&mut self, msg: IpcMessage, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
         // Build application frame: type byte + payload + MAC
-        let mac = compute_mac(&self.hmac_key, &msg.0);
-        let mut frame = Vec::with_capacity(1 + msg.0.len() + MAC_LEN);
+        let mac = compute_mac(&self.hmac_key, &msg.payload);
+        let mut frame = Vec::with_capacity(1 + msg.payload.len() + MAC_LEN);
         frame.push(MSG_APPLICATION);
-        frame.extend_from_slice(&msg.0);
+        frame.extend_from_slice(&msg.payload);
         frame.extend_from_slice(&mac);
 
         self.transport

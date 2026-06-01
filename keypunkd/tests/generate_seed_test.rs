@@ -12,7 +12,7 @@ async fn test_get_public_key() {
     let addr = Dispatcher::new(keystore, store).start();
 
     let bytes = postcard::to_allocvec(&KeypunkdRequest::GetPublicKey).unwrap();
-    let response_bytes = addr.ask(IpcMessage(bytes)).await.unwrap();
+    let response_bytes = addr.ask(IpcMessage::new(bytes)).await.unwrap();
     let response: KeypunkdResponse = postcard::from_bytes(&response_bytes).unwrap();
 
     match response {
@@ -32,7 +32,7 @@ async fn test_generate_seed_no_filesystem() {
     // Client side
     let server_pk = {
         let bytes = postcard::to_allocvec(&KeypunkdRequest::GetPublicKey).unwrap();
-        let response_bytes = addr.ask(IpcMessage(bytes)).await.unwrap();
+        let response_bytes = addr.ask(IpcMessage::new(bytes)).await.unwrap();
         let response: KeypunkdResponse = postcard::from_bytes(&response_bytes).unwrap();
         match response {
             KeypunkdResponse::PublicKey { key } => key,
@@ -49,7 +49,7 @@ async fn test_generate_seed_no_filesystem() {
         client_public_key: client_pk,
     };
     let bytes = postcard::to_allocvec(&request).unwrap();
-    let response_bytes = addr.ask(IpcMessage(bytes)).await.unwrap();
+    let response_bytes = addr.ask(IpcMessage::new(bytes)).await.unwrap();
     let response: KeypunkdResponse = postcard::from_bytes(&response_bytes).unwrap();
 
     match response {
@@ -71,7 +71,7 @@ async fn test_generate_seed_empty_password() {
 
     let server_pk = {
         let bytes = postcard::to_allocvec(&KeypunkdRequest::GetPublicKey).unwrap();
-        let response_bytes = addr.ask(IpcMessage(bytes)).await.unwrap();
+        let response_bytes = addr.ask(IpcMessage::new(bytes)).await.unwrap();
         let response: KeypunkdResponse = postcard::from_bytes(&response_bytes).unwrap();
         match response {
             KeypunkdResponse::PublicKey { key } => key,
@@ -87,7 +87,7 @@ async fn test_generate_seed_empty_password() {
         client_public_key: client.public_key(),
     };
     let bytes = postcard::to_allocvec(&request).unwrap();
-    let response_bytes = addr.ask(IpcMessage(bytes)).await.unwrap();
+    let response_bytes = addr.ask(IpcMessage::new(bytes)).await.unwrap();
     let response: KeypunkdResponse = postcard::from_bytes(&response_bytes).unwrap();
 
     match response {

@@ -7,7 +7,7 @@ use tactix::{Actor, Addr, Handler, Sender};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::messages::{
-    IpcMessage, APPROVE_CONNECTION, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY,
+    IpcMessage, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY,
     MSG_REGISTER_CLIENT, MSG_REGISTER_CLIENT_ACK,
 };
 use crate::transport::{IpcError, UnixSocketTransport};
@@ -43,7 +43,7 @@ fn compute_mac(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
 struct ConnectionAuth {
     hmac_key: Option<[u8; 32]>,
     registered: bool,
-    approved: bool,
+    client_public_key: Option<[u8; 32]>,
 }
 
 impl ConnectionAuth {
@@ -51,7 +51,7 @@ impl ConnectionAuth {
         Self {
             hmac_key: None,
             registered: false,
-            approved: false,
+            client_public_key: None,
         }
     }
 }
@@ -160,6 +160,7 @@ where
                 let hmac_key = compute_mac(&shared, b"paypunk-ipc-hmac");
                 auth.hmac_key = Some(hmac_key);
                 auth.registered = true;
+                auth.client_public_key = Some(client_pk);
                 transport.write_frame(&[MSG_REGISTER_CLIENT_ACK]).await?;
             }
 
@@ -177,23 +178,20 @@ where
                     return Ok(()); // MAC mismatch, drop connection
                 }
 
-                // Forward to handler
-                let response = handler.ask(IpcMessage(msg_payload.to_vec())).await;
+                // Forward to handler with the client's public key
+                let response = handler
+                    .ask(IpcMessage {
+                        payload: msg_payload.to_vec(),
+                        sender_public_key: auth.client_public_key,
+                    })
+                    .await;
 
                 match response {
                     Ok(bytes) => {
-                        if !bytes.is_empty() && bytes[0] == APPROVE_CONNECTION {
-                            auth.approved = true;
-                            let mut frame = Vec::with_capacity(1 + bytes.len() - 1);
-                            frame.push(0u8); // status 0 = success
-                            frame.extend_from_slice(&bytes[1..]);
-                            transport.write_frame(&frame).await?;
-                        } else {
-                            let mut frame = Vec::with_capacity(1 + bytes.len());
-                            frame.push(0u8); // status 0 = success
-                            frame.extend_from_slice(&bytes);
-                            transport.write_frame(&frame).await?;
-                        }
+                        let mut frame = Vec::with_capacity(1 + bytes.len());
+                        frame.push(0u8); // status 0 = success
+                        frame.extend_from_slice(&bytes);
+                        transport.write_frame(&frame).await?;
                     }
                     Err(e) => {
                         let err_bytes = e.into_bytes();

@@ -12,7 +12,7 @@ impl Actor for EchoHandler {}
 
 impl Handler<IpcMessage> for EchoHandler {
     async fn handle(&mut self, msg: IpcMessage, _: &Ctx<Self>) -> Result<Vec<u8>, String> {
-        Ok(msg.0)
+        Ok(msg.payload)
     }
 }
 
@@ -38,14 +38,14 @@ impl Handler<IpcMessage> for ErrorHandler {
 async fn test_echo_direct() {
     let handler: Addr<EchoHandler> = EchoHandler.start();
     let input = b"hello world".to_vec();
-    let result = handler.ask(IpcMessage(input.clone())).await;
+    let result = handler.ask(IpcMessage::new(input.clone())).await;
     assert_eq!(result, Ok(input));
 }
 
 #[tokio::test]
 async fn test_empty_message_direct() {
     let handler = EchoHandler.start();
-    let result = handler.ask(IpcMessage(vec![])).await;
+    let result = handler.ask(IpcMessage::new(vec![])).await;
     assert_eq!(result, Ok(vec![]));
 }
 
@@ -53,14 +53,14 @@ async fn test_empty_message_direct() {
 async fn test_binary_data_direct() {
     let handler = EchoHandler.start();
     let input = vec![0u8, 1, 2, 255, 128, 64];
-    let result = handler.ask(IpcMessage(input.clone())).await;
+    let result = handler.ask(IpcMessage::new(input.clone())).await;
     assert_eq!(result, Ok(input));
 }
 
 #[tokio::test]
 async fn test_error_direct() {
     let handler: Addr<ErrorHandler> = ErrorHandler.start();
-    let result = handler.ask(IpcMessage(vec![1, 2, 3])).await;
+    let result = handler.ask(IpcMessage::new(vec![1, 2, 3])).await;
     assert_eq!(result, Err("something went wrong".into()));
 }
 
@@ -88,7 +88,7 @@ async fn test_echo_over_ipc() {
     let (_dir, path) = serve_handler(EchoHandler.start()).await;
     let ipc = IpcSender::connect(&path).await.unwrap();
     let input = b"hello over ipc".to_vec();
-    let result = ipc.ask(IpcMessage(input.clone())).await;
+    let result = ipc.ask(IpcMessage::new(input.clone())).await;
     assert_eq!(result, Ok(input));
 }
 
@@ -97,7 +97,7 @@ async fn test_binary_over_ipc() {
     let (_dir, path) = serve_handler(EchoHandler.start()).await;
     let ipc = IpcSender::connect(&path).await.unwrap();
     let input = vec![0u8, 255, 128, 64, 32];
-    let result = ipc.ask(IpcMessage(input.clone())).await;
+    let result = ipc.ask(IpcMessage::new(input.clone())).await;
     assert_eq!(result, Ok(input));
 }
 
@@ -106,7 +106,7 @@ async fn test_large_message_over_ipc() {
     let (_dir, path) = serve_handler(EchoHandler.start()).await;
     let ipc = IpcSender::connect(&path).await.unwrap();
     let input = vec![42u8; 100_000];
-    let result = ipc.ask(IpcMessage(input.clone())).await;
+    let result = ipc.ask(IpcMessage::new(input.clone())).await;
     assert_eq!(result, Ok(input));
 }
 
@@ -114,7 +114,7 @@ async fn test_large_message_over_ipc() {
 async fn test_error_over_ipc() {
     let (_dir, path) = serve_handler(ErrorHandler.start()).await;
     let ipc = IpcSender::connect(&path).await.unwrap();
-    let result = ipc.ask(IpcMessage(vec![1, 2, 3])).await;
+    let result = ipc.ask(IpcMessage::new(vec![1, 2, 3])).await;
     assert_eq!(result, Err("something went wrong".into()));
 }
 
@@ -136,8 +136,8 @@ async fn test_referential_transparency() {
     // Both recipients have the same type: Recipient<IpcMessage>
     let input = b"same type".to_vec();
 
-    let direct_result = direct_recipient.ask(IpcMessage(input.clone())).await;
-    let ipc_result = ipc_recipient.ask(IpcMessage(input.clone())).await;
+    let direct_result = direct_recipient.ask(IpcMessage::new(input.clone())).await;
+    let ipc_result = ipc_recipient.ask(IpcMessage::new(input.clone())).await;
 
     assert_eq!(direct_result, Ok(input.clone()));
     assert_eq!(ipc_result, Ok(input));
