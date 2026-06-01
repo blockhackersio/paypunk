@@ -1,7 +1,5 @@
 # Paypunk Wallet
 
-> 'Private money, punk.'
-
 Wallet infrastructure for privacy-preserving commerce on desktop and agentic workflows.
 
 ## Architecture
