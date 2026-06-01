@@ -50,6 +50,20 @@ impl Handler<IpcMessage> for Paypunkd {
                     }
                 }
             }
+            PaypunkdRequest::RestoreSeed {
+                encrypted_mnemonic,
+                encrypted_password,
+                client_public_key,
+            } => {
+                info!("forwarding RestoreSeed to keypunkd");
+                match usecases::restore_seed(&self.keypunk_service, encrypted_mnemonic, encrypted_password, client_public_key).await {
+                    Ok(()) => PaypunkdResponse::SeedRestored,
+                    Err(e) => {
+                        warn!(error = %e, "RestoreSeed failed");
+                        PaypunkdResponse::Error { message: e }
+                    }
+                }
+            }
         };
 
         let encoded = postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))?;

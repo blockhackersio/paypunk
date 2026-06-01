@@ -4,6 +4,7 @@ use std::sync::Mutex;
 /// How the encrypted seed blob is persisted.
 pub trait SeedStore {
     fn write(&self, blob: &[u8]) -> Result<(), SeedStoreError>;
+    fn read(&self) -> Result<Option<Vec<u8>>, SeedStoreError>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -33,6 +34,13 @@ impl SeedStore for FilesystemSeedStore {
         std::fs::rename(&tmp_path, &self.path)?;
         Ok(())
     }
+
+    fn read(&self) -> Result<Option<Vec<u8>>, SeedStoreError> {
+        if !self.path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(std::fs::read(&self.path)?))
+    }
 }
 
 /// Holds the encrypted seed in memory — no filesystem access.
@@ -53,6 +61,11 @@ impl SeedStore for InMemorySeedStore {
         let mut guard = self.blob.lock().expect("lock poisoned");
         *guard = Some(blob.to_vec());
         Ok(())
+    }
+
+    fn read(&self) -> Result<Option<Vec<u8>>, SeedStoreError> {
+        let guard = self.blob.lock().expect("lock poisoned");
+        Ok(guard.clone())
     }
 }
 

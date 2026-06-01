@@ -13,6 +13,17 @@ pub enum KeypunkdRequest {
         /// Used to derive the shared secret for both directions.
         client_public_key: [u8; 32],
     },
+    /// Restore a wallet from an existing mnemonic seed phrase.
+    RestoreSeed {
+        /// Mnemonic encrypted to keypunkd's public key.
+        /// Format: nonce(12) + ciphertext
+        encrypted_mnemonic: Vec<u8>,
+        /// Password encrypted to keypunkd's public key.
+        /// Format: nonce(12) + ciphertext
+        encrypted_password: Vec<u8>,
+        /// Client's ephemeral X25519 public key (32 bytes).
+        client_public_key: [u8; 32],
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,5 +34,6 @@ pub enum KeypunkdResponse {
         /// Format: nonce(12) + ciphertext
         encrypted_mnemonic: Vec<u8>,
     },
+    SeedRestored,
     Error { message: String },
 }

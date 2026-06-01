@@ -57,7 +57,30 @@ pub fn encrypt_seed(seed: &[u8; 64], password: &str) -> Result<Vec<u8>, KeyError
     Ok(blob)
 }
 
-#[cfg(test)]
+/// Decrypt a 64-byte seed blob that was encrypted with `encrypt_seed`.
+///
+/// Expects blob: [salt (16 bytes)] [nonce (12 bytes)] [ciphertext].
+pub fn decrypt_seed(blob: &[u8], password: &str) -> Result<[u8; 64], KeyError> {
+    if blob.len() < SALT_LEN + NONCE_LEN {
+        return Err(KeyError::Crypto("blob too short".into()));
+    }
+    let salt = &blob[..SALT_LEN];
+    let nonce = &blob[SALT_LEN..SALT_LEN + NONCE_LEN];
+    let ciphertext = &blob[SALT_LEN + NONCE_LEN..];
+
+    let derived_key = derive_key(password, salt);
+    let key = Key::<Aes256Gcm>::from_slice(&derived_key);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(nonce);
+
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| KeyError::Crypto(e.to_string()))?;
+
+    let mut seed = [0u8; 64];
+    seed.copy_from_slice(&plaintext);
+    Ok(seed)
+}
 mod tests {
     use super::*;
 
@@ -70,16 +93,40 @@ mod tests {
     }
 
     #[test]
+    fn test_encrypt_decrypt_seed_roundtrip() {
+        let (seed, _) = generate_seed();
+        let password = "my-wallet-password";
+
+        let encrypted = encrypt_seed(&seed, password).unwrap();
+        let decrypted = decrypt_seed(&encrypted, password).unwrap();
+
+        assert_eq!(decrypted, seed);
+    }
+
+    #[test]
+    fn test_decrypt_seed_wrong_password_fails() {
+        let (seed, _) = generate_seed();
+        let encrypted = encrypt_seed(&seed, "correct-password").unwrap();
+
+        let result = decrypt_seed(&encrypted, "wrong-password");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decrypt_seed_invalid_blob_fails() {
+        let result = decrypt_seed(&[0u8; 5], "password");
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_encrypt_decrypt_roundtrip() {
         let (seed, _) = generate_seed();
         let password = "test-password-123";
 
         let encrypted = encrypt_seed(&seed, password).unwrap();
 
-        // Blob should be salt + nonce + ciphertext
         assert!(encrypted.len() > SALT_LEN + NONCE_LEN);
 
-        // Verify we can decrypt it
         let salt = &encrypted[..SALT_LEN];
         let nonce = &encrypted[SALT_LEN..SALT_LEN + NONCE_LEN];
         let ciphertext = &encrypted[SALT_LEN + NONCE_LEN..];

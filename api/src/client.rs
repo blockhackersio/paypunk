@@ -35,4 +35,13 @@ impl Client {
     ) -> Result<Zeroizing<String>, String> {
         crate::functions::generate_seed(&self.service, password).await
     }
+
+    /// Restore a wallet from an existing BIP39 mnemonic seed phrase and password.
+    pub async fn restore_seed(
+        &self,
+        mnemonic: Zeroizing<String>,
+        password: Zeroizing<String>,
+    ) -> Result<(), String> {
+        crate::functions::restore_seed(&self.service, mnemonic, password).await
+    }
 }

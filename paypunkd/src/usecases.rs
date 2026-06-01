@@ -13,3 +13,12 @@ pub async fn generate_seed(
 ) -> Result<Vec<u8>, String> {
     service.generate_seed(encrypted_password, client_public_key).await
 }
+
+pub async fn restore_seed(
+    service: &KeypunkService,
+    encrypted_mnemonic: Vec<u8>,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+) -> Result<(), String> {
+    service.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key).await
+}

@@ -101,6 +101,33 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                     }
                 }
             }
+            // Password-authenticated — sets session on success.
+            KeypunkdRequest::RestoreSeed {
+                encrypted_mnemonic,
+                encrypted_password,
+                client_public_key,
+            } => {
+                info!("handling RestoreSeed");
+                match usecases::restore_seed(
+                    &self.keystore,
+                    &encrypted_mnemonic,
+                    &encrypted_password,
+                    &client_public_key,
+                    &self.seed_store,
+                ) {
+                    Ok(()) => {
+                        self.set_session(&msg);
+                        info!("seed restored successfully");
+                        KeypunkdResponse::SeedRestored
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "RestoreSeed failed");
+                        KeypunkdResponse::Error {
+                            message: e.to_string(),
+                        }
+                    }
+                }
+            }
         };
 
         let encoded = postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))?;

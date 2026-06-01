@@ -47,4 +47,28 @@ impl KeypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn restore_seed(
+        &self,
+        encrypted_mnemonic: Vec<u8>,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<(), String> {
+        let request = KeypunkdRequest::RestoreSeed {
+            encrypted_mnemonic,
+            encrypted_password,
+            client_public_key,
+        };
+        let payload =
+            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
+        let msg = IpcMessage::new(payload);
+        let response_bytes = self.recipient.ask(msg).await?;
+        let response: KeypunkdResponse =
+            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
+        match response {
+            KeypunkdResponse::SeedRestored => Ok(()),
+            KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }
