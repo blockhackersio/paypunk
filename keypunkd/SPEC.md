@@ -128,19 +128,31 @@ A tactix actor generic over any `SeedStore` implementation:
 struct Dispatcher<S: Storage> {
     keystore: KeyStore,
     seed_store: S,
+    session: Option<[u8; 32]>,     // sender_public_key of the active session
 }
 ```
+
+Session management:
+- `session` stores the `sender_public_key` from the last successful password-authenticated request (`GenerateSeed`, and future `Unlock`).
+- `GetPublicKey` is **always allowed** — no session check.
+- Requests with `encrypted_password` (e.g., `GenerateSeed`, future `Unlock`) **attempt execution unconditionally**. On success, `session` is set to the request's `sender_public_key`. On failure, an error is returned and `session` is unchanged.
+- All other requests **check the current session**: if `msg.sender_public_key` does not match `session`, an error is returned. If `session` is `None`, an error is returned (no active session).
+
+This ensures only one process at a time can hold an authenticated session with keypunkd, especially while the keystore is unlocked.
+
+Message flow:
 
 1. Receives `IpcMessage` (raw bytes)
 2. Deserializes bytes → `KeypunkdRequest` via `postcard`
 3. Matches on the request variant:
-   - `GetPublicKey` → returns `KeypunkdResponse::PublicKey { key }`
+   - `GetPublicKey` → returns `KeypunkdResponse::PublicKey { key }` (no session check)
    - `GenerateSeed { encrypted_password, client_public_key }` → calls `handle_generate_seed()`:
      - Decrypts password using `KeyStore::decrypt_password()`
      - Calls `key::generate_seed()` to create 64-byte seed + mnemonic
      - Calls `key::encrypt_seed()` with the recovered password
      - Persists via `SeedStore::write()`
      - Encrypts mnemonic back to client's public key via `KeyStore::encrypt_mnemonic()`
+     - On success, sets `session = msg.sender_public_key`
      - Returns `KeypunkdResponse::SeedGenerated { encrypted_mnemonic }`
 4. Serializes `KeypunkdResponse` → response bytes via `postcard`
 5. Returns bytes through the IPC actor
