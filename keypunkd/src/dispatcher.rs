@@ -1,7 +1,8 @@
 use paypunk_ipc::IpcMessage;
 use tactix::{Actor, Ctx, Handler};
+use zeroize::Zeroizing;
 
-use crate::crypto::KeyStore;
+use crate::crypto::Keypair;
 use crate::key;
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
 use crate::seed_store::SeedStore;
@@ -11,12 +12,12 @@ pub trait Storage: SeedStore + Send + Sync + 'static {}
 impl<T: SeedStore + Send + Sync + 'static> Storage for T {}
 
 pub struct Dispatcher<S: Storage> {
-    keystore: KeyStore,
+    keystore: Keypair,
     seed_store: S,
 }
 
 impl<S: Storage> Dispatcher<S> {
-    pub fn new(keystore: KeyStore, seed_store: S) -> Self {
+    pub fn new(keystore: Keypair, seed_store: S) -> Self {
         Self { keystore, seed_store }
     }
 }
@@ -53,16 +54,17 @@ impl<S: Storage> Handler<IpcMessage> for Dispatcher<S> {
 }
 
 fn handle_generate_seed(
-    keystore: &KeyStore,
+    keystore: &Keypair,
     encrypted_password: &[u8],
     client_pk: &[u8; 32],
     store: &impl SeedStore,
 ) -> Result<Vec<u8>, GenerateError> {
-    let password = keystore.decrypt_password(encrypted_password, client_pk)?;
+    let password = keystore.decrypt(encrypted_password, client_pk)?;
     let (seed, mnemonic) = key::generate_seed();
-    let encrypted = key::encrypt_seed(&seed, &password)?;
+    let encrypted = key::encrypt_seed(&seed, &*password)?;
     store.write(&encrypted)?;
-    Ok(keystore.encrypt_mnemonic(&mnemonic, client_pk))
+    let mnemonic = Zeroizing::new(mnemonic);
+    Ok(keystore.encrypt(mnemonic, client_pk))
 }
 
 #[derive(Debug, thiserror::Error)]

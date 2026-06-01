@@ -3,6 +3,7 @@ use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use blake2::digest::consts::U32;
 use blake2::Digest;
 use rand::RngCore;
+use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CryptoError {
@@ -25,9 +26,9 @@ fn derive_aes_key(shared_secret: &[u8; 32]) -> Key<Aes256Gcm> {
     *Key::<Aes256Gcm>::from_slice(&result)
 }
 
-// ---------------------------------------------------------------------------
-// Shared: encrypt/decrypt helpers
-// ---------------------------------------------------------------------------
+fn utf8_decode(bytes: Vec<u8>) -> Result<String, CryptoError> {
+    String::from_utf8(bytes).map_err(|_| CryptoError::Decryption("invalid utf-8".into()))
+}
 
 fn encrypt(key: &Key<Aes256Gcm>, plaintext: &[u8]) -> Vec<u8> {
     let mut nonce_bytes = [0u8; NONCE_LEN];
@@ -54,27 +55,27 @@ fn decrypt(key: &Key<Aes256Gcm>, blob: &[u8]) -> Result<Vec<u8>, CryptoError> {
 }
 
 /// Generate a random X25519 keypair. Returns (secret_scalar, public_key).
-fn generate_keypair() -> ([u8; 32], [u8; 32]) {
-    let mut secret = [0u8; 32];
-    OsRng.fill_bytes(&mut secret);
+fn generate_keypair() -> (Zeroizing<[u8; 32]>, [u8; 32]) {
+    let mut secret = Zeroizing::new([0u8; 32]);
+    OsRng.fill_bytes(&mut *secret);
     // Clamp per RFC 7748
     secret[0] &= 248;
     secret[31] &= 127;
     secret[31] |= 64;
-    let public = x25519_dalek::x25519(secret, x25519_dalek::X25519_BASEPOINT_BYTES);
+    let public = x25519_dalek::x25519(*secret, x25519_dalek::X25519_BASEPOINT_BYTES);
     (secret, public)
 }
 
 // ---------------------------------------------------------------------------
-// Server side — long-lived keypair held by keypunkd
+// Keypair — X25519 keypair for encrypted IPC exchange
 // ---------------------------------------------------------------------------
 
-pub struct KeyStore {
-    secret: [u8; 32],
+pub struct Keypair {
+    secret: Zeroizing<[u8; 32]>,
     public: [u8; 32],
 }
 
-impl KeyStore {
+impl Keypair {
     pub fn new() -> Self {
         let (secret, public) = generate_keypair();
         Self { secret, public }
@@ -85,61 +86,33 @@ impl KeyStore {
     }
 
     pub fn keypair(&self) -> ([u8; 32], [u8; 32]) {
-        (self.secret, self.public)
+        (*self.secret, self.public)
     }
 
-    pub fn decrypt_password(
+    fn shared_aes_key(&self, peer_pk: &[u8; 32]) -> Key<Aes256Gcm> {
+        let shared = Zeroizing::new(x25519_dalek::x25519(*self.secret, *peer_pk));
+        derive_aes_key(&shared)
+    }
+
+    /// Encrypt a secret message to a peer.
+    pub fn encrypt<T>(&self, secret_message: Zeroizing<T>, peer_pk: &[u8; 32]) -> Vec<u8>
+    where
+        T: Zeroize + AsRef<[u8]>,
+    {
+        let key = self.shared_aes_key(peer_pk);
+        encrypt(&key, (*secret_message).as_ref())
+    }
+
+    /// Decrypt a message from a peer.
+    pub fn decrypt(
         &self,
         encrypted: &[u8],
-        client_pk: &[u8; 32],
-    ) -> Result<String, CryptoError> {
-        let shared = x25519_dalek::x25519(self.secret, *client_pk);
-        let key = derive_aes_key(&shared);
+        peer_pk: &[u8; 32],
+    ) -> Result<Zeroizing<String>, CryptoError> {
+        let key = self.shared_aes_key(peer_pk);
         let plaintext = decrypt(&key, encrypted)?;
-        String::from_utf8(plaintext).map_err(|_| CryptoError::Decryption("invalid utf-8".into()))
-    }
-
-    pub fn encrypt_mnemonic(&self, mnemonic: &str, client_pk: &[u8; 32]) -> Vec<u8> {
-        let shared = x25519_dalek::x25519(self.secret, *client_pk);
-        let key = derive_aes_key(&shared);
-        encrypt(&key, mnemonic.as_bytes())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Client side — ephemeral keypair for a single GenerateSeed call
-// ---------------------------------------------------------------------------
-
-pub struct CryptoSession {
-    secret: [u8; 32],
-    public: [u8; 32],
-}
-
-impl CryptoSession {
-    pub fn new() -> Self {
-        let (secret, public) = generate_keypair();
-        Self { secret, public }
-    }
-
-    pub fn public_key(&self) -> [u8; 32] {
-        self.public
-    }
-
-    pub fn seal_password(&self, password: &str, server_pk: &[u8; 32]) -> Vec<u8> {
-        let shared = x25519_dalek::x25519(self.secret, *server_pk);
-        let key = derive_aes_key(&shared);
-        encrypt(&key, password.as_bytes())
-    }
-
-    pub fn open_mnemonic(
-        &self,
-        encrypted: &[u8],
-        server_pk: &[u8; 32],
-    ) -> Result<String, CryptoError> {
-        let shared = x25519_dalek::x25519(self.secret, *server_pk);
-        let key = derive_aes_key(&shared);
-        let plaintext = decrypt(&key, encrypted)?;
-        String::from_utf8(plaintext).map_err(|_| CryptoError::Decryption("invalid utf-8".into()))
+        let s = utf8_decode(plaintext)?;
+        Ok(Zeroizing::new(s))
     }
 }
 
@@ -149,59 +122,64 @@ mod tests {
 
     #[test]
     fn test_password_roundtrip() {
-        let server = KeyStore::new();
-        let client = CryptoSession::new();
+        let server = Keypair::new();
+        let client = Keypair::new();
 
-        let password = "my-secret-password";
-        let encrypted = client.seal_password(password, &server.public_key());
-        let decrypted = server.decrypt_password(&encrypted, &client.public_key()).unwrap();
+        let password = Zeroizing::new("my-secret-password".to_string());
+        let encrypted = client.encrypt(password.clone(), &server.public_key());
+        let decrypted = server.decrypt(&encrypted, &client.public_key()).unwrap();
 
-        assert_eq!(decrypted, password);
+        assert_eq!(*decrypted, *password);
     }
 
     #[test]
     fn test_mnemonic_roundtrip() {
-        let server = KeyStore::new();
-        let client = CryptoSession::new();
+        let server = Keypair::new();
+        let client = Keypair::new();
 
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let encrypted = server.encrypt_mnemonic(mnemonic, &client.public_key());
-        let decrypted = client.open_mnemonic(&encrypted, &server.public_key()).unwrap();
+        let mnemonic = Zeroizing::new("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string());
+        let encrypted = server.encrypt(mnemonic.clone(), &client.public_key());
+        let decrypted = client.decrypt(&encrypted, &server.public_key()).unwrap();
 
-        assert_eq!(decrypted, mnemonic);
+        assert_eq!(*decrypted, *mnemonic);
     }
 
     #[test]
     fn test_wrong_key_fails() {
-        let server = KeyStore::new();
-        let other_server = KeyStore::new();
-        let client = CryptoSession::new();
+        let server = Keypair::new();
+        let other_server = Keypair::new();
+        let client = Keypair::new();
 
-        let password = "secret";
-        let encrypted = client.seal_password(password, &server.public_key());
+        let password = Zeroizing::new("secret".to_string());
+        let encrypted = client.encrypt(password, &server.public_key());
 
-        let result = other_server.decrypt_password(&encrypted, &client.public_key());
+        let result = other_server.decrypt(&encrypted, &client.public_key());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_blob_fails() {
-        let server = KeyStore::new();
-        let result = server.decrypt_password(&[1, 2, 3], &[0u8; 32]);
+        let server = Keypair::new();
+        let result = server.decrypt(&[1, 2, 3], &[0u8; 32]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_server_reuses_key() {
-        let server = KeyStore::new();
-        let client1 = CryptoSession::new();
-        let client2 = CryptoSession::new();
+        let server = Keypair::new();
+        let client1 = Keypair::new();
+        let client2 = Keypair::new();
 
-        // Server should handle multiple clients with the same key
-        let enc1 = client1.seal_password("pw1", &server.public_key());
-        let enc2 = client2.seal_password("pw2", &server.public_key());
+        let enc1 = client1.encrypt(Zeroizing::new("pw1".to_string()), &server.public_key());
+        let enc2 = client2.encrypt(Zeroizing::new("pw2".to_string()), &server.public_key());
 
-        assert_eq!(server.decrypt_password(&enc1, &client1.public_key()).unwrap(), "pw1");
-        assert_eq!(server.decrypt_password(&enc2, &client2.public_key()).unwrap(), "pw2");
+        assert_eq!(
+            *server.decrypt(&enc1, &client1.public_key()).unwrap(),
+            *Zeroizing::new("pw1".to_string())
+        );
+        assert_eq!(
+            *server.decrypt(&enc2, &client2.public_key()).unwrap(),
+            *Zeroizing::new("pw2".to_string())
+        );
     }
 }

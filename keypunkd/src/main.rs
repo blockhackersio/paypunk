@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use keypunkd::crypto::KeyStore;
+use keypunkd::crypto::Keypair;
 use keypunkd::dispatcher::Dispatcher;
 use keypunkd::seed_store::FilesystemSeedStore;
 use paypunk_ipc::IpcReceiver;
@@ -24,7 +24,7 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let keystore = KeyStore::new();
+    let keystore = Keypair::new();
     let (secret, public) = keystore.keypair();
     let seed_store = FilesystemSeedStore::new(args.data_dir.join("seed.enc").into_boxed_path());
 

@@ -1,4 +1,4 @@
-use keypunkd::crypto::{CryptoSession, KeyStore};
+use keypunkd::crypto::Keypair;
 use keypunkd::dispatcher::Dispatcher;
 use keypunkd::messages::{KeypunkdRequest, KeypunkdResponse};
 use keypunkd::seed_store::InMemorySeedStore;
@@ -7,7 +7,7 @@ use tactix::{Actor, Sender};
 
 #[tokio::test]
 async fn test_get_public_key() {
-    let keystore = KeyStore::new();
+    let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
     let addr = Dispatcher::new(keystore, store).start();
 
@@ -25,7 +25,7 @@ async fn test_get_public_key() {
 
 #[tokio::test]
 async fn test_generate_seed_no_filesystem() {
-    let keystore = KeyStore::new();
+    let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
     let addr = Dispatcher::new(keystore, store).start();
 
@@ -40,8 +40,8 @@ async fn test_generate_seed_no_filesystem() {
         }
     };
 
-    let client = CryptoSession::new();
-    let encrypted_password = client.seal_password("hunter2", &server_pk);
+    let client = Keypair::new();
+    let encrypted_password = client.encrypt(zeroize::Zeroizing::new("hunter2".to_string()), &server_pk);
     let client_pk = client.public_key();
 
     let request = KeypunkdRequest::GenerateSeed {
@@ -55,7 +55,7 @@ async fn test_generate_seed_no_filesystem() {
     match response {
         KeypunkdResponse::SeedGenerated { encrypted_mnemonic } => {
             let mnemonic = client
-                .open_mnemonic(&encrypted_mnemonic, &server_pk)
+                .decrypt(&encrypted_mnemonic, &server_pk)
                 .unwrap();
             assert_eq!(mnemonic.split_whitespace().count(), 12);
         }
@@ -65,7 +65,7 @@ async fn test_generate_seed_no_filesystem() {
 
 #[tokio::test]
 async fn test_generate_seed_empty_password() {
-    let keystore = KeyStore::new();
+    let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
     let addr = Dispatcher::new(keystore, store).start();
 
@@ -79,8 +79,8 @@ async fn test_generate_seed_empty_password() {
         }
     };
 
-    let client = CryptoSession::new();
-    let encrypted_password = client.seal_password("", &server_pk);
+    let client = Keypair::new();
+    let encrypted_password = client.encrypt(zeroize::Zeroizing::new("".to_string()), &server_pk);
 
     let request = KeypunkdRequest::GenerateSeed {
         encrypted_password,
@@ -93,7 +93,7 @@ async fn test_generate_seed_empty_password() {
     match response {
         KeypunkdResponse::SeedGenerated { encrypted_mnemonic } => {
             let mnemonic = client
-                .open_mnemonic(&encrypted_mnemonic, &server_pk)
+                .decrypt(&encrypted_mnemonic, &server_pk)
                 .unwrap();
             assert_eq!(mnemonic.split_whitespace().count(), 12);
         }
