@@ -1,5 +1,7 @@
 # Paypunk Wallet
 
+[![CI](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml/badge.svg)](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml)
+
 Wallet infrastructure for privacy-preserving commerce on desktop and agentic workflows.
 
 ## Architecture
