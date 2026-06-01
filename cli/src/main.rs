@@ -1,11 +1,10 @@
 use clap::{Parser, Subcommand};
-use paypunk_ipc::IpcSender;
-use paypunkd::services::PaypunkService;
-use tactix::Sender;
-use zeroize::Zeroizing;
 
 #[derive(Parser)]
-#[command(name = "paypunk", about = "Zcash wallet for privacy-preserving commerce")]
+#[command(
+    name = "paypunk",
+    about = "Zcash wallet for privacy-preserving commerce"
+)]
 struct Cli {
     #[arg(short, long, default_value = "/tmp/paypunkd.sock")]
     socket_path: String,
@@ -28,13 +27,12 @@ enum Commands {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    let ipc = IpcSender::connect(&cli.socket_path).await?;
-    let service = PaypunkService::new(ipc.recipient());
+    let client = paypunk_api::Client::connect(&cli.socket_path).await?;
 
     match cli.command {
         Commands::GenerateSeed { password } => {
-            let password = Zeroizing::new(password);
-            let mnemonic = paypunk_api::generate_seed(&service, password).await?;
+            let password = zeroize::Zeroizing::new(password);
+            let mnemonic = client.generate_seed(password).await?;
             println!("{}", *mnemonic);
         }
     }

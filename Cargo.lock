@@ -737,9 +737,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "paypunk-api",
- "paypunk-ipc",
- "paypunkd",
- "tactix",
  "tokio",
  "zeroize",
 ]
@@ -749,7 +746,9 @@ name = "paypunk-api"
 version = "0.1.0"
 dependencies = [
  "keypunkd",
+ "paypunk-ipc",
  "paypunkd",
+ "tactix",
  "zeroize",
 ]
 

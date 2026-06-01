@@ -6,4 +6,6 @@ edition = "2021"
 [dependencies]
 paypunkd = { path = "../paypunkd" }
 keypunkd = { path = "../keypunkd" }
+paypunk-ipc = { path = "../ipc" }
+tactix = "1.0"
 zeroize = "1"
