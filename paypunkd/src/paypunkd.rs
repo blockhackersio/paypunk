@@ -5,11 +5,11 @@ use tracing::{debug, info, warn};
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
 use crate::usecases;
 
-pub struct Dispatcher {
+pub struct Paypunkd {
     keypunk_service: keypunkd::services::KeypunkService,
 }
 
-impl Dispatcher {
+impl Paypunkd {
     pub fn new(recipient: Recipient<IpcMessage>) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
@@ -17,9 +17,9 @@ impl Dispatcher {
     }
 }
 
-impl Actor for Dispatcher {}
+impl Actor for Paypunkd {}
 
-impl Handler<IpcMessage> for Dispatcher {
+impl Handler<IpcMessage> for Paypunkd {
     async fn handle(&mut self, msg: IpcMessage, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
         let request: PaypunkdRequest =
             postcard::from_bytes(&msg.payload).map_err(|e| format!("deserialize error: {e}"))?;

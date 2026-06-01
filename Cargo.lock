@@ -805,6 +805,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "paypunk-tests"
+version = "0.1.0"
+dependencies = [
+ "keypunkd",
+ "paypunk-api",
+ "paypunk-ipc",
+ "paypunkd",
+ "postcard",
+ "tactix",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "paypunk-types"
 version = "0.1.0"
 dependencies = [

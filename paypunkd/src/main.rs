@@ -1,9 +1,8 @@
 use clap::Parser;
 use keypunkd::crypto::Keypair;
 use paypunk_ipc::{IpcReceiver, IpcSender};
-use paypunkd::dispatcher::Dispatcher;
+use paypunkd::Paypunkd;
 use tactix::{Actor, Sender};
-use tokio::net::UnixListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -40,18 +39,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keypunkd = IpcSender::connect(&args.keypunkd_socket).await?;
     let recipient = keypunkd.recipient();
 
-    let dispatcher = Dispatcher::new(recipient).start();
+    let paypunkd = Paypunkd::new(recipient).start();
 
-    let socket_path = &args.socket_path;
-    if std::path::Path::new(socket_path).exists() {
-        std::fs::remove_file(socket_path)?;
-    }
-    let listener = UnixListener::bind(socket_path)?;
-    let server = IpcReceiver::new(listener, secret, public);
-    info!("paypunkd listening on {}", socket_path);
+    let server = IpcReceiver::bind_with(&args.socket_path, secret, public).await?;
+    info!("paypunkd listening on {}", args.socket_path);
 
     let serve = tokio::spawn(async move {
-        if let Err(e) = server.serve(dispatcher).await {
+        if let Err(e) = server.serve(paypunkd).await {
             tracing::error!(error = %e, "server error");
         }
     });

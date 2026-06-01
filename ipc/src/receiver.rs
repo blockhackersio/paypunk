@@ -94,6 +94,29 @@ impl IpcReceiver {
         })
     }
 
+    /// Clean up any existing socket at `path`, bind a new `UnixListener`,
+    /// and create an `IpcReceiver` with the given keypair.
+    ///
+    /// This is a convenience wrapper around `UnixListener::bind` +
+    /// `IpcReceiver::new`, used by daemon binaries that already have a
+    /// keypair (e.g. keypunkd sharing its encryption keypair with IPC).
+    pub async fn bind_with(
+        path: impl AsRef<Path>,
+        secret: [u8; 32],
+        public: [u8; 32],
+    ) -> Result<Self, IpcError> {
+        let path = path.as_ref();
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        let listener = UnixListener::bind(path)?;
+        Ok(Self {
+            listener,
+            secret,
+            public,
+        })
+    }
+
     pub fn public_key(&self) -> [u8; 32] {
         self.public
     }

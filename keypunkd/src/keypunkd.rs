@@ -11,14 +11,14 @@ use crate::usecases;
 pub trait Storage: SeedStore + Send + Sync + 'static {}
 impl<T: SeedStore + Send + Sync + 'static> Storage for T {}
 
-pub struct Dispatcher<S: Storage> {
+pub struct Keypunkd<S: Storage> {
     keystore: Keypair,
     seed_store: S,
     session: Option<[u8; 32]>,
     skip_session_auth: bool,
 }
 
-impl<S: Storage> Dispatcher<S> {
+impl<S: Storage> Keypunkd<S> {
     pub fn new(keystore: Keypair, seed_store: S) -> Self {
         Self {
             keystore,
@@ -57,9 +57,9 @@ impl<S: Storage> Dispatcher<S> {
     }
 }
 
-impl<S: Storage> Actor for Dispatcher<S> {}
+impl<S: Storage> Actor for Keypunkd<S> {}
 
-impl<S: Storage> Handler<IpcMessage> for Dispatcher<S> {
+impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
     async fn handle(&mut self, msg: IpcMessage, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
         self.verify_message(&msg)?;
 

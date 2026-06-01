@@ -1,6 +1,7 @@
+use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
 use paypunkd::services::PaypunkService;
-use tactix::Sender;
+use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
 
 /// High-level wallet client that hides IPC and service details.
@@ -16,6 +17,14 @@ impl Client {
             .map_err(|e| e.to_string())?;
         let service = PaypunkService::new(ipc.recipient());
         Ok(Self { service })
+    }
+
+    /// Create a client from an existing IPC recipient, bypassing Unix sockets.
+    /// Useful for testing where actors are wired directly in-process.
+    pub fn with_recipient(recipient: Recipient<IpcMessage>) -> Self {
+        Self {
+            service: PaypunkService::new(recipient),
+        }
     }
 
     /// Generate a new wallet seed, encrypt it with the given password,

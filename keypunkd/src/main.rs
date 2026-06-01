@@ -2,11 +2,10 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use keypunkd::crypto::Keypair;
-use keypunkd::dispatcher::Dispatcher;
+use keypunkd::Keypunkd;
 use keypunkd::seed_store::FilesystemSeedStore;
 use paypunk_ipc::IpcReceiver;
 use tactix::Actor;
-use tokio::net::UnixListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -42,18 +41,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (secret, public) = keystore.keypair();
     let seed_store = FilesystemSeedStore::new(args.data_dir.join("seed.enc").into_boxed_path());
 
-    let dispatcher = Dispatcher::new(keystore, seed_store).start();
+    let keypunkd = Keypunkd::new(keystore, seed_store).start();
 
-    let socket_path = &args.socket_path;
-    if std::path::Path::new(socket_path).exists() {
-        std::fs::remove_file(socket_path)?;
-    }
-    let listener = UnixListener::bind(socket_path)?;
-    let server = IpcReceiver::new(listener, secret, public);
-    info!("keypunkd listening on {}", socket_path);
+    let server = IpcReceiver::bind_with(&args.socket_path, secret, public).await?;
+    info!("keypunkd listening on {}", args.socket_path);
 
     let serve = tokio::spawn(async move {
-        if let Err(e) = server.serve(dispatcher).await {
+        if let Err(e) = server.serve(keypunkd).await {
             tracing::error!(error = %e, "server error");
         }
     });

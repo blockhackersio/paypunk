@@ -1,0 +1,15 @@
+[package]
+name = "paypunk-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+paypunk-api = { path = "../api" }
+paypunkd = { path = "../paypunkd" }
+keypunkd = { path = "../keypunkd" }
+paypunk-ipc = { path = "../ipc" }
+tactix = "1.0"
+tokio = { version = "1", features = ["rt", "macros"] }
+postcard = { version = "1", features = ["alloc"] }
+zeroize = "1"
