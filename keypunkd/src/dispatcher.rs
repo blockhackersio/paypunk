@@ -1,11 +1,10 @@
 use paypunk_ipc::IpcMessage;
 use tactix::{Actor, Ctx, Handler};
-use zeroize::Zeroizing;
 
 use crate::crypto::Keypair;
-use crate::key;
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
 use crate::seed_store::SeedStore;
+use crate::usecases;
 
 /// Convenience bound for a thread-safe seed store usable inside an actor.
 pub trait Storage: SeedStore + Send + Sync + 'static {}
@@ -75,7 +74,7 @@ impl<S: Storage> Handler<IpcMessage> for Dispatcher<S> {
             KeypunkdRequest::GenerateSeed {
                 encrypted_password,
                 client_public_key,
-            } => match handle_generate_seed(
+            } => match usecases::generate_seed(
                 &self.keystore,
                 &encrypted_password,
                 &client_public_key,
@@ -93,28 +92,4 @@ impl<S: Storage> Handler<IpcMessage> for Dispatcher<S> {
 
         postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))
     }
-}
-
-fn handle_generate_seed(
-    keystore: &Keypair,
-    encrypted_password: &[u8],
-    client_pk: &[u8; 32],
-    store: &impl SeedStore,
-) -> Result<Vec<u8>, GenerateError> {
-    let password = keystore.decrypt(encrypted_password, client_pk)?;
-    let (seed, mnemonic) = key::generate_seed();
-    let encrypted = key::encrypt_seed(&seed, &*password)?;
-    store.write(&encrypted)?;
-    let mnemonic = Zeroizing::new(mnemonic);
-    Ok(keystore.encrypt(mnemonic, client_pk))
-}
-
-#[derive(Debug, thiserror::Error)]
-enum GenerateError {
-    #[error("{0}")]
-    Crypto(#[from] crate::crypto::CryptoError),
-    #[error("{0}")]
-    Key(#[from] key::KeyError),
-    #[error("{0}")]
-    Store(#[from] crate::seed_store::SeedStoreError),
 }
