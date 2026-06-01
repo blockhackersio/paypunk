@@ -732,6 +732,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paypunk-api"
+version = "0.1.0"
+dependencies = [
+ "paypunkd",
+ "zeroize",
+]
+
+[[package]]
 name = "paypunk-ipc"
 version = "0.1.0"
 dependencies = [

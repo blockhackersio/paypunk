@@ -1,4 +1,4 @@
-use crate::services::KeypunkService;
+use keypunkd::services::KeypunkService;
 
 pub async fn get_keypunk_public_key(
     service: &KeypunkService,

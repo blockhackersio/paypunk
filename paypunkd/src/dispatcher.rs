@@ -2,17 +2,16 @@ use paypunk_ipc::IpcMessage;
 use tactix::{Actor, Ctx, Handler, Recipient};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
-use crate::services::KeypunkService;
 use crate::usecases;
 
 pub struct Dispatcher {
-    keypunk_service: KeypunkService,
+    keypunk_service: keypunkd::services::KeypunkService,
 }
 
 impl Dispatcher {
     pub fn new(recipient: Recipient<IpcMessage>) -> Self {
         Self {
-            keypunk_service: KeypunkService::new(recipient),
+            keypunk_service: keypunkd::services::KeypunkService::new(recipient),
         }
     }
 }
