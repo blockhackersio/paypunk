@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 paypunkd = { path = "../paypunkd" }
+keypunkd = { path = "../keypunkd" }
 zeroize = "1"

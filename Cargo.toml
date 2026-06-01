@@ -6,4 +6,5 @@ members = [
     "keypunkd",
     "paypunkd",
     "api",
+    "cli",
 ]

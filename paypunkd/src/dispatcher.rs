@@ -30,6 +30,15 @@ impl Handler<IpcMessage> for Dispatcher {
                     Err(e) => PaypunkdResponse::Error { message: e },
                 }
             }
+            PaypunkdRequest::GenerateSeed {
+                encrypted_password,
+                client_public_key,
+            } => {
+                match usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key).await {
+                    Ok(encrypted_mnemonic) => PaypunkdResponse::SeedGenerated { encrypted_mnemonic },
+                    Err(e) => PaypunkdResponse::Error { message: e },
+                }
+            }
         };
 
         postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))

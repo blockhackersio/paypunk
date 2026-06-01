@@ -27,4 +27,31 @@ impl KeypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn generate_seed(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<Vec<u8>, String> {
+        let request = crate::messages::KeypunkdRequest::GenerateSeed {
+            encrypted_password,
+            client_public_key,
+        };
+        let payload =
+            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
+        let msg = IpcMessage {
+            payload,
+            sender_public_key: None,
+        };
+        let response_bytes = self.recipient.ask(msg).await?;
+        let response: crate::messages::KeypunkdResponse =
+            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
+        match response {
+            crate::messages::KeypunkdResponse::SeedGenerated { encrypted_mnemonic } => {
+                Ok(encrypted_mnemonic)
+            }
+            crate::messages::KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }

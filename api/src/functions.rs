@@ -1,19 +1,27 @@
+use keypunkd::crypto::Keypair;
 use zeroize::Zeroizing;
 
 /// Generate a new wallet seed.
 ///
-/// # TODO
-/// - Implement actual seed generation via keypunkd's GenerateSeed message.
-/// - The password should be encrypted to keypunkd's public key before sending.
-/// - The returned mnemonic will come back encrypted and need decryption.
+/// Creates an ephemeral X25519 keypair, encrypts the password to keypunkd's
+/// public key, sends the request through paypunkd, and decrypts the returned
+/// mnemonic.
 pub async fn generate_seed(
     service: &paypunkd::services::PaypunkService,
-    _password: Zeroizing<String>,
+    password: Zeroizing<String>,
 ) -> Result<Zeroizing<String>, String> {
-    let public_key = service.get_keypunk_public_key().await?;
-    println!(
-        "keypunkd public key: {}",
-        public_key.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-    );
-    Ok(Zeroizing::new(String::new()))
+    let client_keypair = Keypair::new();
+    let server_pk = service.get_keypunk_public_key().await?;
+
+    let encrypted_password = client_keypair.encrypt(password, &server_pk);
+    let client_pk = client_keypair.public_key();
+
+    let encrypted_mnemonic = service
+        .generate_seed(encrypted_password, client_pk)
+        .await?;
+
+    let mnemonic = client_keypair
+        .decrypt(&encrypted_mnemonic, &server_pk)
+        .map_err(|e| e.to_string())?;
+    Ok(mnemonic)
 }

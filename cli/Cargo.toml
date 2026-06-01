@@ -1,0 +1,17 @@
+[package]
+name = "paypunk"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "paypunk"
+path = "src/main.rs"
+
+[dependencies]
+paypunk-api = { path = "../api" }
+paypunk-ipc = { path = "../ipc" }
+paypunkd = { path = "../paypunkd" }
+tactix = "1.0"
+tokio = { version = "1", features = ["rt", "macros"] }
+clap = { version = "4", features = ["derive"] }
+zeroize = "1"
