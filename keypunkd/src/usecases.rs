@@ -1,6 +1,6 @@
 use bip39::Mnemonic;
-use zeroize::Zeroizing;
 use tracing::debug;
+use zeroize::Zeroizing;
 
 use crate::{
     crypto::Keypair,

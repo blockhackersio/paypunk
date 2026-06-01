@@ -42,8 +42,16 @@ impl Handler<IpcMessage> for Paypunkd {
                 client_public_key,
             } => {
                 info!("forwarding GenerateSeed to keypunkd");
-                match usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key).await {
-                    Ok(encrypted_mnemonic) => PaypunkdResponse::SeedGenerated { encrypted_mnemonic },
+                match usecases::generate_seed(
+                    &self.keypunk_service,
+                    encrypted_password,
+                    client_public_key,
+                )
+                .await
+                {
+                    Ok(encrypted_mnemonic) => {
+                        PaypunkdResponse::SeedGenerated { encrypted_mnemonic }
+                    }
                     Err(e) => {
                         warn!(error = %e, "GenerateSeed failed");
                         PaypunkdResponse::Error { message: e }
@@ -56,7 +64,14 @@ impl Handler<IpcMessage> for Paypunkd {
                 client_public_key,
             } => {
                 info!("forwarding RestoreSeed to keypunkd");
-                match usecases::restore_seed(&self.keypunk_service, encrypted_mnemonic, encrypted_password, client_public_key).await {
+                match usecases::restore_seed(
+                    &self.keypunk_service,
+                    encrypted_mnemonic,
+                    encrypted_password,
+                    client_public_key,
+                )
+                .await
+                {
                     Ok(()) => PaypunkdResponse::SeedRestored,
                     Err(e) => {
                         warn!(error = %e, "RestoreSeed failed");
@@ -66,7 +81,8 @@ impl Handler<IpcMessage> for Paypunkd {
             }
         };
 
-        let encoded = postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))?;
+        let encoded =
+            postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))?;
         debug!(response_len = encoded.len(), "sending response");
         Ok(encoded)
     }

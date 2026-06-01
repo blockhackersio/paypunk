@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use keypunkd::crypto::Keypair;
-use keypunkd::Keypunkd;
 use keypunkd::seed_store::FilesystemSeedStore;
+use keypunkd::Keypunkd;
 use paypunk_ipc::IpcReceiver;
 use tactix::Actor;
 use tracing::info;

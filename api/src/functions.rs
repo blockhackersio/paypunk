@@ -38,5 +38,7 @@ pub async fn restore_seed(
     let encrypted_password = client_keypair.encrypt(password, &server_pk);
     let client_pk = client_keypair.public_key();
 
-    service.restore_seed(encrypted_mnemonic, encrypted_password, client_pk).await
+    service
+        .restore_seed(encrypted_mnemonic, encrypted_password, client_pk)
+        .await
 }

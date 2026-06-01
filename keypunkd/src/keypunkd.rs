@@ -130,7 +130,8 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
             }
         };
 
-        let encoded = postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))?;
+        let encoded =
+            postcard::to_allocvec(&response).map_err(|e| format!("serialize error: {e}"))?;
         debug!(response_len = encoded.len(), "sending response");
         Ok(encoded)
     }

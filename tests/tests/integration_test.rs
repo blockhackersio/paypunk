@@ -79,10 +79,7 @@ async fn test_restore_seed_via_api() {
     let recipient = wire_actors();
     let client = Client::with_recipient(recipient);
 
-    let mnemonic = client
-        .generate_seed(password.clone())
-        .await
-        .unwrap();
+    let mnemonic = client.generate_seed(password.clone()).await.unwrap();
 
     assert_eq!(mnemonic.split_whitespace().count(), 12);
 
