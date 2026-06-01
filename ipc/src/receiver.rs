@@ -135,7 +135,13 @@ where
     let mut auth = ConnectionAuth::new();
 
     loop {
-        let frame = transport.read_frame().await?;
+        let frame = match transport.read_frame().await {
+            Ok(frame) => frame,
+            Err(IpcError::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok(()); // client disconnected — normal
+            }
+            Err(e) => return Err(e),
+        };
         if frame.is_empty() {
             return Ok(());
         }
