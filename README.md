@@ -1,6 +1,8 @@
 # Paypunk
 
-Zcash wallet infrastructure for privacy-preserving commerce on desktop and agentic workflows.
+> 'Private money, punk.'
+
+Wallet infrastructure for privacy-preserving commerce on desktop and agentic workflows.
 
 ## Architecture
 
@@ -17,9 +19,9 @@ Layered, multi-process design:
 
 Three processes with a strict security boundary:
 
-- **keypunkd** — Holds decrypted keys in protected memory. Only accepts sign/prove requests from paypunkd, never exposes raw key material.
-- **paypunkd** — Manages addresses, chain sync, balance tracking, and transfer construction. Delegates signing to keypunkd. Never holds key material.
 - **paypunk** — CLI/TUI binary. Connects to paypunkd via the `api` library. Never touches key material directly.
+- **paypunkd** — Manages addresses, chain sync, balance tracking, and transfer construction. Delegates signing to keypunkd. Never holds key material.
+- **keypunkd** — Holds decrypted keys in protected memory. Only accepts sign/prove requests from paypunkd, never exposes raw key material.
 
 ## Privacy
 
