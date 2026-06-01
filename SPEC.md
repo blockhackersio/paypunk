@@ -85,10 +85,10 @@ paypunk/
 │       ├── key/          # Seed generation, derivation, encryption
 │       ├── server/       # Unix socket listener
 │       └── main.rs
-├── ipc/                  # Tactix actor router for interprocess comms (library)
+├── ipc/                  # Tactix actor sender for interprocess comms (library)
 │   └── src/
 │       ├── lib.rs        # Crate root, re-exports IpcMessage, IpcSender, IpcReceiver
-│       ├── router.rs     # IpcSender: tactix actor wrapping a UnixStream (connect + send/recv)
+│       ├── sender.rs     # IpcSender: tactix actor wrapping a UnixStream (connect + send/recv)
 │       ├── server.rs     # IpcReceiver: Unix socket listener, dispatches to handler actor
 │       └── messages.rs   # IpcMessage type (tactix Message wrapping Vec<u8>)
 ├── chains/               # Chain-specific implementations

@@ -160,7 +160,7 @@ impl Handler<IpcMessage> for IpcSender {
 }
 
 // ---------------------------------------------------------------------------
-// Frame I/O helpers (duplicated from server to keep router self-contained)
+// Frame I/O helpers (duplicated from server to keep sender self-contained)
 // ---------------------------------------------------------------------------
 
 async fn read_frame(stream: &mut UnixStream, buf: &mut BytesMut) -> Result<Vec<u8>, IpcError> {

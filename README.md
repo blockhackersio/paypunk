@@ -9,7 +9,7 @@ Layered, multi-process design:
 - **`api`** — Chain-agnostic library. Accepts an asset type (Zcash, Ethereum) and dispatches to the appropriate chain backend. Hides IPC and actor details from consumers.
 - **`paypunkd`** — App daemon. Hosts WalletActor, usecases, service orchestration, chain backend injection.
 - **`keypunkd`** — Key daemon. Hosts KeyActor. Seed generation, signing, proving. Runs as a separate system user.
-- **`ipc`** — Tactix actor router for interprocess communication over Unix sockets.
+- **`ipc`** — Tactix actor sender for interprocess communication over Unix sockets.
 - **`cli`** — Command-line interface using `api` for scripting and automation.
 - **`tui`** — Terminal-based interactive UI (ratatui).
 

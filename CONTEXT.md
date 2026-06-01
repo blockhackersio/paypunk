@@ -40,7 +40,7 @@ Long-running daemon hosting the WalletActor, usecases, and service orchestration
 _Avoid_: App daemon
 
 **ipc**:
-Library crate providing a tactix actor that serializes/deserializes messages with postcard over Unix domain sockets. The communication router between all processes. api, paypunkd, and keypunkd all use it.
+Library crate providing a tactix actor that serializes/deserializes messages with postcard over Unix domain sockets. The communication sender between all processes. api, paypunkd, and keypunkd all use it.
 _Avoid_: Transport, wire
 
 **api**:

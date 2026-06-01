@@ -12,7 +12,7 @@ use crate::messages::{
     IpcMessage, APPROVE_CONNECTION, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY,
     MSG_REGISTER_CLIENT, MSG_REGISTER_CLIENT_ACK,
 };
-use crate::router::IpcError;
+use crate::sender::IpcError;
 
 // ---------------------------------------------------------------------------
 // Keypair generation (X25519)
