@@ -12,7 +12,6 @@ pub async fn generate_seed(
 ) -> Result<Zeroizing<String>, String> {
     let client_keypair = Keypair::new();
     let server_pk = service.get_keypunk_public_key().await?;
-    println!("{:?}", server_pk);
     let encrypted_password = client_keypair.encrypt(password, &server_pk);
     let client_pk = client_keypair.public_key();
 
