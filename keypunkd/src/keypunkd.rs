@@ -116,9 +116,9 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
 
         let response = match request {
             // Always allowed — no session check.
-            KeypunkdRequest::GetPublicKey => {
-                info!("handling GetPublicKey");
-                KeypunkdResponse::PublicKey {
+            KeypunkdRequest::GetEncryptionKey => {
+                info!("handling GetEncryptionKey");
+                KeypunkdResponse::EncryptionKey {
                     key: self.keystore.public_key(),
                 }
             }

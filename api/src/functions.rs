@@ -12,7 +12,7 @@ pub async fn generate_seed(
     password: Zeroizing<String>,
 ) -> Result<Zeroizing<String>, String> {
     let client_keypair = Keypair::new();
-    let server_pk = service.get_keypunk_public_key().await?;
+    let server_pk = service.get_keypunk_encryption_key().await?;
     let encrypted_password = client_keypair.encrypt(password, &server_pk);
     let client_pk = client_keypair.public_key();
 
@@ -34,7 +34,7 @@ pub async fn restore_seed(
     password: Zeroizing<String>,
 ) -> Result<(), String> {
     let client_keypair = Keypair::new();
-    let server_pk = service.get_keypunk_public_key().await?;
+    let server_pk = service.get_keypunk_encryption_key().await?;
     let encrypted_mnemonic = client_keypair.encrypt(mnemonic, &server_pk);
     let encrypted_password = client_keypair.encrypt(password, &server_pk);
     let client_pk = client_keypair.public_key();
@@ -53,7 +53,7 @@ pub async fn unlock(
     password: Zeroizing<String>,
 ) -> Result<(), String> {
     let client_keypair = Keypair::new();
-    let server_pk = service.get_keypunk_public_key().await?;
+    let server_pk = service.get_keypunk_encryption_key().await?;
     let encrypted_password = client_keypair.encrypt(password, &server_pk);
     let client_pk = client_keypair.public_key();
 

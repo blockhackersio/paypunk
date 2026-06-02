@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum KeypunkdRequest {
-    /// Fetch keypunkd's public key.
-    GetPublicKey,
+    /// Fetch keypunkd's X25519 encryption key.
+    GetEncryptionKey,
     /// Generate and persist a new wallet seed.
     GenerateSeed {
         /// Password encrypted to keypunkd's public key.
@@ -51,7 +51,7 @@ pub enum KeypunkdRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum KeypunkdResponse {
-    PublicKey {
+    EncryptionKey {
         key: [u8; 32],
     },
     SeedGenerated {

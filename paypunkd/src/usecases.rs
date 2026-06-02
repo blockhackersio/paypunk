@@ -1,8 +1,8 @@
 use keypunkd::services::KeypunkService;
 use paypunk_types::ProtocolId;
 
-pub async fn get_keypunk_public_key(service: &KeypunkService) -> Result<[u8; 32], String> {
-    service.get_public_key().await
+pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8; 32], String> {
+    service.get_encryption_key().await
 }
 
 pub async fn generate_seed(

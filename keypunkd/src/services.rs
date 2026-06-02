@@ -21,9 +21,9 @@ impl KeypunkService {
         postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))
     }
 
-    pub async fn get_public_key(&self) -> Result<[u8; 32], String> {
-        match self.send(KeypunkdRequest::GetPublicKey).await? {
-            KeypunkdResponse::PublicKey { key } => Ok(key),
+    pub async fn get_encryption_key(&self) -> Result<[u8; 32], String> {
+        match self.send(KeypunkdRequest::GetEncryptionKey).await? {
+            KeypunkdResponse::EncryptionKey { key } => Ok(key),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }

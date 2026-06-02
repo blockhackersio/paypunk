@@ -78,12 +78,12 @@ impl Handler<IpcMessage> for Paypunkd {
         debug!(?request, "dispatching request");
 
         let response = match request {
-            PaypunkdRequest::GetKeypunkPublicKey => {
-                info!("forwarding GetKeypunkPublicKey to keypunkd");
-                match usecases::get_keypunk_public_key(&self.keypunk_service).await {
-                    Ok(key) => PaypunkdResponse::KeypunkPublicKey { key },
+            PaypunkdRequest::GetKeypunkEncryptionKey => {
+                info!("forwarding GetKeypunkEncryptionKey to keypunkd");
+                match usecases::get_keypunk_encryption_key(&self.keypunk_service).await {
+                    Ok(key) => PaypunkdResponse::KeypunkEncryptionKey { key },
                     Err(e) => {
-                        warn!(error = %e, "GetKeypunkPublicKey failed");
+                        warn!(error = %e, "GetKeypunkEncryptionKey failed");
                         PaypunkdResponse::Error { message: e }
                     }
                 }

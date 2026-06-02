@@ -21,12 +21,12 @@ async fn test_get_public_key() {
     let addr = Keypunkd::new(keystore, store, protocols).start();
 
     let sender = Keypair::new().public_key();
-    let bytes = postcard::to_allocvec(&KeypunkdRequest::GetPublicKey).unwrap();
+    let bytes = postcard::to_allocvec(&KeypunkdRequest::GetEncryptionKey).unwrap();
     let response_bytes = addr.ask(msg_with_sender(bytes, sender)).await.unwrap();
     let response: KeypunkdResponse = postcard::from_bytes(&response_bytes).unwrap();
 
     match response {
-        KeypunkdResponse::PublicKey { key } => {
+        KeypunkdResponse::EncryptionKey { key } => {
             assert_eq!(key.len(), 32);
         }
         other => panic!("expected PublicKey, got {other:?}"),
@@ -45,11 +45,11 @@ async fn test_generate_seed_no_filesystem() {
     let sender = client.public_key();
 
     let server_pk = {
-        let bytes = postcard::to_allocvec(&KeypunkdRequest::GetPublicKey).unwrap();
+        let bytes = postcard::to_allocvec(&KeypunkdRequest::GetEncryptionKey).unwrap();
         let response_bytes = addr.ask(msg_with_sender(bytes, sender)).await.unwrap();
         let response: KeypunkdResponse = postcard::from_bytes(&response_bytes).unwrap();
         match response {
-            KeypunkdResponse::PublicKey { key } => key,
+            KeypunkdResponse::EncryptionKey { key } => key,
             _ => panic!("expected PublicKey"),
         }
     };
@@ -87,11 +87,11 @@ async fn test_generate_seed_empty_password() {
     let sender = client.public_key();
 
     let server_pk = {
-        let bytes = postcard::to_allocvec(&KeypunkdRequest::GetPublicKey).unwrap();
+        let bytes = postcard::to_allocvec(&KeypunkdRequest::GetEncryptionKey).unwrap();
         let response_bytes = addr.ask(msg_with_sender(bytes, sender)).await.unwrap();
         let response: KeypunkdResponse = postcard::from_bytes(&response_bytes).unwrap();
         match response {
-            KeypunkdResponse::PublicKey { key } => key,
+            KeypunkdResponse::EncryptionKey { key } => key,
             _ => panic!("expected PublicKey"),
         }
     };
@@ -124,7 +124,7 @@ async fn test_rejects_in_process_message() {
     let protocols = ProtocolRegistry::new();
     let addr = Keypunkd::new(keystore, store, protocols).start();
 
-    let bytes = postcard::to_allocvec(&KeypunkdRequest::GetPublicKey).unwrap();
+    let bytes = postcard::to_allocvec(&KeypunkdRequest::GetEncryptionKey).unwrap();
     let result = addr.ask(IpcMessage::new(bytes)).await;
 
     assert!(result.is_err());
