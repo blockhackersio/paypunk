@@ -197,6 +197,7 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
             KeypunkdRequest::DeriveAddress { index } => {
                 info!("handling DeriveAddress");
                 match self.require_session(&msg) {
+                    // TODO: Keypunkd should not know about zcash
                     Ok(session) => match usecases::derive_address(&session.seed, index) {
                         Ok(address) => {
                             debug!(index, %address, "address derived");
