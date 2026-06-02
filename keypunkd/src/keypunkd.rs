@@ -70,6 +70,12 @@ impl<S: Storage> Keypunkd<S> {
 
     /// Ensures there is an active unlocked session for the given sender.
     fn require_session(&self, msg: &IpcMessage) -> Result<&Session, String> {
+        if self.skip_session_auth {
+            return self
+                .session
+                .as_ref()
+                .ok_or_else(|| "no active session — call Unlock first".to_string());
+        }
         let sender_pk = msg
             .sender_public_key
             .ok_or_else(|| "in-process message has no sender key".to_string())?;
@@ -81,7 +87,9 @@ impl<S: Storage> Keypunkd<S> {
 
     /// Sets the active session from the message's sender public key and seed.
     fn set_session(&mut self, msg: &IpcMessage, seed: [u8; 64]) {
-        if let Some(pk) = msg.sender_public_key {
+        if self.skip_session_auth {
+            self.session = Some(Session::new([0u8; 32], seed));
+        } else if let Some(pk) = msg.sender_public_key {
             self.session = Some(Session::new(pk, seed));
         }
     }

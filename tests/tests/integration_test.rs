@@ -110,3 +110,125 @@ async fn test_restore_seed_invalid_mnemonic_fails() {
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("invalid mnemonic"));
 }
+
+// ── Unlock / DeriveAddress / Lock integration tests ──────────────────────
+
+#[tokio::test]
+async fn test_unlock_without_seed_fails() {
+    let recipient = wire_actors();
+    let client = Client::with_recipient(recipient);
+
+    let result = client
+        .unlock(Zeroizing::new("password".to_string()))
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("no seed found"));
+}
+
+#[tokio::test]
+async fn test_unlock_with_wrong_password_fails() {
+    let recipient = wire_actors();
+    let client = Client::with_recipient(recipient);
+
+    client
+        .generate_seed(Zeroizing::new("correct-password".to_string()))
+        .await
+        .unwrap();
+
+    let result = client
+        .unlock(Zeroizing::new("wrong-password".to_string()))
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("seed decryption failed"));
+}
+
+#[tokio::test]
+async fn test_derive_address_without_unlock_fails() {
+    let recipient = wire_actors();
+    let client = Client::with_recipient(recipient);
+
+    client
+        .generate_seed(Zeroizing::new("password".to_string()))
+        .await
+        .unwrap();
+
+    let result = client.derive_address(0).await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("no active session"));
+}
+
+#[tokio::test]
+async fn test_unlock_then_derive_address() {
+    let recipient = wire_actors();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+
+    client.unlock(password).await.unwrap();
+
+    let address = client.derive_address(0).await.unwrap();
+    assert!(address.starts_with("u1"), "got: {address}");
+    assert!(address.len() > 50, "got: {address}");
+}
+
+#[tokio::test]
+async fn test_derive_different_indexes() {
+    let recipient = wire_actors();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("password".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    let addr0 = client.derive_address(0).await.unwrap();
+    let addr1 = client.derive_address(1).await.unwrap();
+    let addr2 = client.derive_address(2).await.unwrap();
+
+    assert_ne!(addr0, addr1);
+    assert_ne!(addr1, addr2);
+    assert_ne!(addr0, addr2);
+}
+
+#[tokio::test]
+async fn test_derive_address_is_deterministic() {
+    let recipient = wire_actors();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("password".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+
+    // First unlock session
+    client.unlock(password.clone()).await.unwrap();
+    let addr_a = client.derive_address(0).await.unwrap();
+    client.lock().await.unwrap();
+
+    // Second unlock session — same seed, same password
+    client.unlock(password).await.unwrap();
+    let addr_b = client.derive_address(0).await.unwrap();
+
+    assert_eq!(addr_a, addr_b, "same seed + index must produce same address");
+}
+
+#[tokio::test]
+async fn test_lock_clears_session() {
+    let recipient = wire_actors();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("password".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    // Address works before lock
+    client.derive_address(0).await.unwrap();
+
+    client.lock().await.unwrap();
+
+    // Address fails after lock
+    let result = client.derive_address(0).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("no active session"));
+}
