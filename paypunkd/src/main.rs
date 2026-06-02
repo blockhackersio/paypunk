@@ -1,5 +1,8 @@
 use clap::Parser;
 use keypunkd::crypto::Keypair;
+use keypunkd::protocol::ProtocolRegistry;
+use paypunk_chains_ethereum::protocol::EthereumProtocol;
+use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::{IpcReceiver, IpcSender};
 use paypunkd::Paypunkd;
 use tactix::{Actor, Sender};
@@ -39,7 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keypunkd = IpcSender::connect(&args.keypunkd_socket).await?;
     let recipient = keypunkd.recipient();
 
-    let paypunkd = Paypunkd::new(recipient).start();
+    let mut protocols = ProtocolRegistry::new();
+    protocols.register(Box::new(ZcashProtocol));
+    protocols.register(Box::new(EthereumProtocol));
+    info!("registered protocols: Zcash, Ethereum");
+
+    let paypunkd = Paypunkd::new(recipient, protocols).start();
 
     let server = IpcReceiver::bind_with(&args.socket_path, secret, public).await?;
     info!("paypunkd listening on {}", args.socket_path);

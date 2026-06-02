@@ -17,9 +17,11 @@ pub enum ProtocolId {
 /// that process.
 pub trait Protocol: Send + Sync {
     fn protocol_id(&self) -> ProtocolId;
-    /// Derive non-sensitive view key material (xpub, FVK, view key, pubkey)
+    /// Derive non-sensitive public key material (FVK, pubkey, xpub)
     /// for the given account. Private key material is NEVER included in the output.
-    fn derive_view_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String>;
+    fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String>;
+    /// Derive an address from public key bytes at the given diversifier index.
+    fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String>;
     /// Sign a message with the derived private key at the given account.
     fn sign(&self, seed: &[u8; 64], account: u32, message: &[u8]) -> Result<Vec<u8>, String>;
 }

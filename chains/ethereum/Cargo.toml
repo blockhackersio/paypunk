@@ -1,0 +1,15 @@
+[package]
+name = "paypunk-chains-ethereum"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+paypunk-types = { path = "../../types" }
+bip32 = "0.5"
+k256 = "0.13"
+sha3 = "0.10"
+hex = "0.4"
+thiserror = "2"
+
+[dev-dependencies]
+bip39 = "2"

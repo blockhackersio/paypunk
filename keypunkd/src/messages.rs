@@ -32,9 +32,9 @@ pub enum KeypunkdRequest {
         /// Client's ephemeral X25519 public key.
         client_public_key: [u8; 32],
     },
-    /// Derive non-sensitive view key material for the given protocol and account.
+    /// Derive non-sensitive public key material for the given protocol and account.
     /// Requires an active unlocked session.
-    DeriveViewKey {
+    DerivePublicKey {
         protocol: ProtocolId,
         account: u32,
     },
@@ -61,8 +61,8 @@ pub enum KeypunkdResponse {
     },
     SeedRestored,
     Unlocked,
-    ViewKey {
-        /// Opaque protocol-specific view key bytes (xpub, FVK, etc.).
+    ProtocolPublicKey {
+        /// Opaque protocol-specific public key bytes (FVK, pubkey, xpub).
         /// Never contains private key material.
         key: Vec<u8>,
     },

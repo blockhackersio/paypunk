@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use keypunkd::protocol::ProtocolRegistry;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler, Recipient};
@@ -10,30 +11,60 @@ use crate::usecases;
 
 pub struct Paypunkd {
     keypunk_service: keypunkd::services::KeypunkService,
-    /// Cache of view key bytes per (protocol, account).
+    protocols: ProtocolRegistry,
+    /// Cache of public key bytes per (protocol, account).
     /// Populated lazily on first address derivation request for each protocol.
-    view_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
+    public_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
 
 impl Paypunkd {
-    pub fn new(recipient: Recipient<IpcMessage>) -> Self {
+    pub fn new(recipient: Recipient<IpcMessage>, protocols: ProtocolRegistry) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
-            view_keys: HashMap::new(),
+            protocols,
+            public_keys: HashMap::new(),
         }
     }
 
-    async fn get_or_fetch_view_key(
+    async fn get_or_fetch_public_key(
         &mut self,
         protocol: ProtocolId,
         account: u32,
     ) -> Result<&[u8], String> {
-        if !self.view_keys.contains_key(&(protocol, account)) {
-            debug!(?protocol, account, "fetching view key from keypunkd");
-            let key = usecases::derive_view_key(&self.keypunk_service, protocol, account).await?;
-            self.view_keys.insert((protocol, account), key);
+        if !self.public_keys.contains_key(&(protocol, account)) {
+            debug!(?protocol, account, "fetching public key from keypunkd");
+            let key = usecases::derive_public_key(&self.keypunk_service, protocol, account).await?;
+            self.public_keys.insert((protocol, account), key);
         }
-        Ok(self.view_keys.get(&(protocol, account)).unwrap())
+        Ok(self.public_keys.get(&(protocol, account)).unwrap())
+    }
+
+    async fn handle_derive_address(
+        &mut self,
+        protocol: ProtocolId,
+        account: u32,
+        index: u32,
+    ) -> PaypunkdResponse {
+        info!(?protocol, account, index, "handling DeriveAddress locally");
+        let key = match self.get_or_fetch_public_key(protocol, account).await {
+            Ok(k) => k.to_vec(),
+            Err(e) => return PaypunkdResponse::Error { message: e },
+        };
+        let Some(protocol) = self.protocols.get(protocol) else {
+            let msg = format!("unknown protocol: {protocol:?}");
+            warn!(error = %msg);
+            return PaypunkdResponse::Error { message: msg };
+        };
+        match protocol.derive_address(&key, index) {
+            Ok(address) => {
+                debug!(%address, "address derived from cached public key");
+                PaypunkdResponse::AddressDerived { address }
+            }
+            Err(e) => {
+                warn!(error = %e, "address derivation from public key failed");
+                PaypunkdResponse::Error { message: e }
+            }
+        }
     }
 }
 
@@ -104,12 +135,8 @@ impl Handler<IpcMessage> for Paypunkd {
                 client_public_key,
             } => {
                 info!("forwarding Unlock to keypunkd");
-                match usecases::unlock(
-                    &self.keypunk_service,
-                    encrypted_password,
-                    client_public_key,
-                )
-                .await
+                match usecases::unlock(&self.keypunk_service, encrypted_password, client_public_key)
+                    .await
                 {
                     Ok(()) => PaypunkdResponse::Unlocked,
                     Err(e) => {
@@ -122,26 +149,7 @@ impl Handler<IpcMessage> for Paypunkd {
                 protocol,
                 account,
                 index,
-            } => {
-                info!(?protocol, account, index, "handling DeriveAddress locally");
-                match self.get_or_fetch_view_key(protocol, account).await {
-                    Ok(fvk_bytes) => {
-                        match paypunk_chains_zcash::address::derive_from_fvk(fvk_bytes, index) {
-                            Ok(address) => {
-                                debug!(%address, "address derived from cached view key");
-                                PaypunkdResponse::AddressDerived { address }
-                            }
-                            Err(e) => {
-                                warn!(error = %e, "address derivation from view key failed");
-                                PaypunkdResponse::Error {
-                                    message: e.to_string(),
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => PaypunkdResponse::Error { message: e },
-                }
-            }
+            } => Self::handle_derive_address(self, protocol, account, index).await,
             PaypunkdRequest::Sign {
                 protocol,
                 account,

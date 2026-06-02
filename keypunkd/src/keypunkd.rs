@@ -197,11 +197,11 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 }
             }
             // Requires active session.
-            KeypunkdRequest::DeriveViewKey { protocol, account } => {
-                info!(?protocol, account, "handling DeriveViewKey");
+            KeypunkdRequest::DerivePublicKey { protocol, account } => {
+                info!(?protocol, account, "handling DerivePublicKey");
                 match self.require_session(&msg) {
                     Ok(session) => {
-                        match usecases::derive_view_key(
+                        match usecases::derive_public_key(
                             &session.seed,
                             &self.protocols,
                             protocol,
@@ -209,10 +209,10 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                         ) {
                             Ok(key) => {
                                 debug!("view key derived");
-                                KeypunkdResponse::ViewKey { key }
+                                KeypunkdResponse::ProtocolPublicKey { key }
                             }
                             Err(e) => {
-                                warn!(error = %e, "DeriveViewKey failed");
+                                warn!(error = %e, "DerivePublicKey failed");
                                 KeypunkdResponse::Error { message: e }
                             }
                         }

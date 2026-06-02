@@ -36,12 +36,12 @@ pub async fn unlock(
         .await
 }
 
-pub async fn derive_view_key(
+pub async fn derive_public_key(
     service: &KeypunkService,
     protocol: ProtocolId,
     account: u32,
 ) -> Result<Vec<u8>, String> {
-    service.derive_view_key(protocol, account).await
+    service.derive_public_key(protocol, account).await
 }
 
 pub async fn sign(

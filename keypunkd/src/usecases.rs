@@ -89,8 +89,8 @@ pub fn decrypt_seed(
         .map_err(|e| format!("seed decryption failed: {e}"))
 }
 
-/// Derive view key material for the given protocol and account.
-pub fn derive_view_key(
+/// Derive public key material for the given protocol and account.
+pub fn derive_public_key(
     seed: &[u8; 64],
     registry: &ProtocolRegistry,
     protocol: ProtocolId,
@@ -99,7 +99,7 @@ pub fn derive_view_key(
     let deriver = registry
         .get(protocol)
         .ok_or_else(|| format!("unknown protocol: {protocol:?}"))?;
-    deriver.derive_view_key(seed, account)
+    deriver.derive_public_key(seed, account)
 }
 
 /// Sign a payload with the derived private key for the given protocol and account.

@@ -96,12 +96,12 @@ impl KeypunkService {
         }
     }
 
-    pub async fn derive_view_key(
+    pub async fn derive_public_key(
         &self,
         protocol: ProtocolId,
         account: u32,
     ) -> Result<Vec<u8>, String> {
-        let request = KeypunkdRequest::DeriveViewKey { protocol, account };
+        let request = KeypunkdRequest::DerivePublicKey { protocol, account };
         let payload =
             postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
         let msg = IpcMessage::new(payload);
@@ -109,7 +109,7 @@ impl KeypunkService {
         let response: KeypunkdResponse =
             postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
         match response {
-            KeypunkdResponse::ViewKey { key } => Ok(key),
+            KeypunkdResponse::ProtocolPublicKey { key } => Ok(key),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }
