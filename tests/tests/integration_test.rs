@@ -24,7 +24,10 @@ fn wire_actors() -> Recipient<IpcMessage> {
         .start();
     let keypunkd_recipient = keypunkd_addr.recipient();
 
-    let paypunkd_addr = Paypunkd::new(keypunkd_recipient).start();
+    let mut paypunkd_protocols = ProtocolRegistry::new();
+    paypunkd_protocols.register(Box::new(ZcashProtocol));
+
+    let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
     paypunkd_addr.recipient()
 }
 
