@@ -1,3 +1,4 @@
+use paypunk_types::ProtocolId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -31,11 +32,18 @@ pub enum KeypunkdRequest {
         /// Client's ephemeral X25519 public key.
         client_public_key: [u8; 32],
     },
-    /// Derive a Zcash address at the given diversifier index.
+    /// Derive non-sensitive view key material for the given protocol and account.
     /// Requires an active unlocked session.
-    DeriveAddress {
-        /// Diversifier index for the address.
-        index: u32,
+    DeriveViewKey {
+        protocol: ProtocolId,
+        account: u32,
+    },
+    /// Sign a payload with the derived private key for the given protocol and account.
+    /// Requires an active unlocked session.
+    Sign {
+        protocol: ProtocolId,
+        account: u32,
+        payload: Vec<u8>,
     },
     /// Lock the wallet: zero the in-memory seed and end the session.
     Lock,
@@ -53,9 +61,14 @@ pub enum KeypunkdResponse {
     },
     SeedRestored,
     Unlocked,
-    AddressDerived {
-        /// The derived unified Zcash address string.
-        address: String,
+    ViewKey {
+        /// Opaque protocol-specific view key bytes (xpub, FVK, etc.).
+        /// Never contains private key material.
+        key: Vec<u8>,
+    },
+    Signature {
+        /// Protocol-specific signature bytes.
+        signature: Vec<u8>,
     },
     Locked,
     Error {

@@ -1,3 +1,4 @@
+use paypunk_types::ProtocolId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,7 +18,14 @@ pub enum PaypunkdRequest {
         client_public_key: [u8; 32],
     },
     DeriveAddress {
+        protocol: ProtocolId,
+        account: u32,
         index: u32,
+    },
+    Sign {
+        protocol: ProtocolId,
+        account: u32,
+        payload: Vec<u8>,
     },
     Lock,
 }
@@ -29,6 +37,7 @@ pub enum PaypunkdResponse {
     SeedRestored,
     Unlocked,
     AddressDerived { address: String },
+    Signature { signature: Vec<u8> },
     Locked,
     Error { message: String },
 }

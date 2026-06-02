@@ -995,6 +995,7 @@ dependencies = [
  "clap",
  "paypunk-chains-zcash",
  "paypunk-ipc",
+ "paypunk-types",
  "postcard",
  "rand",
  "serde",
@@ -1253,6 +1254,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "paypunk-api",
+ "paypunk-types",
  "tokio",
  "zeroize",
 ]
@@ -1263,6 +1265,7 @@ version = "0.1.0"
 dependencies = [
  "keypunkd",
  "paypunk-ipc",
+ "paypunk-types",
  "paypunkd",
  "tactix",
  "zeroize",
@@ -1303,7 +1306,9 @@ version = "0.1.0"
 dependencies = [
  "keypunkd",
  "paypunk-api",
+ "paypunk-chains-zcash",
  "paypunk-ipc",
+ "paypunk-types",
  "paypunkd",
  "postcard",
  "tactix",
@@ -1324,7 +1329,9 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "keypunkd",
+ "paypunk-chains-zcash",
  "paypunk-ipc",
+ "paypunk-types",
  "postcard",
  "serde",
  "tactix",

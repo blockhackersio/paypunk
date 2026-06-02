@@ -1,8 +1,11 @@
 use keypunkd::crypto::Keypair;
+use keypunkd::protocol::ProtocolRegistry;
 use keypunkd::seed_store::InMemorySeedStore;
 use keypunkd::Keypunkd;
 use paypunk_api::Client;
+use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcMessage;
+use paypunk_types::ProtocolId;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Recipient, Sender};
 use zeroize::Zeroizing;
@@ -12,7 +15,11 @@ use zeroize::Zeroizing;
 fn wire_actors() -> Recipient<IpcMessage> {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
-    let keypunkd_addr = Keypunkd::new(keystore, store)
+
+    let mut protocols = ProtocolRegistry::new();
+    protocols.register(Box::new(ZcashProtocol));
+
+    let keypunkd_addr = Keypunkd::new(keystore, store, protocols)
         .with_skip_session_auth(true)
         .start();
     let keypunkd_recipient = keypunkd_addr.recipient();
@@ -154,7 +161,7 @@ async fn test_derive_address_without_unlock_fails() {
         .await
         .unwrap();
 
-    let result = client.derive_address(0).await;
+    let result = client.derive_address(ProtocolId::Zcash, 0, 0).await;
 
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("no active session"));
@@ -170,7 +177,7 @@ async fn test_unlock_then_derive_address() {
 
     client.unlock(password).await.unwrap();
 
-    let address = client.derive_address(0).await.unwrap();
+    let address = client.derive_address(ProtocolId::Zcash, 0, 0).await.unwrap();
     assert!(address.starts_with("u1"), "got: {address}");
     assert!(address.len() > 50, "got: {address}");
 }
@@ -184,9 +191,9 @@ async fn test_derive_different_indexes() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
-    let addr0 = client.derive_address(0).await.unwrap();
-    let addr1 = client.derive_address(1).await.unwrap();
-    let addr2 = client.derive_address(2).await.unwrap();
+    let addr0 = client.derive_address(ProtocolId::Zcash, 0, 0).await.unwrap();
+    let addr1 = client.derive_address(ProtocolId::Zcash, 0, 1).await.unwrap();
+    let addr2 = client.derive_address(ProtocolId::Zcash, 0, 2).await.unwrap();
 
     assert_ne!(addr0, addr1);
     assert_ne!(addr1, addr2);
@@ -203,12 +210,12 @@ async fn test_derive_address_is_deterministic() {
 
     // First unlock session
     client.unlock(password.clone()).await.unwrap();
-    let addr_a = client.derive_address(0).await.unwrap();
+    let addr_a = client.derive_address(ProtocolId::Zcash, 0, 0).await.unwrap();
     client.lock().await.unwrap();
 
     // Second unlock session — same seed, same password
     client.unlock(password).await.unwrap();
-    let addr_b = client.derive_address(0).await.unwrap();
+    let addr_b = client.derive_address(ProtocolId::Zcash, 0, 0).await.unwrap();
 
     assert_eq!(addr_a, addr_b, "same seed + index must produce same address");
 }
@@ -223,12 +230,13 @@ async fn test_lock_clears_session() {
     client.unlock(password).await.unwrap();
 
     // Address works before lock
-    client.derive_address(0).await.unwrap();
+    client.derive_address(ProtocolId::Zcash, 0, 0).await.unwrap();
 
     client.lock().await.unwrap();
 
-    // Address fails after lock
-    let result = client.derive_address(0).await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("no active session"));
+    // Address derivation still works after lock — the view key (FVK) is
+    // cached in paypunkd and does not require the seed. Only signing
+    // (which needs the private key) would fail after lock.
+    let addr = client.derive_address(ProtocolId::Zcash, 0, 0).await.unwrap();
+    assert!(addr.starts_with("u1"), "got: {addr}");
 }

@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use paypunk_types::ProtocolId;
 
 #[derive(Parser)]
 #[command(
@@ -36,9 +37,15 @@ enum Commands {
         #[arg(short, long)]
         password: String,
     },
-    /// Derive a Zcash address at the given diversifier index
+    /// Derive an address at the given protocol, account, and diversifier index
     DeriveAddress {
-        /// Diversifier index (default: 0)
+        /// Protocol (zcash, bitcoin, ethereum, monero, solana)
+        #[arg(short, long, default_value = "zcash")]
+        protocol: String,
+        /// Account index (default: 0)
+        #[arg(short, long, default_value_t = 0)]
+        account: u32,
+        /// Diversifier / address index (default: 0)
         #[arg(short, long, default_value_t = 0)]
         index: u32,
     },
@@ -69,8 +76,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client.unlock(password).await?;
             println!("Wallet unlocked");
         }
-        Commands::DeriveAddress { index } => {
-            let address = client.derive_address(index).await?;
+        Commands::DeriveAddress {
+            protocol,
+            account,
+            index,
+        } => {
+            let protocol_id = match protocol.to_lowercase().as_str() {
+                "zcash" => ProtocolId::Zcash,
+                "bitcoin" => ProtocolId::Bitcoin,
+                "ethereum" => ProtocolId::Ethereum,
+                "monero" => ProtocolId::Monero,
+                "solana" => ProtocolId::Solana,
+                _ => {
+                    eprintln!("Unknown protocol: {protocol}");
+                    std::process::exit(1);
+                }
+            };
+            let address = client.derive_address(protocol_id, account, index).await?;
             println!("{address}");
         }
         Commands::Lock => {

@@ -5,6 +5,7 @@ use zeroize::Zeroize;
 
 use crate::crypto::Keypair;
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
+use crate::protocol::ProtocolRegistry;
 use crate::seed_store::SeedStore;
 use crate::usecases;
 
@@ -33,15 +34,17 @@ impl Drop for Session {
 pub struct Keypunkd<S: Storage> {
     keystore: Keypair,
     seed_store: S,
+    protocols: ProtocolRegistry,
     session: Option<Session>,
     skip_session_auth: bool,
 }
 
 impl<S: Storage> Keypunkd<S> {
-    pub fn new(keystore: Keypair, seed_store: S) -> Self {
+    pub fn new(keystore: Keypair, seed_store: S, protocols: ProtocolRegistry) -> Self {
         Self {
             keystore,
             seed_store,
+            protocols,
             session: None,
             skip_session_auth: false,
         }
@@ -194,20 +197,55 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 }
             }
             // Requires active session.
-            KeypunkdRequest::DeriveAddress { index } => {
-                info!("handling DeriveAddress");
+            KeypunkdRequest::DeriveViewKey { protocol, account } => {
+                info!(?protocol, account, "handling DeriveViewKey");
                 match self.require_session(&msg) {
-                    // TODO: Keypunkd should not know about zcash
-                    Ok(session) => match usecases::derive_address(&session.seed, index) {
-                        Ok(address) => {
-                            debug!(index, %address, "address derived");
-                            KeypunkdResponse::AddressDerived { address }
+                    Ok(session) => {
+                        match usecases::derive_view_key(
+                            &session.seed,
+                            &self.protocols,
+                            protocol,
+                            account,
+                        ) {
+                            Ok(key) => {
+                                debug!("view key derived");
+                                KeypunkdResponse::ViewKey { key }
+                            }
+                            Err(e) => {
+                                warn!(error = %e, "DeriveViewKey failed");
+                                KeypunkdResponse::Error { message: e }
+                            }
                         }
-                        Err(e) => {
-                            warn!(error = %e, "DeriveAddress failed");
-                            KeypunkdResponse::Error { message: e }
+                    }
+                    Err(e) => KeypunkdResponse::Error { message: e },
+                }
+            }
+            // Requires active session.
+            KeypunkdRequest::Sign {
+                protocol,
+                account,
+                payload,
+            } => {
+                info!(?protocol, account, "handling Sign");
+                match self.require_session(&msg) {
+                    Ok(session) => {
+                        match usecases::sign(
+                            &session.seed,
+                            &self.protocols,
+                            protocol,
+                            account,
+                            &payload,
+                        ) {
+                            Ok(signature) => {
+                                debug!("signature created");
+                                KeypunkdResponse::Signature { signature }
+                            }
+                            Err(e) => {
+                                warn!(error = %e, "Sign failed");
+                                KeypunkdResponse::Error { message: e }
+                            }
                         }
-                    },
+                    }
                     Err(e) => KeypunkdResponse::Error { message: e },
                 }
             }

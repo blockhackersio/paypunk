@@ -1,4 +1,5 @@
 use keypunkd::crypto::Keypair;
+use paypunk_types::ProtocolId;
 use zeroize::Zeroizing;
 
 /// Generate a new wallet seed.
@@ -59,14 +60,30 @@ pub async fn unlock(
     service.unlock(encrypted_password, client_pk).await
 }
 
-/// Derive a Zcash address at the given diversifier index.
+/// Derive an address for the given protocol, account, and diversifier index.
 ///
-/// Requires an active unlocked session in keypunkd.
+/// paypunkd caches the protocol's view key material locally, so subsequent
+/// calls for the same (protocol, account) do not require keypunkd roundtrips.
 pub async fn derive_address(
     service: &paypunkd::services::PaypunkService,
+    protocol: ProtocolId,
+    account: u32,
     index: u32,
 ) -> Result<String, String> {
-    service.derive_address(index).await
+    service.derive_address(protocol, account, index).await
+}
+
+/// Sign a payload using the derived private key for the given protocol and account.
+///
+/// The signing request is forwarded to keypunkd where the private key material
+/// lives in protected memory. The signature bytes are returned.
+pub async fn sign(
+    service: &paypunkd::services::PaypunkService,
+    protocol: ProtocolId,
+    account: u32,
+    payload: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    service.sign(protocol, account, payload).await
 }
 
 /// Lock the wallet, zeroizing the in-memory seed in keypunkd.

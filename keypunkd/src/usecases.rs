@@ -1,5 +1,5 @@
 use bip39::Mnemonic;
-use paypunk_chains_zcash::address;
+use paypunk_types::ProtocolId;
 use tracing::debug;
 use zeroize::Zeroizing;
 
@@ -7,6 +7,7 @@ use crate::{
     crypto::Keypair,
     errors::{GenerateError, RestoreError},
     key,
+    protocol::ProtocolRegistry,
     seed_store::SeedStore,
 };
 
@@ -88,7 +89,29 @@ pub fn decrypt_seed(
         .map_err(|e| format!("seed decryption failed: {e}"))
 }
 
-/// Derive a Zcash address from the seed at the given index.
-pub fn derive_address(seed: &[u8; 64], index: u32) -> Result<String, String> {
-    address::derive_address_at_index(seed, index).map_err(|e| e.to_string())
+/// Derive view key material for the given protocol and account.
+pub fn derive_view_key(
+    seed: &[u8; 64],
+    registry: &ProtocolRegistry,
+    protocol: ProtocolId,
+    account: u32,
+) -> Result<Vec<u8>, String> {
+    let deriver = registry
+        .get(protocol)
+        .ok_or_else(|| format!("unknown protocol: {protocol:?}"))?;
+    deriver.derive_view_key(seed, account)
+}
+
+/// Sign a payload with the derived private key for the given protocol and account.
+pub fn sign(
+    seed: &[u8; 64],
+    registry: &ProtocolRegistry,
+    protocol: ProtocolId,
+    account: u32,
+    payload: &[u8],
+) -> Result<Vec<u8>, String> {
+    let deriver = registry
+        .get(protocol)
+        .ok_or_else(|| format!("unknown protocol: {protocol:?}"))?;
+    deriver.sign(seed, account, payload)
 }

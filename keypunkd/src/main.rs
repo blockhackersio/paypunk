@@ -2,8 +2,10 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use keypunkd::crypto::Keypair;
+use keypunkd::protocol::ProtocolRegistry;
 use keypunkd::seed_store::FilesystemSeedStore;
 use keypunkd::Keypunkd;
+use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcReceiver;
 use tactix::Actor;
 use tracing::info;
@@ -41,7 +43,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (secret, public) = keystore.keypair();
     let seed_store = FilesystemSeedStore::new(args.data_dir.join("seed.enc").into_boxed_path());
 
-    let keypunkd = Keypunkd::new(keystore, seed_store).start();
+    let mut protocols = ProtocolRegistry::new();
+    protocols.register(Box::new(ZcashProtocol));
+    info!("registered protocol: Zcash");
+
+    let keypunkd = Keypunkd::new(keystore, seed_store, protocols).start();
 
     let server = IpcReceiver::bind_with(&args.socket_path, secret, public).await?;
     info!("keypunkd listening on {}", args.socket_path);

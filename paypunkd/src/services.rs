@@ -1,4 +1,5 @@
 use paypunk_ipc::IpcMessage;
+use paypunk_types::ProtocolId;
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -95,8 +96,17 @@ impl PaypunkService {
         }
     }
 
-    pub async fn derive_address(&self, index: u32) -> Result<String, String> {
-        let request = PaypunkdRequest::DeriveAddress { index };
+    pub async fn derive_address(
+        &self,
+        protocol: ProtocolId,
+        account: u32,
+        index: u32,
+    ) -> Result<String, String> {
+        let request = PaypunkdRequest::DeriveAddress {
+            protocol,
+            account,
+            index,
+        };
         let payload =
             postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
         let msg = IpcMessage::new(payload);
@@ -105,6 +115,30 @@ impl PaypunkService {
             postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
         match response {
             PaypunkdResponse::AddressDerived { address } => Ok(address),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn sign(
+        &self,
+        protocol: ProtocolId,
+        account: u32,
+        payload: Vec<u8>,
+    ) -> Result<Vec<u8>, String> {
+        let request = PaypunkdRequest::Sign {
+            protocol,
+            account,
+            payload,
+        };
+        let payload =
+            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
+        let msg = IpcMessage::new(payload);
+        let response_bytes = self.recipient.ask(msg).await?;
+        let response: PaypunkdResponse =
+            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
+        match response {
+            PaypunkdResponse::Signature { signature } => Ok(signature),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }

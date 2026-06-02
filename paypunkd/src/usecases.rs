@@ -1,4 +1,5 @@
 use keypunkd::services::KeypunkService;
+use paypunk_types::ProtocolId;
 
 pub async fn get_keypunk_public_key(service: &KeypunkService) -> Result<[u8; 32], String> {
     service.get_public_key().await
@@ -35,11 +36,21 @@ pub async fn unlock(
         .await
 }
 
-pub async fn derive_address(
+pub async fn derive_view_key(
     service: &KeypunkService,
-    index: u32,
-) -> Result<String, String> {
-    service.derive_address(index).await
+    protocol: ProtocolId,
+    account: u32,
+) -> Result<Vec<u8>, String> {
+    service.derive_view_key(protocol, account).await
+}
+
+pub async fn sign(
+    service: &KeypunkService,
+    protocol: ProtocolId,
+    account: u32,
+    payload: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    service.sign(protocol, account, payload).await
 }
 
 pub async fn lock(service: &KeypunkService) -> Result<(), String> {

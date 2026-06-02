@@ -1,5 +1,6 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
+use paypunk_types::ProtocolId;
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -53,11 +54,17 @@ impl Client {
         crate::functions::unlock(&self.service, password).await
     }
 
-    /// Derive a Zcash address at the given diversifier index.
+    /// Derive an address for the given protocol, account, and diversifier index.
     ///
     /// Requires an active unlocked session in keypunkd.
-    pub async fn derive_address(&self, index: u32) -> Result<String, String> {
-        crate::functions::derive_address(&self.service, index).await
+    /// The protocol's view key is cached in paypunkd after the first call.
+    pub async fn derive_address(
+        &self,
+        protocol: ProtocolId,
+        account: u32,
+        index: u32,
+    ) -> Result<String, String> {
+        crate::functions::derive_address(&self.service, protocol, account, index).await
     }
 
     /// Lock the wallet, zeroizing the in-memory seed in keypunkd.

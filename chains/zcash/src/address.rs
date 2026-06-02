@@ -10,6 +10,8 @@ pub enum DeriveError {
     InvalidAccount(u32),
     #[error("Unified address encoding failed")]
     Encoding,
+    #[error("Invalid view key bytes")]
+    InvalidViewKey,
 }
 
 /// Derive a unified Zcash address from a BIP39 seed at the given account and
@@ -22,6 +24,24 @@ pub fn derive_address(seed: &[u8; 64], account: u32, index: u32) -> Result<Strin
     let sk =
         SpendingKey::from_zip32_seed(seed, 133, account_id).map_err(DeriveError::Zip32)?;
     let fvk = FullViewingKey::from(&sk);
+    address_from_fvk(&fvk, index)
+}
+
+/// Derive a unified address using the default account (0) and the given
+/// diversifier index.
+pub fn derive_address_at_index(seed: &[u8; 64], index: u32) -> Result<String, DeriveError> {
+    derive_address(seed, 0, index)
+}
+
+/// Derive a unified address from serialized FullViewingKey bytes and a
+/// diversifier index. No seed or private key material needed.
+pub fn derive_from_fvk(fvk_bytes: &[u8], index: u32) -> Result<String, DeriveError> {
+    let bytes: [u8; 96] = fvk_bytes.try_into().map_err(|_| DeriveError::InvalidViewKey)?;
+    let fvk = FullViewingKey::from_bytes(&bytes).ok_or(DeriveError::InvalidViewKey)?;
+    address_from_fvk(&fvk, index)
+}
+
+fn address_from_fvk(fvk: &FullViewingKey, index: u32) -> Result<String, DeriveError> {
     let address = fvk.address_at(index, Scope::External);
     let raw = address.to_raw_address_bytes();
 
@@ -29,12 +49,6 @@ pub fn derive_address(seed: &[u8; 64], account: u32, index: u32) -> Result<Strin
         .map_err(|_| DeriveError::Encoding)?;
     let zaddr = ZcashAddress::from_unified(Network::Main, ua);
     Ok(zaddr.encode())
-}
-
-/// Derive a unified address using the default account (0) and the given
-/// diversifier index.
-pub fn derive_address_at_index(seed: &[u8; 64], index: u32) -> Result<String, DeriveError> {
-    derive_address(seed, 0, index)
 }
 
 #[cfg(test)]

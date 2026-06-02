@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 paypunk-ipc = { path = "../ipc" }
+paypunk-types = { path = "../types" }
 paypunk-chains-zcash = { path = "../chains/zcash" }
 tactix = "1.0"
 tokio = { version = "1", features = ["net", "io-util", "rt", "macros", "signal"] }
