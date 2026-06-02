@@ -13,15 +13,16 @@ impl KeypunkService {
         Self { recipient }
     }
 
-    pub async fn get_public_key(&self) -> Result<[u8; 32], String> {
-        let request = KeypunkdRequest::GetPublicKey;
+    async fn send(&self, request: KeypunkdRequest) -> Result<KeypunkdResponse, String> {
         let payload =
             postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
         let msg = IpcMessage::new(payload);
         let response_bytes = self.recipient.ask(msg).await?;
-        let response: KeypunkdResponse =
-            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
-        match response {
+        postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))
+    }
+
+    pub async fn get_public_key(&self) -> Result<[u8; 32], String> {
+        match self.send(KeypunkdRequest::GetPublicKey).await? {
             KeypunkdResponse::PublicKey { key } => Ok(key),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
@@ -33,17 +34,13 @@ impl KeypunkService {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     ) -> Result<Vec<u8>, String> {
-        let request = KeypunkdRequest::GenerateSeed {
-            encrypted_password,
-            client_public_key,
-        };
-        let payload =
-            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
-        let msg = IpcMessage::new(payload);
-        let response_bytes = self.recipient.ask(msg).await?;
-        let response: KeypunkdResponse =
-            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
-        match response {
+        match self
+            .send(KeypunkdRequest::GenerateSeed {
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
             KeypunkdResponse::SeedGenerated { encrypted_mnemonic } => Ok(encrypted_mnemonic),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
@@ -56,18 +53,14 @@ impl KeypunkService {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     ) -> Result<(), String> {
-        let request = KeypunkdRequest::RestoreSeed {
-            encrypted_mnemonic,
-            encrypted_password,
-            client_public_key,
-        };
-        let payload =
-            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
-        let msg = IpcMessage::new(payload);
-        let response_bytes = self.recipient.ask(msg).await?;
-        let response: KeypunkdResponse =
-            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
-        match response {
+        match self
+            .send(KeypunkdRequest::RestoreSeed {
+                encrypted_mnemonic,
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
             KeypunkdResponse::SeedRestored => Ok(()),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
@@ -79,17 +72,13 @@ impl KeypunkService {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     ) -> Result<(), String> {
-        let request = KeypunkdRequest::Unlock {
-            encrypted_password,
-            client_public_key,
-        };
-        let payload =
-            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
-        let msg = IpcMessage::new(payload);
-        let response_bytes = self.recipient.ask(msg).await?;
-        let response: KeypunkdResponse =
-            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
-        match response {
+        match self
+            .send(KeypunkdRequest::Unlock {
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
             KeypunkdResponse::Unlocked => Ok(()),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
@@ -101,14 +90,10 @@ impl KeypunkService {
         protocol: ProtocolId,
         account: u32,
     ) -> Result<Vec<u8>, String> {
-        let request = KeypunkdRequest::DerivePublicKey { protocol, account };
-        let payload =
-            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
-        let msg = IpcMessage::new(payload);
-        let response_bytes = self.recipient.ask(msg).await?;
-        let response: KeypunkdResponse =
-            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
-        match response {
+        match self
+            .send(KeypunkdRequest::DerivePublicKey { protocol, account })
+            .await?
+        {
             KeypunkdResponse::ProtocolPublicKey { key } => Ok(key),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
@@ -121,18 +106,14 @@ impl KeypunkService {
         account: u32,
         payload: Vec<u8>,
     ) -> Result<Vec<u8>, String> {
-        let request = KeypunkdRequest::Sign {
-            protocol,
-            account,
-            payload,
-        };
-        let payload =
-            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
-        let msg = IpcMessage::new(payload);
-        let response_bytes = self.recipient.ask(msg).await?;
-        let response: KeypunkdResponse =
-            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
-        match response {
+        match self
+            .send(KeypunkdRequest::Sign {
+                protocol,
+                account,
+                payload,
+            })
+            .await?
+        {
             KeypunkdResponse::Signature { signature } => Ok(signature),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
@@ -140,14 +121,7 @@ impl KeypunkService {
     }
 
     pub async fn lock(&self) -> Result<(), String> {
-        let request = KeypunkdRequest::Lock;
-        let payload =
-            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
-        let msg = IpcMessage::new(payload);
-        let response_bytes = self.recipient.ask(msg).await?;
-        let response: KeypunkdResponse =
-            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
-        match response {
+        match self.send(KeypunkdRequest::Lock).await? {
             KeypunkdResponse::Locked => Ok(()),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
