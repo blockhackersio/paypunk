@@ -1,6 +1,7 @@
 use paypunk_ipc::IpcMessage;
 use tactix::{Actor, Ctx, Handler};
 use tracing::{debug, info, warn};
+use zeroize::Zeroize;
 
 use crate::crypto::Keypair;
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
@@ -11,10 +12,28 @@ use crate::usecases;
 pub trait Storage: SeedStore + Send + Sync + 'static {}
 impl<T: SeedStore + Send + Sync + 'static> Storage for T {}
 
+/// An unlocked session holding the decrypted seed in memory.
+struct Session {
+    peer_pk: [u8; 32],
+    seed: [u8; 64],
+}
+
+impl Session {
+    fn new(peer_pk: [u8; 32], seed: [u8; 64]) -> Self {
+        Self { peer_pk, seed }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.seed.zeroize();
+    }
+}
+
 pub struct Keypunkd<S: Storage> {
     keystore: Keypair,
     seed_store: S,
-    session: Option<[u8; 32]>,
+    session: Option<Session>,
     skip_session_auth: bool,
 }
 
@@ -49,11 +68,27 @@ impl<S: Storage> Keypunkd<S> {
         Ok(())
     }
 
-    /// Sets the active session from the message's sender public key.
-    fn set_session(&mut self, msg: &IpcMessage) {
+    /// Ensures there is an active unlocked session for the given sender.
+    fn require_session(&self, msg: &IpcMessage) -> Result<&Session, String> {
+        let sender_pk = msg
+            .sender_public_key
+            .ok_or_else(|| "in-process message has no sender key".to_string())?;
+        self.session
+            .as_ref()
+            .filter(|s| s.peer_pk == sender_pk)
+            .ok_or_else(|| "no active session — call Unlock first".to_string())
+    }
+
+    /// Sets the active session from the message's sender public key and seed.
+    fn set_session(&mut self, msg: &IpcMessage, seed: [u8; 64]) {
         if let Some(pk) = msg.sender_public_key {
-            self.session = Some(pk);
+            self.session = Some(Session::new(pk, seed));
         }
+    }
+
+    /// Clears the active session, zeroizing the seed.
+    fn clear_session(&mut self) {
+        self.session = None;
     }
 }
 
@@ -89,7 +124,6 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                     &self.seed_store,
                 ) {
                     Ok(encrypted_mnemonic) => {
-                        self.set_session(&msg);
                         info!("seed generated successfully");
                         KeypunkdResponse::SeedGenerated { encrypted_mnemonic }
                     }
@@ -116,7 +150,6 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                     &self.seed_store,
                 ) {
                     Ok(()) => {
-                        self.set_session(&msg);
                         info!("seed restored successfully");
                         KeypunkdResponse::SeedRestored
                     }
@@ -127,6 +160,53 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                         }
                     }
                 }
+            }
+            // Password-authenticated — decrypts seed, holds in memory.
+            KeypunkdRequest::Unlock {
+                encrypted_password,
+                client_public_key,
+            } => {
+                info!("handling Unlock");
+                let client_pk = &client_public_key;
+                match usecases::decrypt_seed(
+                    &encrypted_password,
+                    client_pk,
+                    &self.keystore,
+                    &self.seed_store,
+                ) {
+                    Ok(seed) => {
+                        self.set_session(&msg, seed);
+                        info!("wallet unlocked");
+                        KeypunkdResponse::Unlocked
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Unlock failed");
+                        KeypunkdResponse::Error { message: e }
+                    }
+                }
+            }
+            // Requires active session.
+            KeypunkdRequest::DeriveAddress { index } => {
+                info!("handling DeriveAddress");
+                match self.require_session(&msg) {
+                    Ok(session) => match usecases::derive_address(&session.seed, index) {
+                        Ok(address) => {
+                            debug!(index, %address, "address derived");
+                            KeypunkdResponse::AddressDerived { address }
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "DeriveAddress failed");
+                            KeypunkdResponse::Error { message: e }
+                        }
+                    },
+                    Err(e) => KeypunkdResponse::Error { message: e },
+                }
+            }
+            // Clears session.
+            KeypunkdRequest::Lock => {
+                info!("handling Lock");
+                self.clear_session();
+                KeypunkdResponse::Locked
             }
         };
 

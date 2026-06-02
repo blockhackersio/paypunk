@@ -79,6 +79,45 @@ impl Handler<IpcMessage> for Paypunkd {
                     }
                 }
             }
+            PaypunkdRequest::Unlock {
+                encrypted_password,
+                client_public_key,
+            } => {
+                info!("forwarding Unlock to keypunkd");
+                match usecases::unlock(
+                    &self.keypunk_service,
+                    encrypted_password,
+                    client_public_key,
+                )
+                .await
+                {
+                    Ok(()) => PaypunkdResponse::Unlocked,
+                    Err(e) => {
+                        warn!(error = %e, "Unlock failed");
+                        PaypunkdResponse::Error { message: e }
+                    }
+                }
+            }
+            PaypunkdRequest::DeriveAddress { index } => {
+                info!("forwarding DeriveAddress to keypunkd");
+                match usecases::derive_address(&self.keypunk_service, index).await {
+                    Ok(address) => PaypunkdResponse::AddressDerived { address },
+                    Err(e) => {
+                        warn!(error = %e, "DeriveAddress failed");
+                        PaypunkdResponse::Error { message: e }
+                    }
+                }
+            }
+            PaypunkdRequest::Lock => {
+                info!("forwarding Lock to keypunkd");
+                match usecases::lock(&self.keypunk_service).await {
+                    Ok(()) => PaypunkdResponse::Locked,
+                    Err(e) => {
+                        warn!(error = %e, "Lock failed");
+                        PaypunkdResponse::Error { message: e }
+                    }
+                }
+            }
         };
 
         let encoded =

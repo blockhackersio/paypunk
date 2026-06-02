@@ -1,4 +1,5 @@
 use bip39::Mnemonic;
+use paypunk_chains_zcash::address;
 use tracing::debug;
 use zeroize::Zeroizing;
 
@@ -60,4 +61,34 @@ pub fn restore_seed(
     store.write(&encrypted)?;
 
     Ok(())
+}
+
+/// Decrypt the seed from the store using the given password.
+///
+/// Returns the 64-byte BIP39 seed.
+pub fn decrypt_seed(
+    encrypted_password: &[u8],
+    client_pk: &[u8; 32],
+    keystore: &Keypair,
+    store: &impl SeedStore,
+) -> Result<[u8; 64], String> {
+    debug!("decrypting password");
+    let password = keystore
+        .decrypt(encrypted_password, client_pk)
+        .map_err(|e| format!("password decryption failed: {e}"))?;
+
+    debug!("reading encrypted seed from store");
+    let encrypted = store
+        .read()
+        .map_err(|e| format!("read seed failed: {e}"))?
+        .ok_or_else(|| "no seed found — wallet not initialized".to_string())?;
+
+    debug!("decrypting seed");
+    key::decrypt_seed(&encrypted, &*password)
+        .map_err(|e| format!("seed decryption failed: {e}"))
+}
+
+/// Derive a Zcash address from the seed at the given index.
+pub fn derive_address(seed: &[u8; 64], index: u32) -> Result<String, String> {
+    address::derive_address_at_index(seed, index).map_err(|e| e.to_string())
 }

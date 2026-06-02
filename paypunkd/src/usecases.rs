@@ -24,3 +24,24 @@ pub async fn restore_seed(
         .restore_seed(encrypted_mnemonic, encrypted_password, client_public_key)
         .await
 }
+
+pub async fn unlock(
+    service: &KeypunkService,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+) -> Result<(), String> {
+    service
+        .unlock(encrypted_password, client_public_key)
+        .await
+}
+
+pub async fn derive_address(
+    service: &KeypunkService,
+    index: u32,
+) -> Result<String, String> {
+    service.derive_address(index).await
+}
+
+pub async fn lock(service: &KeypunkService) -> Result<(), String> {
+    service.lock().await
+}

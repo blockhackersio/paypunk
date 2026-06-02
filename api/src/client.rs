@@ -44,4 +44,24 @@ impl Client {
     ) -> Result<(), String> {
         crate::functions::restore_seed(&self.service, mnemonic, password).await
     }
+
+    /// Unlock the wallet with the given password.
+    ///
+    /// keypunkd will decrypt the seed and hold it in memory for subsequent
+    /// operations.
+    pub async fn unlock(&self, password: Zeroizing<String>) -> Result<(), String> {
+        crate::functions::unlock(&self.service, password).await
+    }
+
+    /// Derive a Zcash address at the given diversifier index.
+    ///
+    /// Requires an active unlocked session in keypunkd.
+    pub async fn derive_address(&self, index: u32) -> Result<String, String> {
+        crate::functions::derive_address(&self.service, index).await
+    }
+
+    /// Lock the wallet, zeroizing the in-memory seed in keypunkd.
+    pub async fn lock(&self) -> Result<(), String> {
+        crate::functions::lock(&self.service).await
+    }
 }

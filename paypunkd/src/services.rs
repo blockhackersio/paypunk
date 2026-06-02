@@ -72,4 +72,56 @@ impl PaypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn unlock(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<(), String> {
+        let request = PaypunkdRequest::Unlock {
+            encrypted_password,
+            client_public_key,
+        };
+        let payload =
+            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
+        let msg = IpcMessage::new(payload);
+        let response_bytes = self.recipient.ask(msg).await?;
+        let response: PaypunkdResponse =
+            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
+        match response {
+            PaypunkdResponse::Unlocked => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn derive_address(&self, index: u32) -> Result<String, String> {
+        let request = PaypunkdRequest::DeriveAddress { index };
+        let payload =
+            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
+        let msg = IpcMessage::new(payload);
+        let response_bytes = self.recipient.ask(msg).await?;
+        let response: PaypunkdResponse =
+            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
+        match response {
+            PaypunkdResponse::AddressDerived { address } => Ok(address),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn lock(&self) -> Result<(), String> {
+        let request = PaypunkdRequest::Lock;
+        let payload =
+            postcard::to_allocvec(&request).map_err(|e| format!("serialize error: {e}"))?;
+        let msg = IpcMessage::new(payload);
+        let response_bytes = self.recipient.ask(msg).await?;
+        let response: PaypunkdResponse =
+            postcard::from_bytes(&response_bytes).map_err(|e| format!("deserialize error: {e}"))?;
+        match response {
+            PaypunkdResponse::Locked => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }

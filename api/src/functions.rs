@@ -42,3 +42,34 @@ pub async fn restore_seed(
         .restore_seed(encrypted_mnemonic, encrypted_password, client_pk)
         .await
 }
+
+/// Unlock the wallet by sending the password to keypunkd.
+///
+/// keypunkd decrypts the seed and holds it in memory for subsequent
+/// operations like address derivation.
+pub async fn unlock(
+    service: &paypunkd::services::PaypunkService,
+    password: Zeroizing<String>,
+) -> Result<(), String> {
+    let client_keypair = Keypair::new();
+    let server_pk = service.get_keypunk_public_key().await?;
+    let encrypted_password = client_keypair.encrypt(password, &server_pk);
+    let client_pk = client_keypair.public_key();
+
+    service.unlock(encrypted_password, client_pk).await
+}
+
+/// Derive a Zcash address at the given diversifier index.
+///
+/// Requires an active unlocked session in keypunkd.
+pub async fn derive_address(
+    service: &paypunkd::services::PaypunkService,
+    index: u32,
+) -> Result<String, String> {
+    service.derive_address(index).await
+}
+
+/// Lock the wallet, zeroizing the in-memory seed in keypunkd.
+pub async fn lock(service: &paypunkd::services::PaypunkService) -> Result<(), String> {
+    service.lock().await
+}

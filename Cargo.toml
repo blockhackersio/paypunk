@@ -9,4 +9,5 @@ members = [
     "api",
     "cli",
     "tests",
+    "chains/zcash",
 ]
