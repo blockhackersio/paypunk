@@ -9,12 +9,10 @@
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use bip39::{Language, Mnemonic};
-use prost::Message;
 use rand_core::OsRng;
-use rusqlite::Connection;
 use secrecy::SecretVec;
 use tonic::transport::Channel;
 use zcash_address::ZcashAddress;
@@ -43,41 +41,17 @@ use zcash_protocol::consensus::BlockHeight;
 use zcash_protocol::value::Zatoshis;
 use zip32::AccountId;
 
-// ── Custom block cache ─────────────────────────────────────────────────
-//
-// We need a local type to implement BlockCache (orphan rule).
+// ── In-memory block cache ──────────────────────────────────────────────
 
 struct CacheDb {
-    conn: Mutex<Connection>,
+    blocks: Arc<Mutex<Vec<CompactBlock>>>,
 }
 
 impl CacheDb {
     fn new() -> Self {
-        let conn = Connection::open_in_memory().expect("in-memory cache db");
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS compactblocks (
-                height INTEGER PRIMARY KEY,
-                data BLOB NOT NULL
-            ); PRAGMA journal_mode=wal; PRAGMA synchronous=NORMAL;",
-        )
-        .ok();
         CacheDb {
-            conn: Mutex::new(conn),
+            blocks: Arc::new(Mutex::new(Vec::new())),
         }
-    }
-
-    fn insert_blocks(&self, blocks: &[CompactBlock]) {
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction().expect("cache tx");
-        for cb in blocks {
-            let data = cb.encode_to_vec();
-            tx.execute(
-                "INSERT OR REPLACE INTO compactblocks (height, data) VALUES (?1, ?2)",
-                rusqlite::params![u32::from(cb.height()), data],
-            )
-            .expect("insert block");
-        }
-        tx.commit().expect("commit cache");
     }
 }
 
@@ -93,59 +67,26 @@ impl BlockSource for CacheDb {
     where
         F: FnMut(CompactBlock) -> Result<(), zcash_client_backend::data_api::chain::error::Error<DbErrT, Self::Error>>,
     {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare(
-                "SELECT height, data FROM compactblocks
-                 WHERE height >= ?
-                 ORDER BY height ASC LIMIT ?",
-            )
-            .map_err(|e| zcash_client_backend::data_api::chain::error::Error::BlockSource(e.into()))?;
-
-        let mut rows = stmt
-            .query(rusqlite::params![
-                from_height.map_or(0u32, u32::from),
-                limit.and_then(|l| u32::try_from(l).ok()).unwrap_or(u32::MAX)
-            ])
-            .map_err(|e| zcash_client_backend::data_api::chain::error::Error::BlockSource(e.into()))?;
-
-        let mut from_height_found = from_height.is_none();
-        while let Some(row) = rows
-            .next()
-            .map_err(|e| zcash_client_backend::data_api::chain::error::Error::BlockSource(e.into()))?
-        {
-            let height: u32 = row.get(0).map_err(|e| {
-                zcash_client_backend::data_api::chain::error::Error::BlockSource(e.into())
-            })?;
-            let height = BlockHeight::from_u32(height);
-            if !from_height_found {
+        let blocks = self.blocks.lock().unwrap();
+        let limit = limit.unwrap_or(usize::MAX);
+        let mut count = 0;
+        let mut found_from = from_height.is_none();
+        for block in blocks.iter() {
+            let h = block.height();
+            if !found_from {
                 let fh = from_height.expect("can only reach here if set");
-                if fh != height {
+                if fh != h {
                     return Err(zcash_client_backend::data_api::chain::error::Error::BlockSource(
                         SqliteClientError::CacheMiss(fh),
                     ));
                 }
-                from_height_found = true;
+                found_from = true;
             }
-
-            let data: Vec<u8> = row.get(1).map_err(|e| {
-                zcash_client_backend::data_api::chain::error::Error::BlockSource(e.into())
-            })?;
-            let block = CompactBlock::decode(&data[..]).map_err(|e| {
-                zcash_client_backend::data_api::chain::error::Error::BlockSource(
-                    SqliteClientError::CorruptedData(e.to_string()),
-                )
-            })?;
-            if block.height() != height {
-                return Err(zcash_client_backend::data_api::chain::error::Error::BlockSource(
-                    SqliteClientError::CorruptedData(format!(
-                        "compact block at height {} has mismatched height field {}",
-                        u32::from(height),
-                        u32::from(block.height()),
-                    )),
-                ));
+            if count >= limit {
+                break;
             }
-            with_row(block)?;
+            with_row(block.clone())?;
+            count += 1;
         }
         Ok(())
     }
@@ -157,69 +98,38 @@ impl BlockCache for CacheDb {
         &self,
         _range: Option<&ScanRange>,
     ) -> Result<Option<BlockHeight>, Self::Error> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT MAX(height) FROM compactblocks")
-            .map_err(SqliteClientError::from)?;
-        let tip: Option<u32> = stmt
-            .query_row([], |row| row.get(0))
-            .map_err(SqliteClientError::from)?;
-        Ok(tip.map(BlockHeight::from_u32))
+        let blocks = self.blocks.lock().unwrap();
+        Ok(blocks.last().map(|b| b.height()))
     }
 
     async fn read(&self, range: &ScanRange) -> Result<Vec<CompactBlock>, Self::Error> {
         let block_range = range.block_range();
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare(
-                "SELECT height, data FROM compactblocks
-                 WHERE height >= ? AND height < ?
-                 ORDER BY height ASC",
-            )
-            .map_err(SqliteClientError::from)?;
-        let rows = stmt
-            .query_map(
-                rusqlite::params![u32::from(block_range.start), u32::from(block_range.end)],
-                |row| {
-                    let data: Vec<u8> = row.get(1)?;
-                    Ok(data)
-                },
-            )
-            .map_err(SqliteClientError::from)?;
-        let mut blocks = Vec::new();
-        for row in rows {
-            let data = row.map_err(SqliteClientError::from)?;
-            blocks.push(
-                CompactBlock::decode(&data[..])
-                    .map_err(|e| SqliteClientError::CorruptedData(e.to_string()))?,
-            );
-        }
-        Ok(blocks)
+        let blocks = self.blocks.lock().unwrap();
+        Ok(blocks
+            .iter()
+            .filter(|b| {
+                b.height() >= block_range.start
+                    && b.height() < block_range.end
+            })
+            .cloned()
+            .collect())
     }
 
     async fn insert(&self, compact_blocks: Vec<CompactBlock>) -> Result<(), Self::Error> {
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction().map_err(SqliteClientError::from)?;
-        for cb in &compact_blocks {
-            let data = cb.encode_to_vec();
-            tx.execute(
-                "INSERT OR REPLACE INTO compactblocks (height, data) VALUES (?1, ?2)",
-                rusqlite::params![u32::from(cb.height()), data],
-            )
-            .map_err(SqliteClientError::from)?;
-        }
-        tx.commit().map_err(SqliteClientError::from)?;
+        let mut blocks = self.blocks.lock().unwrap();
+        blocks.extend(compact_blocks);
+        blocks.sort_by_key(|b| b.height());
+        blocks.dedup_by_key(|b| b.height());
         Ok(())
     }
 
     async fn delete(&self, range: ScanRange) -> Result<(), Self::Error> {
         let block_range = range.block_range();
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-                "DELETE FROM compactblocks WHERE height >= ? AND height < ?",
-                rusqlite::params![u32::from(block_range.start), u32::from(block_range.end)],
-            )
-            .map_err(SqliteClientError::from)?;
+        let mut blocks = self.blocks.lock().unwrap();
+        blocks.retain(|b| {
+            b.height() < block_range.start
+                || b.height() >= block_range.end
+        });
         Ok(())
     }
 }
@@ -348,7 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Downloaded {} blocks", blocks.len());
 
     // Insert blocks into cache
-    cache_db.insert_blocks(&blocks);
+    cache_db.insert(blocks).await.expect("insert blocks into cache");
 
     // Scan cached blocks into the wallet
     let from_state = ChainState::empty(birthday_height - 1, BlockHash([0u8; 32]));
@@ -482,7 +392,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let new_blocks = download_blocks(&mut client, tip_height + 1, new_tip_height + 1).await;
     if !new_blocks.is_empty() {
         println!("Downloaded {} new blocks", new_blocks.len());
-        cache_db.insert_blocks(&new_blocks);
+        cache_db.insert(new_blocks).await.expect("insert new blocks");
 
         let last_scanned = wallet_db
             .block_fully_scanned()
