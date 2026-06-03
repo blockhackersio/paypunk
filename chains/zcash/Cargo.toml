@@ -5,10 +5,22 @@ edition = "2021"
 
 [dependencies]
 paypunk-types = { path = "../../types" }
-orchard = "0.8"
-zcash_address = "0.3"
-zip32 = "0.1"
+orchard = "0.13"
+zcash_address = "0.11"
+zcash_protocol = "0.8"
+zip32 = "0.2"
 thiserror = "2"
 
 [dev-dependencies]
-bip39 = "2"
+bip39 = { version = "2", features = ["rand"] }
+zcash_client_backend = { version = "0.22", default-features = false, features = ["orchard", "lightwalletd-tonic", "sync", "transparent-inputs"] }
+zcash_client_sqlite = { version = "0.20", features = ["orchard", "transparent-inputs"] }
+zcash_keys = { version = "0.13", features = ["orchard", "sapling", "transparent-inputs"] }
+zcash_primitives = "0.27"
+zcash_proofs = "0.27"
+rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
+rand = "0.8"
+tokio = { version = "1", features = ["full"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tonic = "0.14"
+sapling-crypto = "0.7"

@@ -1,6 +1,7 @@
 use orchard::keys::{FullViewingKey, Scope, SpendingKey};
 use zcash_address::unified::{self, Encoding};
-use zcash_address::{Network, ToAddress, ZcashAddress};
+use zcash_address::{ToAddress, ZcashAddress};
+use zcash_protocol::consensus::NetworkType;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeriveError {
@@ -47,7 +48,7 @@ fn address_from_fvk(fvk: &FullViewingKey, index: u32) -> Result<String, DeriveEr
 
     let ua = unified::Address::try_from_items(vec![unified::Receiver::Orchard(raw)])
         .map_err(|_| DeriveError::Encoding)?;
-    let zaddr = ZcashAddress::from_unified(Network::Main, ua);
+    let zaddr = ZcashAddress::from_unified(NetworkType::Main, ua);
     Ok(zaddr.encode())
 }
 
