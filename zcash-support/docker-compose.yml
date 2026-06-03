@@ -1,0 +1,80 @@
+# ── Zcash Regtest Dev Stack ───────────────────────────────────────────
+#
+# Usage:
+#   docker compose up                  # start everything + mine blocks
+#   docker compose up -d               # start detached
+#   docker compose up --build          # rebuild after changes
+#
+#   # Shield funds into Orchard:
+#   SHIELD_FUNDS=true docker compose up
+#
+#   # Mine more blocks after setup:
+#   docker compose exec zcashd zcash-cli -datadir=/data -rpcuser=zcashrpc -rpcpassword=notsecure \
+#     generatetoaddress 10 <MINING_ADDR>
+#
+#   # Clean reset:
+#   docker compose down -v && docker compose up --build
+#
+# Ports exposed to the host:
+#   9067  → lightwalletd gRPC (no TLS)
+#   18232 → zcashd RPC
+
+services:
+  # ── zcashd (regtest) ────────────────────────────────────────────────
+  zcashd:
+    build:
+      context: ./docker/zcashd
+    volumes:
+      - zcashd-data:/data
+      - zcash-params:/root/.zcash-params
+    ports:
+      - "18232:18232"
+    healthcheck:
+      test: ["CMD", "zcash-cli", "-datadir=/data", "-rpcuser=zcashrpc", "-rpcpassword=notsecure", "getblockchaininfo"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── setup (one-shot) ────────────────────────────────────────────────
+  # Derives keys from the Hardhat mnemonic, imports them, mines blocks.
+  setup:
+    build:
+      context: ./docker/setup
+    depends_on:
+      zcashd:
+        condition: service_healthy
+    environment:
+      ZCASHD_HOST: zcashd
+      ZCASHD_PORT: "18232"
+      RPC_USER: zcashrpc
+      RPC_PASS: notsecure
+      BLOCKS_TO_MINE: "200"
+      NUM_KEYS: "5"
+      SHIELD_FUNDS: "${SHIELD_FUNDS:-false}"
+    restart: "no"
+
+  # ── lightwalletd ────────────────────────────────────────────────────
+  lightwalletd:
+    build:
+      context: ./docker/lightwalletd
+    depends_on:
+      zcashd:
+        condition: service_healthy
+    volumes:
+      - lwd-data:/data
+      - ./docker/lightwalletd/zcash-lwd.conf:/etc/lightwalletd/zcash.conf:ro
+    environment:
+      ZCASHD_HOST: zcashd
+      ZCASHD_PORT: "18232"
+      CONF_PATH: /etc/lightwalletd/zcash.conf
+      GRPC_BIND: "0.0.0.0:9067"
+    ports:
+      - "9067:9067"
+    restart: unless-stopped
+
+volumes:
+  zcashd-data:
+  zcash-params:
+  lwd-data:
