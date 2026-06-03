@@ -1,0 +1,245 @@
+//! Reference example: full shielded Zcash wallet flow against lightwalletd.
+//!
+//! Demonstrates: seed generation, key derivation, SQLite wallet init, chain sync,
+//! balance check, shielded transfer proposal + creation, tx submission, re-sync.
+//!
+//! Targets:
+//!   zcash_client_backend  0.21.x
+//!   zcash_client_sqlite   0.18.x
+//!   zcash_protocol        0.7.x
+//!   zcash_keys            0.12.x
+//!   zcash_address         0.10.x
+//!   zcash_primitives      0.26.x
+//!   zcash_proofs          0.26.x
+//!
+//! Cargo.toml dependencies (minimum):
+//!
+//! ```toml
+//! [dependencies]
+//! bip0039       = "0.12"
+//! rand_core     = "0.6"
+//! rusqlite      = { version = "0.31", features = ["bundled"] }
+//! secrecy       = "0.8"
+//! tokio         = { version = "1", features = ["full"] }
+//! tonic         = "0.14"
+//! tracing-subscriber = "0.3"
+//! zip32         = "0.2"
+//!
+//! zcash_address         = "0.10"
+//! zcash_client_backend  = { version = "0.21", features = ["sync", "orchard"] }
+//! zcash_client_sqlite   = { version = "0.18", features = ["orchard"] }
+//! zcash_keys            = "0.12"
+//! zcash_primitives      = "0.26"
+//! zcash_proofs          = "0.26"
+//! zcash_protocol        = "0.7"
+//! ```
+//!
+//! Run:
+//!   cargo run --example send_shielded -- <LIGHTWALLETD_URL> <DEST_ADDRESS>
+//!
+//! Example:
+//!   cargo run --example send_shielded -- https://mainnet.lightwalletd.com:9067 u1...
+
+use std::path::PathBuf;
+use std::str::FromStr;
+
+use bip0039::{Count, English, Mnemonic};
+use secrecy::SecretVec;
+use tonic::Request;
+
+use zcash_address::ZcashAddress;
+use zcash_client_backend::data_api::wallet::{
+    create_proposed_transactions, propose_standard_transfer_to_address,
+};
+use zcash_client_backend::data_api::{AccountBirthday, WalletRead, WalletWrite};
+use zcash_client_backend::fees::StandardFeeRule;
+use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
+use zcash_client_backend::proto::service::RawTransaction;
+use zcash_client_backend::sync;
+use zcash_client_sqlite::chain::init::init_cache_database;
+use zcash_client_sqlite::WalletDb;
+use zcash_protocol::consensus::{BlockHeight, NetworkType};
+use zcash_protocol::value::Zatoshis;
+
+/// Generate a fresh 24-word BIP 39 mnemonic, returning (SecretVec<u8> seed, phrase).
+fn generate_seed() -> (SecretVec<u8>, String) {
+    let mnemonic = Mnemonic::<English>::generate(Count::Words24);
+    let phrase = mnemonic.to_string();
+    // Derive the 64-byte seed with an empty passphrase.
+    let seed_bytes = mnemonic.to_seed("");
+    // SecretVec wraps the seed so it is zeroized on drop.
+    let secret = SecretVec::new(seed_bytes.to_vec());
+    (secret, phrase)
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt::init();
+
+    // ── CLI args ──────────────────────────────────────────────────────────
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 3 {
+        eprintln!("Usage: {} <LIGHTWALLETD_URL> <DEST_ADDRESS>", args[0]);
+        std::process::exit(1);
+    }
+    let lightwalletd_url = &args[1];
+    let dest_addr_str = &args[2];
+
+    // ── Network ───────────────────────────────────────────────────────────
+    // Switch to TEST_NETWORK / NetworkType::Test for testnet.
+    let params = zcash_protocol::consensus::MAIN_NETWORK;
+
+    // ── Step 1: Generate seed ─────────────────────────────────────────────
+    println!("=== Step 1: Generate seed ===");
+    let (seed, phrase) = generate_seed();
+    println!("Mnemonic (BACK THIS UP): {phrase}");
+
+    // ── Step 2: Initialize SQLite wallet database ─────────────────────────
+    println!("\n=== Step 2: Initialize wallet database ===");
+    let data_dir = PathBuf::from("/tmp/zcash-reference-wallet");
+    std::fs::create_dir_all(&data_dir)?;
+    let db_path = data_dir.join("wallet.db");
+
+    // WalletDb manages the data database; cache is handled internally by the
+    // sync module when using `sync::run`.
+    let mut wallet_db = WalletDb::for_path(&db_path, params)?;
+    println!("Wallet DB: {db_path:?}");
+
+    // ── Step 3: Create account from seed ──────────────────────────────────
+    //
+    // In 0.21.x, `create_account` derives the USK internally from the seed
+    // and the next available ZIP-32 account index.  It returns
+    // (AccountId, UnifiedSpendingKey).  The birthday should ideally come
+    // from a lightwalletd `GetTreeState` call at (tip - 100) so that reorgs
+    // don't cause missed funds.
+    println!("\n=== Step 3: Create account ===");
+
+    // For a real wallet you would query lightwalletd for the current tree
+    // state.  Here we construct a "sapling-activation" birthday for demo
+    // purposes.  Replace with a proper birthday height for production use.
+    let birthday = AccountBirthday::from_activation(&params);
+
+    let (account_id, usk) = wallet_db.create_account(
+        "Primary", // human-readable account name
+        &seed,     // SecretVec<u8> seed
+        &birthday, // AccountBirthday
+        None,      // key_source metadata (optional)
+    )?;
+
+    println!("Account ID: {account_id:?}");
+
+    // Retrieve the account to obtain its default unified address.
+    let account = wallet_db
+        .get_account(account_id)?
+        .expect("account was just created");
+    let (my_ua, _di) = account
+        .ufvk()
+        .expect("HD account has a UFVK")
+        .default_address(None)?;
+    println!("My unified address: {my_ua}");
+
+    // ── Step 4: Connect to lightwalletd & sync ────────────────────────────
+    println!("\n=== Step 4: Connect to lightwalletd & sync ===");
+    let mut client = CompactTxStreamerClient::connect(lightwalletd_url.to_string()).await?;
+    println!("Connected to {lightwalletd_url}");
+
+    // `sync::run` orchestrates the full scan-range-based synchronization
+    // pipeline: it fetches compact blocks, updates subtree roots, scans in
+    // priority order, and updates the chain tip.
+    //
+    // The final argument is the batch size (number of blocks per scan batch).
+    println!("Syncing wallet (this may take a while on first run)...");
+    sync::run(&params, &mut wallet_db, &mut client, 1000).await?;
+    println!("Sync complete!");
+
+    // ── Step 5: Check balance ─────────────────────────────────────────────
+    println!("\n=== Step 5: Check balance ===");
+    let summary = wallet_db
+        .get_wallet_summary(0)?
+        .expect("wallet has been synced");
+
+    let balance = summary
+        .account_balances()
+        .get(&account_id)
+        .expect("account exists in summary");
+
+    let spendable = balance.spendable_value();
+    let total = balance.total();
+    println!("Balance: spendable = {spendable} ZAT, total = {total} ZAT");
+
+    if spendable == Zatoshis::ZERO {
+        println!("\nNo spendable funds.  Send testnet/mainnet ZEC to:\n  {my_ua}\nand re-run.");
+        return Ok(());
+    }
+
+    // ── Step 6: Propose & create a shielded transfer ──────────────────────
+    println!("\n=== Step 6: Propose shielded transfer ===");
+    let send_amount = Zatoshis::from_u64(100_000)?; // 0.001 ZEC
+    let dest_addr = ZcashAddress::try_from_encoded(dest_addr_str)?;
+
+    use zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelector;
+    use zcash_client_backend::fees::zip317::MultiOutputChangeStrategy;
+
+    let change_strategy = MultiOutputChangeStrategy::new(StandardFeeRule::Zip317, None, None);
+    let input_selector = GreedyInputSelector::new(change_strategy);
+
+    let proposal = propose_standard_transfer_to_address(
+        &mut wallet_db,
+        &params,
+        &input_selector,
+        account_id,
+        &dest_addr,
+        send_amount,
+        None, // memo
+        None, // change memo
+    )?;
+    println!("Proposal ready: {} step(s)", proposal.steps().len());
+
+    // Build the proposed transaction(s), producing proofs and signatures.
+    println!("Creating transaction (generating proofs)...");
+    let txids = create_proposed_transactions(
+        &mut wallet_db,
+        &params,
+        &proposal,
+        &usk,
+        None, // OvkPolicy: use default (derive from account)
+    )?;
+    println!("Transaction(s) created: {txids:?}");
+
+    // ── Step 7: Submit transaction(s) to the network ──────────────────────
+    println!("\n=== Step 7: Submit transaction(s) ===");
+    for txid in &txids {
+        // Retrieve the raw transaction bytes from the wallet database.
+        let raw_tx = wallet_db
+            .get_transaction(*txid)?
+            .expect("tx must exist")
+            .into_raw();
+
+        let submit_req = RawTransaction {
+            data: raw_tx,
+            height: 0,
+        };
+        let resp = client.send_transaction(Request::new(submit_req)).await?;
+        println!("Submitted {txid}: {:?}", resp.into_inner());
+    }
+
+    // ── Step 8: Re-sync & confirm ─────────────────────────────────────────
+    println!("\n=== Step 8: Re-sync after sending ===");
+    sync::run(&params, &mut wallet_db, &mut client, 1000).await?;
+
+    let summary_after = wallet_db
+        .get_wallet_summary(0)?
+        .expect("wallet has been synced");
+    let balance_after = summary_after
+        .account_balances()
+        .get(&account_id)
+        .expect("account exists");
+    println!(
+        "Balance after: spendable = {} ZAT, total = {} ZAT",
+        balance_after.spendable_value(),
+        balance_after.total(),
+    );
+
+    println!("\nDone! Reference flow complete.");
+    Ok(())
+}
