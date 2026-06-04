@@ -58,7 +58,7 @@ Individual privacy-conscious users, including developers and agent operators run
 - **`paypunkd`** (binary) — App daemon. Hosts WalletActor, usecases, service orchestration, chain backend injection.
 - **`keypunkd`** (binary) — Key daemon. Hosts KeyActor. Seed generation, signing, proving. Runs as separate system user.
 - **`ipc`** (library) — Tactix actor sender for interprocess communication. Used by api, paypunkd, and keypunkd.
-- **`chains/{zcash,ethereum}`** (planned) — Chain-specific implementations. Each implements the `ChainService` trait.
+- **`protocols/{zcash,ethereum}`** (planned) — Chain-specific implementations. Each implements the `ChainService` trait.
 - **`tui`** (planned) — Ratatui screens and widgets. Reusable by future Tauri desktop app.
 - **`cli`** (binary) — Links `api` and (future) `tui`. Runs in CLI mode (single command) or TUI mode (interactive session).
 

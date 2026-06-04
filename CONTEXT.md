@@ -47,9 +47,9 @@ _Avoid_: Transport, wire
 Public-facing library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, etc.) that accept an asset type and dispatch to the appropriate chain backend. Hides IPC/tactix details from consumers. Internally communicates with paypunkd via the ipc crate.
 _Avoid_: SDK
 
-**chains**:
-Directory of chain-specific implementation crates (e.g., `chains/zcash`, `chains/ethereum`). Each implements the `ChainService` trait from paypunkd::services.
-_Avoid_: protocol, adapters
+**protocols**:
+Directory of chain-specific implementation crates (e.g., `protocols/zcash`, `protocols/ethereum`). Each implements the `ChainService` trait from paypunkd::services.
+_Avoid_: adapters
 
 ## Architecture
 
@@ -72,6 +72,6 @@ _Avoid_: protocol, adapters
 
 ## Data Model
 
-All entity types are chain-agnostic primitives (strings, numbers, enums). No generics or trait objects on the data types. Chain-specific logic lives inside chain implementation crates (`chains/zcash`, `chains/ethereum`).
+All entity types are chain-agnostic primitives (strings, numbers, enums). No generics or trait objects on the data types. Chain-specific logic lives inside protocol implementation crates (`protocols/zcash`, `protocols/ethereum`).
 
 **Types**: Address(String), Amount(u64), TransferId(String), BlockHeight(u64), Balance { spendable, pending, total }, TransactionStatus { Pending, Confirmed(BlockHeight), Failed(String) }, Transfer { id, from, to, amount, fee, memo, status, created_at }

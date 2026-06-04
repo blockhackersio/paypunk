@@ -379,13 +379,13 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
   - `0x04` = MSG_APPLICATION (authenticated application payload, followed by 32-byte HMAC tag)
 - **Response prepends a status byte**: `0` = success, `1` = error string.
 
-### `chains/zcash` crate (planned)
+### `protocols/zcash` crate (planned)
 
 - **Responsibility**: Zcash-specific logic — address derivation via ZIP 32, LSP chain scanning via `zcash_client_backend`, transfer construction, balance computation, lightwalletd gRPC connection.
 - **Dependencies**: `paypunk-ipc` (for types)
 - **Critical logic**: Wraps `zcash_client_sqlite` traits (`WalletRead`/`WalletWrite`/`InputSource`), orchestrates scan → decrypt → witness → build → sign → broadcast pipeline. Implements `ChainService` trait from `paypunkd::services`.
 
-### `chains/ethereum` crate (planned)
+### `protocols/ethereum` crate (planned)
 
 - **Responsibility**: Ethereum-specific logic. TBD.
 - **Dependencies**: `paypunk-ipc` (for types)
@@ -471,8 +471,8 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 - **Validation checkpoint**: daemon starts, accepts IPC, routes requests to keypunkd
 - **Dependencies**: Step 1, Step 3
 
-### Step 5: chains/zcash integration
-- **What to implement**: `chains/zcash` crate wrapping `zcash_client_backend`/`zcash_client_sqlite`. Implements ChainService trait. Address derivation via ZIP 32, LSP chain scanning, transfer construction, balance computation.
+### Step 5: protocols/zcash integration
+- **What to implement**: `protocols/zcash` crate wrapping `zcash_client_backend`/`zcash_client_sqlite`. Implements ChainService trait. Address derivation via ZIP 32, LSP chain scanning, transfer construction, balance computation.
 - **Validation checkpoint**: can sync with Zcash testnet, get balance, create a transfer
 - **Dependencies**: Step 4
 
@@ -499,7 +499,7 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 | 2 | `api` + `paypunkd` + `cli` scaffold | ✅ Done |
 | 3 | `keypunkd` daemon | ✅ Done |
 | 4 | `paypunkd` daemon — usecases + services | ✅ Done |
-| 5 | `chains/zcash` integration | ☐ Pending |
+| 5 | `protocols/zcash` integration | ☐ Pending |
 | 6 | CLI commands | ✅ Done (`generate-seed`) |
 | 7 | TUI | ☐ Pending |
 | 8 | Polish (tracing, config, docs) | 🔄 In Progress |
@@ -509,7 +509,7 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 - Multi-account support
 - FROST multi-signature / agent approval workflows
 - OS keyring integration
-- chains/ethereum implementation
+- protocols/ethereum implementation
 - Address reuse policy enforcement (INV-02)
 - Agent-to-agent commerce flows
 - n8n integration and merchant invoicing tools (sister project)

@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 paypunk-api = { path = "../api" }
 paypunk-types = { path = "../types" }
-paypunk-chains-zcash = { path = "../chains/zcash" }
+paypunk-chains-zcash = { path = "../protocols/zcash" }
 paypunkd = { path = "../paypunkd" }
 keypunkd = { path = "../keypunkd" }
 paypunk-ipc = { path = "../ipc" }

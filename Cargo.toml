@@ -8,8 +8,8 @@ members = [
     "api",
     "cli",
     "tests",
-    "chains/zcash",
-    "chains/ethereum",
+    "protocols/zcash",
+    "protocols/ethereum",
 ]
 
 [workspace.package]

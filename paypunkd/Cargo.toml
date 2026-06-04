@@ -10,8 +10,8 @@ path = "src/main.rs"
 [dependencies]
 paypunk-ipc = { path = "../ipc" }
 paypunk-types = { path = "../types" }
-paypunk-chains-zcash = { path = "../chains/zcash" }
-paypunk-chains-ethereum = { path = "../chains/ethereum" }
+paypunk-chains-zcash = { path = "../protocols/zcash" }
+paypunk-chains-ethereum = { path = "../protocols/ethereum" }
 keypunkd = { path = "../keypunkd" }
 tactix = "1.0"
 tokio = { version = "1", features = ["net", "io-util", "rt", "macros", "signal"] }
