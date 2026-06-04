@@ -2013,6 +2013,7 @@ dependencies = [
  "postcard",
  "rand",
  "rand_core",
+ "secp256k1 0.29.1",
  "shardtree",
  "tactix",
  "tokio",
