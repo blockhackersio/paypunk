@@ -15,3 +15,19 @@ tactix = "1.0"
 tokio = { version = "1", features = ["rt", "macros"] }
 postcard = { version = "1", features = ["alloc"] }
 zeroize = "1"
+
+# PCZT test dependencies
+pczt = { version = "0.6", features = ["orchard", "prover", "signer", "io-finalizer", "spend-finalizer", "tx-extractor", "zcp-builder"] }
+orchard = "0.13"
+zcash_primitives = { version = "0.27", features = ["transparent-inputs"] }
+zcash_protocol = "0.8"
+zcash_transparent = { version = "0.7", features = ["transparent-inputs"] }
+zcash_keys = { version = "0.13", features = ["orchard", "sapling", "transparent-inputs"] }
+zip32 = "0.2"
+rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
+rand = "0.8"
+bip39 = { version = "2", features = ["rand"] }
+shardtree = "0.6"
+incrementalmerkletree = "0.8"
+zcash_note_encryption = "0.4"
+zcash_address = "0.11"

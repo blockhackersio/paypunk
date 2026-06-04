@@ -9,11 +9,11 @@ A Zcash key manager capable of generating Addresses, checking Balance, building 
 _Avoid_: Vault, safe
 
 **KeyActor**:
-An actor (tactix) that holds the decrypted spending key in protected memory. Lives inside `keypunkd`. The security boundary — only accepts `Unlock`, `Lock`, `SignTransaction`, and `Prove` messages. Never exposes raw key material.
+An actor (tactix) that holds the decrypted spending key in protected memory. Lives inside `keypunkd`. The security boundary — only accepts `Unlock`, `Lock`, `Sign`, and `DerivePublicKey` messages. Never exposes raw key material. Uses `SignerProtocol` implementations to perform chain-specific signing.
 _Avoid_: Key Daemon, signer
 
 **WalletActor**:
-An actor (tactix) managing non-secret operations: address derivation, LSP sync, balance tracking, transfer construction. Lives inside `paypunkd`. Owns the SQLite wallet state database. Delegates signing to the KeyActor (in `keypunkd`) via IPC when a transfer needs finalization.
+An actor (tactix) managing non-secret operations: address derivation, LSP sync, balance tracking, transfer construction. Lives inside `paypunkd`. Owns the SQLite wallet state database and `NonSignerProtocol` implementations. Delegates signing to the KeyActor (in `keypunkd`) via IPC when a transfer needs finalization.
 _Avoid_: Wallet Daemon
 
 **Seed**:
@@ -32,11 +32,11 @@ Funds received into the wallet detected via LSP chain scanning of the current Ad
 _Avoid_: Receipt
 
 **keypunkd**:
-Long-running daemon hosting the KeyActor. Responsible for key generation, signing, and proving. Runs as a separate system user for defense-in-depth (file/memory isolation). IPC auth is per-message HMAC using X25519 shared secret — any process can connect, but only a client holding the registered keypair can send valid messages. Password is additionally required for `Unlock`. See ADR-001.
+Long-running daemon hosting the KeyActor. Responsible for key generation and signing via `SignerProtocol`. Runs as a separate system user for defense-in-depth (file/memory isolation). IPC auth is per-message HMAC using X25519 shared secret — any process can connect, but only a client holding the registered keypair can send valid messages. Password is additionally required for `Unlock`. See ADR-001.
 _Avoid_: Key daemon
 
 **paypunkd**:
-Long-running daemon hosting the WalletActor, usecases, and service orchestration. Exposes IPC over Unix socket. Runs as the user's login UID. Never holds key material — delegates signing to keypunkd via IPC.
+Long-running daemon hosting the WalletActor, usecases, and service orchestration. Holds the wallet database (`WalletRepository`) and `NonSignerProtocol` implementations for transaction building, proving, and finalizing. Exposes IPC over Unix socket. Runs as the user's login UID. Never holds key material — delegates signing to keypunkd via IPC.
 _Avoid_: App daemon
 
 **ipc**:
@@ -48,7 +48,7 @@ Public-facing library that CLI and TUI depend on. Provides high-level functions 
 _Avoid_: SDK
 
 **protocols**:
-Directory of chain-specific implementation crates (e.g., `protocols/zcash`, `protocols/ethereum`). Each implements the `ChainService` trait from paypunkd::services.
+Directory of chain-specific implementation crates (e.g., `protocols/zcash`, `protocols/ethereum`). Each implements `NonSignerProtocol` and `SignerProtocol` traits from `paypunk-types`.
 _Avoid_: adapters
 
 ## Architecture
@@ -62,9 +62,9 @@ _Avoid_: adapters
 
 **api**: Chain-agnostic library providing the public API. Accepts an asset type to dispatch to the correct chain backend. Hides IPC and actor details from consumers.
 
-**keypunkd**: Key daemon — hosts KeyActor. Seed generation, signing, proving. Runs as a separate system user.
+**keypunkd**: Key daemon — hosts KeyActor. Seed generation, signing via `SignerProtocol`. Runs as a separate system user.
 
-**paypunkd**: App daemon — hosts WalletActor, usecases, service orchestration, chain backend injection.
+**paypunkd**: App daemon — hosts WalletActor, usecases, service orchestration, chain backend injection (`NonSignerProtocol`).
 
 **paypunk**: CLI binary. Connects to paypunkd via api. Includes TUI mode (ratatui) for interactive use.
 

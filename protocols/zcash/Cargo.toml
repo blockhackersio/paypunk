@@ -8,7 +8,14 @@ paypunk-types = { path = "../../types" }
 orchard = "0.13"
 zcash_address = "0.11"
 zcash_protocol = "0.8"
+zcash_primitives = { version = "0.27", features = ["transparent-inputs"] }
+zcash_keys = { version = "0.13", features = ["orchard", "sapling", "transparent-inputs"] }
+zcash_proofs = { version = "0.27", features = ["bundled-prover"] }
+pczt = { version = "0.6", features = ["orchard", "prover", "signer", "io-finalizer", "spend-finalizer", "tx-extractor", "zcp-builder"] }
+zcash_transparent = { version = "0.7", features = ["transparent-inputs"] }
 zip32 = "0.2"
+rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
+rand = "0.8"
 thiserror = "2"
 
 [dev-dependencies]
@@ -18,11 +25,6 @@ futures-util = "0.3"
 prost = "0.14"
 zcash_client_backend = { version = "0.22", default-features = false, features = ["orchard", "lightwalletd-tonic", "sync", "transparent-inputs", "zcash_proofs"] }
 zcash_client_sqlite = { version = "0.20", features = ["orchard", "transparent-inputs"] }
-zcash_keys = { version = "0.13", features = ["orchard", "sapling", "transparent-inputs"] }
-zcash_primitives = "0.27"
-zcash_proofs = { version = "0.27", features = ["bundled-prover"] }
-rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
-rand = "0.8"
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tonic = "0.14"
