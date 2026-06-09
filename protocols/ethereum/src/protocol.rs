@@ -1,4 +1,4 @@
-use paypunk_types::{Protocol, ProtocolId, SignerProtocol, WalletRepository};
+use paypunk_types::{Protocol, ProtocolId, SignerProtocol};
 use std::str::FromStr;
 
 use crate::address;
@@ -11,30 +11,16 @@ impl Protocol for EthereumProtocol {
     }
 
     fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String> {
-        let _ = index; // Ethereum uses BIP44 path; index is embedded in observation key derivation
+        let _ = index;
         address::derive_from_pubkey(public_key)
             .map_err(|e| e.to_string())
     }
 
-    fn propose_and_build(
-        &self,
-        _public_key: &[u8],
-        _repository: &dyn WalletRepository,
-        _account: u32,
-        _to: &str,
-        _amount: u64,
-        _memo: Option<&str>,
-    ) -> Result<Vec<u8>, String> {
-        Err("Ethereum propose_and_build not yet implemented".to_string())
-    }
-
     fn prove_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
-        // Ethereum has no ZK proofs — this is a no-op.
         Ok(transaction.to_vec())
     }
 
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
-        // Ethereum: the signed transaction is returned as-is
         Ok(transaction.to_vec())
     }
 }

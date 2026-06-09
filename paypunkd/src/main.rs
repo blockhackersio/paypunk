@@ -1,11 +1,7 @@
-use std::collections::HashMap;
-
 use clap::Parser;
 use keypunkd::crypto::Keypair;
-use paypunk_chains_ethereum::protocol::EthereumProtocol;
-use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::{IpcReceiver, IpcSender};
-use paypunk_types::ProtocolId;
+use paypunkd::protocol_registry::ProtocolRegistry;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Sender};
 use tracing::info;
@@ -44,9 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keypunkd = IpcSender::connect(&args.keypunkd_socket).await?;
     let recipient = keypunkd.recipient();
 
-    let mut protocols: HashMap<ProtocolId, Box<dyn paypunk_types::Protocol>> = HashMap::new();
-    protocols.insert(ProtocolId::Zcash, Box::new(ZcashProtocol));
-    protocols.insert(ProtocolId::Ethereum, Box::new(EthereumProtocol));
+    let protocols = ProtocolRegistry::new(zcash_protocol::consensus::Network::MainNetwork);
     info!("registered protocols: Zcash, Ethereum");
 
     let paypunkd = Paypunkd::new(recipient, protocols).start();

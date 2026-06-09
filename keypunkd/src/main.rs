@@ -7,6 +7,7 @@ use keypunkd::seed_store::FilesystemSeedStore;
 use keypunkd::Keypunkd;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcReceiver;
+use zcash_protocol::consensus::Network;
 use tactix::Actor;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -44,7 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let seed_store = FilesystemSeedStore::new(args.data_dir.join("seed.enc").into_boxed_path());
 
     let mut protocols = ProtocolRegistry::new();
-    protocols.register(Box::new(ZcashProtocol));
+    protocols.register(Box::new(ZcashProtocol {
+        params: Network::MainNetwork,
+    }));
     info!("registered protocol: Zcash");
 
     let keypunkd = Keypunkd::new(keystore, seed_store, protocols).start();

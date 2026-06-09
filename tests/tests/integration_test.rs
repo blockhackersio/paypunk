@@ -1,13 +1,12 @@
-use std::collections::HashMap;
-
 use keypunkd::crypto::Keypair;
-use keypunkd::protocol::ProtocolRegistry;
+use keypunkd::protocol::ProtocolRegistry as KeypunkdProtocolRegistry;
 use keypunkd::seed_store::InMemorySeedStore;
 use keypunkd::Keypunkd;
 use paypunk_api::Client;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
+use paypunkd::protocol_registry::ProtocolRegistry;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Recipient, Sender};
 use zeroize::Zeroizing;
@@ -18,19 +17,20 @@ fn wire_actors() -> Recipient<IpcMessage> {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
 
-    // keypunkd uses SignerProtocol registry
-    let mut keypunkd_protocols = ProtocolRegistry::new();
-    keypunkd_protocols.register(Box::new(ZcashProtocol));
+    // keypunkd uses SignerProtocol registry (still object-safe)
+    let mut keypunkd_protocols = KeypunkdProtocolRegistry::new();
+    keypunkd_protocols.register(Box::new(ZcashProtocol {
+        params: zcash_protocol::consensus::Network::MainNetwork,
+    }));
 
     let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
         .with_skip_session_auth(true)
         .start();
     let keypunkd_recipient = keypunkd_addr.recipient();
 
-    // paypunkd uses Protocol (non-signer) registry
-    let mut paypunkd_protocols: HashMap<ProtocolId, Box<dyn paypunk_types::Protocol>> =
-        HashMap::new();
-    paypunkd_protocols.insert(ProtocolId::Zcash, Box::new(ZcashProtocol));
+    // paypunkd uses ProtocolRegistry (concrete types, no dyn)
+    let paypunkd_protocols =
+        ProtocolRegistry::new(zcash_protocol::consensus::Network::MainNetwork);
 
     let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
     paypunkd_addr.recipient()
@@ -72,7 +72,6 @@ async fn test_generate_seed_different_passwords_produce_different_seeds() {
         .await
         .unwrap();
 
-    // Re-wire for a fresh keypunkd (no persisted state between calls)
     let recipient = wire_actors();
     let client = Client::with_recipient(recipient);
 
@@ -81,7 +80,6 @@ async fn test_generate_seed_different_passwords_produce_different_seeds() {
         .await
         .unwrap();
 
-    // Different passwords → different encrypted seeds → different mnemonics
     assert_ne!(mnemonic_1, mnemonic_2);
     assert_eq!(mnemonic_1.split_whitespace().count(), 12);
     assert_eq!(mnemonic_2.split_whitespace().count(), 12);
@@ -89,17 +87,13 @@ async fn test_generate_seed_different_passwords_produce_different_seeds() {
 
 #[tokio::test]
 async fn test_restore_seed_via_api() {
-    // ── Step 1: Generate a seed on "device 1" ──────────────────────────
     let password = Zeroizing::new("hunter2".to_string());
     let recipient = wire_actors();
     let client = Client::with_recipient(recipient);
 
     let mnemonic = client.generate_seed(password.clone()).await.unwrap();
-
     assert_eq!(mnemonic.split_whitespace().count(), 12);
 
-    // ── Step 2: Restore the seed on a "different device" ───────────────
-    // Fresh keypunkd with no prior state simulates a new device.
     let recipient = wire_actors();
     let client = Client::with_recipient(recipient);
 
@@ -125,8 +119,6 @@ async fn test_restore_seed_invalid_mnemonic_fails() {
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("invalid mnemonic"));
 }
-
-// ── Unlock / DeriveAddress / Lock integration tests ──────────────────────
 
 #[tokio::test]
 async fn test_unlock_without_seed_fails() {
@@ -226,7 +218,6 @@ async fn test_derive_address_is_deterministic() {
     let password = Zeroizing::new("password".to_string());
     client.generate_seed(password.clone()).await.unwrap();
 
-    // First unlock session
     client.unlock(password.clone()).await.unwrap();
     let addr_a = client
         .derive_address(ProtocolId::Zcash, 0, 0)
@@ -234,7 +225,6 @@ async fn test_derive_address_is_deterministic() {
         .unwrap();
     client.lock().await.unwrap();
 
-    // Second unlock session — same seed, same password
     client.unlock(password).await.unwrap();
     let addr_b = client
         .derive_address(ProtocolId::Zcash, 0, 0)
@@ -256,7 +246,6 @@ async fn test_lock_clears_session() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
-    // Address works before lock
     client
         .derive_address(ProtocolId::Zcash, 0, 0)
         .await
@@ -264,9 +253,6 @@ async fn test_lock_clears_session() {
 
     client.lock().await.unwrap();
 
-    // Address derivation still works after lock — the view key (FVK) is
-    // cached in paypunkd and does not require the seed. Only signing
-    // (which needs the private key) would fail after lock.
     let addr = client
         .derive_address(ProtocolId::Zcash, 0, 0)
         .await

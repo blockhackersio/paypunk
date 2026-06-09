@@ -1,25 +1,23 @@
-use std::collections::HashMap;
-
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
+use crate::protocol_registry::ProtocolRegistry;
 use crate::usecases;
 
 pub struct Paypunkd {
-    keypunk_service: keypunkd::services::KeypunkService,
-    protocols: HashMap<ProtocolId, Box<dyn paypunk_types::Protocol>>,
+    pub keypunk_service: keypunkd::services::KeypunkService,
+    pub protocols: ProtocolRegistry,
     /// Cache of public key bytes per (protocol, account).
-    /// Populated lazily on first address derivation request for each protocol.
     public_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
 
 impl Paypunkd {
     pub fn new(
         recipient: Recipient<IpcMessage>,
-        protocols: HashMap<ProtocolId, Box<dyn paypunk_types::Protocol>>,
+        protocols: ProtocolRegistry,
     ) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
@@ -52,12 +50,7 @@ impl Paypunkd {
             Ok(k) => k.to_vec(),
             Err(e) => return PaypunkdResponse::Error { message: e },
         };
-        let Some(protocol) = self.protocols.get(&protocol) else {
-            let msg = format!("unknown protocol: {protocol:?}");
-            warn!(error = %msg);
-            return PaypunkdResponse::Error { message: msg };
-        };
-        match protocol.derive_address(&key, index) {
+        match self.protocols.derive_address(protocol, &key, index) {
             Ok(address) => {
                 debug!(%address, "address derived from cached public key");
                 PaypunkdResponse::AddressDerived { address }
@@ -184,3 +177,5 @@ impl Handler<IpcMessage> for Paypunkd {
         Ok(encoded)
     }
 }
+
+use std::collections::HashMap;

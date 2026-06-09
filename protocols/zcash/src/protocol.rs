@@ -1,18 +1,26 @@
 use std::collections::BTreeMap;
 
 use orchard::keys::{FullViewingKey, SpendingKey};
-use paypunk_types::{Protocol, ProtocolId, SignerProtocol, WalletRepository};
+use paypunk_types::{
+    ProposingProtocol, Protocol, ProtocolId, SignerProtocol, TransactionProposer,
+};
 use pczt::roles::{
-    prover::Prover, signer::Signer,
-    spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
-    verifier::Verifier,
+    prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
+    tx_extractor::TransactionExtractor, verifier::Verifier,
 };
 use zcash_keys::keys::UnifiedSpendingKey;
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::address;
+use crate::wallet_client::ZcashWalletClient;
 
-pub struct ZcashProtocol;
+pub struct ZcashProtocol {
+    pub params: zcash_protocol::consensus::Network,
+}
+
+impl ZcashProtocol {
+    pub const COIN_TYPE: u32 = 133;
+}
 
 impl SignerProtocol for ZcashProtocol {
     fn protocol_id(&self) -> ProtocolId {
@@ -22,7 +30,7 @@ impl SignerProtocol for ZcashProtocol {
     fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String> {
         let account_id =
             AccountId::try_from(account).map_err(|_| format!("invalid account: {account}"))?;
-        let sk = SpendingKey::from_zip32_seed(seed, 133, account_id)
+        let sk = SpendingKey::from_zip32_seed(seed, Self::COIN_TYPE, account_id)
             .map_err(|e| format!("ZIP 32 derivation failed: {e}"))?;
         let fvk = FullViewingKey::from(&sk);
         Ok(fvk.to_bytes().to_vec())
@@ -39,16 +47,12 @@ impl SignerProtocol for ZcashProtocol {
 
         let account_id =
             AccountId::try_from(account).map_err(|_| format!("invalid account: {account}"))?;
-        let usk = UnifiedSpendingKey::from_seed(
-            &zcash_protocol::consensus::Network::MainNetwork,
-            seed,
-            account_id,
-        )
-        .map_err(|e| format!("USK derivation failed: {e}"))?;
+        let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
+            .map_err(|e| format!("USK derivation failed: {e}"))?;
 
         let seed_fp = SeedFingerprint::from_seed(seed)
             .ok_or_else(|| "seed too short for fingerprint".to_string())?;
-        let coin_type = zip32::ChildIndex::hardened(133);
+        let coin_type = zip32::ChildIndex::hardened(Self::COIN_TYPE);
         let mut keys: BTreeMap<zip32::AccountId, Vec<KeyRef>> = BTreeMap::new();
 
         let pczt = Verifier::new(pczt)
@@ -73,9 +77,6 @@ impl SignerProtocol for ZcashProtocol {
         let ask = orchard::keys::SpendAuthorizingKey::from(usk.orchard());
 
         if keys.is_empty() {
-            // No ZIP 32 derivation info found — fall back to trying all
-            // orchard action indices. This handles PCZTs built directly
-            // from the Builder (e.g. in tests) that lack derivation paths.
             let num_actions = pczt.orchard().actions().len();
             let mut signer =
                 Signer::new(pczt).map_err(|e| format!("Signer::new failed: {e:?}"))?;
@@ -118,18 +119,6 @@ impl Protocol for ZcashProtocol {
         address::derive_from_fvk(public_key, index).map_err(|e| e.to_string())
     }
 
-    fn propose_and_build(
-        &self,
-        _public_key: &[u8],
-        _repository: &dyn WalletRepository,
-        _account: u32,
-        _to: &str,
-        _amount: u64,
-        _memo: Option<&str>,
-    ) -> Result<Vec<u8>, String> {
-        Err("propose_and_build requires a full wallet DB with notes — use Builder directly for test PCZTs".to_string())
-    }
-
     fn prove_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
         let pczt =
             pczt::Pczt::parse(transaction).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
@@ -161,6 +150,22 @@ impl Protocol for ZcashProtocol {
             .map_err(|e| format!("tx serialize failed: {e}"))?;
 
         Ok(raw_tx)
+    }
+}
+
+impl ProposingProtocol for ZcashProtocol {
+    type TransactionProposer = ZcashWalletClient;
+
+    fn propose_and_build(
+        &self,
+        proposer: &Self::TransactionProposer,
+        public_key: &[u8],
+        account: u32,
+        to: &str,
+        amount: u64,
+        memo: Option<&str>,
+    ) -> Result<Vec<u8>, String> {
+        proposer.propose_and_build(public_key, account, to, amount, memo)
     }
 }
 

@@ -22,7 +22,15 @@ use zcash_transparent::util::hash160;
 
 /// Build a shielded Orchard PCZT and run it through the full pipeline:
 /// create → finalize IO → prove → sign → finalize spends → extract.
-/// Uses ZcashProtocol methods for prove, sign, and finalize.
+///
+/// NOTE: This test currently builds the PCZT using `zcash_primitives::Builder`
+/// directly because `ZcashProtocol::propose_and_build` requires a fully synced
+/// `WalletDb` with notes. Once `WalletDbActor` is fully implemented with
+/// `zcash_client_backend::propose_standard_transfer_to_address` +
+/// `create_pczt_from_proposal`, this test will be updated to use
+/// `Protocol::propose_and_build` through the actor.
+///
+/// The prove, sign, and finalize steps already use the Protocol traits.
 #[test]
 fn test_orchard_shielded_pczt_full_pipeline() {
     let params = LocalNetwork {
@@ -38,7 +46,6 @@ fn test_orchard_shielded_pczt_full_pipeline() {
     let target_height = BlockHeight::from_u32(10);
 
     // ── 1. Generate keys and create a note ──────────────────────────────
-    // Use a 64-byte seed for consistency with protocol methods.
     let seed = [0xab; 64];
     let sk = SpendingKey::from_zip32_seed(&seed, 133, zip32::AccountId::try_from(0).unwrap())
         .expect("SpendingKey from seed");
@@ -59,6 +66,8 @@ fn test_orchard_shielded_pczt_full_pipeline() {
     let anchor = merkle_path.root(cmx);
 
     // ── 3. Build transaction via zcash_primitives Builder ────────────────
+    // TODO: Replace with ZcashProtocol::propose_and_build once WalletDbActor
+    // is wired with zcash_client_backend APIs.
     let mut builder = Builder::new(
         &params,
         target_height,
@@ -82,7 +91,6 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         )
         .expect("add_orchard_output");
 
-    // ── 4. Build for PCZT → Creator → IoFinalizer ───────────────────────
     let pczt_result = builder
         .build_for_pczt(OsRng, &zip317::FeeRule::standard())
         .expect("build_for_pczt");
@@ -96,27 +104,28 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 
     let pczt_bytes = io_finalized.serialize();
 
-    // ── 5. Prove via ZcashProtocol ──────────────────────────────────────
-    let protocol = ZcashProtocol;
+    // ── 4. Prove via ZcashProtocol ──────────────────────────────────────
+    let protocol = ZcashProtocol {
+        params: zcash_protocol::consensus::Network::MainNetwork,
+    };
     let proven_bytes = protocol
         .prove_transaction(&pczt_bytes)
         .expect("prove_transaction");
 
-    // ── 6. Sign via ZcashProtocol (SignerProtocol) ──────────────────────
+    // ── 5. Sign via ZcashProtocol (SignerProtocol) ──────────────────────
     let signed_bytes = protocol
         .sign_transaction(&seed, 0, &proven_bytes)
         .expect("sign_transaction");
 
-    // ── 7. Finalize via ZcashProtocol ───────────────────────────────────
+    // ── 6. Finalize via ZcashProtocol ───────────────────────────────────
     let raw_tx = protocol
         .finalize_transaction(&signed_bytes)
         .expect("finalize_transaction");
 
-    // ── 8. Verify ───────────────────────────────────────────────────────
+    // ── 7. Verify ───────────────────────────────────────────────────────
     let tx = Transaction::read(&raw_tx[..], BranchId::Nu6)
         .expect("parse extracted transaction");
     let orchard_bundle = tx.orchard_bundle().expect("orchard bundle");
-    // Builder pads to at least 2 actions; 1 real + 1 dummy
     assert_eq!(orchard_bundle.actions().len(), 2);
 }
 
@@ -125,7 +134,6 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 /// and verify round-trip serialization.
 #[test]
 fn test_construct_raw_pczt_inline() {
-    // All upgrades active at height 1 (regtest-like)
     let params = LocalNetwork {
         overwinter: Some(BlockHeight::from_u32(1)),
         sapling: Some(BlockHeight::from_u32(1)),
@@ -147,8 +155,6 @@ fn test_construct_raw_pczt_inline() {
         },
     );
 
-    // Generate a real secp256k1 keypair so that the transparent input
-    // validation in TransparentInputInfo::from_parts passes.
     let secp = Secp256k1::new();
     let sk = SecretKey::from_slice(&[1u8; 32]).unwrap();
     let pk = secp256k1::PublicKey::from_secret_key(&secp, &sk);
@@ -161,19 +167,16 @@ fn test_construct_raw_pczt_inline() {
         .add_transparent_p2pkh_input(pk, outpoint, coin)
         .expect("add_transparent_p2pkh_input");
 
-    // Transparent output (recipient)
     let to = TransparentAddress::PublicKeyHash([0u8; 20]);
     builder
         .add_transparent_output(&to, Zatoshis::from_u64(50_000).unwrap())
         .expect("add_transparent_output");
 
-    // Change output — builder requires balance to be zero after fees
     let change_addr = TransparentAddress::PublicKeyHash([1u8; 20]);
     builder
         .add_transparent_output(&change_addr, Zatoshis::from_u64(40_000).unwrap())
         .expect("add_change_output");
 
-    // Build → Creator → IoFinalizer
     let pczt_result = builder
         .build_for_pczt(OsRng, &zip317::FeeRule::standard())
         .expect("build_for_pczt");
@@ -185,13 +188,11 @@ fn test_construct_raw_pczt_inline() {
         .finalize_io()
         .expect("IoFinalizer::finalize_io");
 
-    // Round-trip serialization — verify the PCZT structure is correct
     let bytes = io_finalized.serialize();
     let parsed = pczt::Pczt::parse(&bytes).expect("Pczt::parse");
     assert_eq!(parsed.transparent().inputs().len(), 1);
     assert_eq!(parsed.transparent().outputs().len(), 2);
 
-    // Verify the parsed PCZT has the expected global fields
     assert_eq!(*parsed.global().tx_version(), 5);
     assert!(parsed.sapling().spends().is_empty());
     assert!(parsed.orchard().actions().is_empty());

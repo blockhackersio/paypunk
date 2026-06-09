@@ -11,6 +11,7 @@ path = "src/main.rs"
 paypunk-ipc = { path = "../ipc" }
 paypunk-types = { path = "../types" }
 paypunk-chains-zcash = { path = "../protocols/zcash" }
+zcash_protocol = "0.8"
 tactix = "1.0"
 tokio = { version = "1", features = ["net", "io-util", "rt", "macros", "signal"] }
 serde = { version = "1", features = ["derive"] }
