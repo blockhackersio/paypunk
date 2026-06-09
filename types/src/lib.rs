@@ -92,3 +92,56 @@ pub struct Transfer {
     pub status: TransactionStatus,
     pub created_at: u64,
 }
+
+// ── Reference API supporting types ──────────────────────────────────────────
+
+/// Paginated response wrapper.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// A single entry in transaction history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HistoryEntry {
+    pub hash: String,
+    pub direction: TxDirection,
+    pub counterparty: Address,
+    pub amount: Amount,
+    pub status: TxStatus,
+    pub timestamp: Option<u64>,
+}
+
+/// Whether a history entry is incoming, outgoing, or a self-transfer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TxDirection {
+    Incoming,
+    Outgoing,
+    SelfTransfer,
+}
+
+/// On-chain transaction status for display / query purposes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TxStatus {
+    Pending,
+    Confirmed { confirmations: u64 },
+    Failed { reason: String },
+    NotFound,
+}
+
+/// A single UTXO (unspent transaction output).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Utxo {
+    pub tx_hash: String,
+    pub output_index: u32,
+    pub amount: Amount,
+    pub address: Address,
+    pub confirmations: u64,
+    pub is_shielded: bool,
+}
+
+/// A payment proof that can be shared with a recipient.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PaymentProof(pub Vec<u8>);

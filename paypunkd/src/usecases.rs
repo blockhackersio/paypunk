@@ -1,5 +1,9 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::ProtocolId;
+use paypunk_types::{Balance, BlockHeight, ProtocolId, TxStatus};
+
+use crate::protocol_service::ProtocolService;
+
+// ── Keypunkd forwarding ────────────────────────────────────────────────────
 
 pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8; 32], String> {
     service.get_encryption_key().await
@@ -31,9 +35,7 @@ pub async fn unlock(
     encrypted_password: Vec<u8>,
     client_public_key: [u8; 32],
 ) -> Result<(), String> {
-    service
-        .unlock(encrypted_password, client_public_key)
-        .await
+    service.unlock(encrypted_password, client_public_key).await
 }
 
 pub async fn derive_public_key(
@@ -55,4 +57,140 @@ pub async fn sign(
 
 pub async fn lock(service: &KeypunkService) -> Result<(), String> {
     service.lock().await
+}
+
+// ── Local protocol operations ──────────────────────────────────────────────
+
+/// Derive an address from a cached public key using the protocol service.
+///
+/// Callers are responsible for fetching and caching the public key via
+/// `derive_public_key` before calling this function.
+pub fn derive_address(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    public_key: &[u8],
+    index: u32,
+) -> Result<String, String> {
+    protocols.derive_address(protocol, public_key, index)
+}
+
+/// Prove a transaction using the protocol service.
+///
+/// For Zcash this runs the Orchard proving step (no key material needed).
+/// For Ethereum this is a no-op.
+pub fn prove_transaction(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    transaction: &[u8],
+) -> Result<Vec<u8>, String> {
+    protocols.prove_transaction(protocol, transaction)
+}
+
+/// Finalize a signed transaction using the protocol service.
+///
+/// For Zcash this combines proven + signed PCZTs, finalizes spends,
+/// and extracts the raw transaction bytes.
+pub fn finalize_transaction(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    transaction: &[u8],
+) -> Result<Vec<u8>, String> {
+    protocols.finalize_transaction(protocol, transaction)
+}
+
+// ── Stubs: depend on future work ───────────────────────────────────────────
+
+/// Full PCZT pipeline orchestration:
+/// 1. Fetch public key from keypunkd
+/// 2. propose_and_build via TransactionProposer
+/// 3. prove_transaction
+/// 4. sign via keypunkd IPC
+/// 5. finalize_transaction
+/// 6. store transaction
+/// 7. return txid
+///
+/// TODO: Needs `TransactionProposer` (requires chain-specific wallet DB setup
+/// in paypunkd) and `WalletRepository` trait for storing transactions.
+pub async fn create_transfer(
+    _service: &KeypunkService,
+    _protocols: &ProtocolService,
+    _protocol: ProtocolId,
+    _account: u32,
+    _to: &str,
+    _amount: u64,
+    _memo: Option<&str>,
+) -> Result<String, String> {
+    todo!("create_transfer: PCZT pipeline not yet implemented — needs TransactionProposer + WalletRepository")
+}
+
+/// Query the spendable, pending, and total balance for the given protocol
+/// and account.
+///
+/// TODO: Needs `WalletRepository` trait and database wiring in paypunkd.
+pub async fn get_balance(
+    _protocols: &ProtocolService,
+    _protocol: ProtocolId,
+    _account: u32,
+) -> Result<Balance, String> {
+    todo!("get_balance: needs WalletRepository/database")
+}
+
+/// Fetch paginated transaction history for the given protocol and account.
+///
+/// TODO: Needs `WalletRepository` trait and the `Page<T>` / `HistoryEntry`
+/// types from the reference API (not yet added to paypunk-types).
+pub async fn get_history(
+    _protocol: ProtocolId,
+    _account: u32,
+    _cursor: Option<String>,
+    _limit: u32,
+) -> Result<String, String> {
+    todo!("get_history: needs WalletRepository + Page/HistoryEntry types")
+}
+
+/// Trigger a chain scan to detect incoming payments.
+///
+/// TODO: Needs LSP/lightwalletd client integration.
+pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), String> {
+    todo!("sync_wallet: needs LSP/lightwalletd connection")
+}
+
+/// Broadcast a signed and finalized transaction to the network.
+///
+/// TODO: Needs a lightwalletd gRPC client or RPC endpoint for submission.
+pub async fn broadcast_transaction(
+    _protocol: ProtocolId,
+    _raw_tx: Vec<u8>,
+) -> Result<String, String> {
+    todo!("broadcast_transaction: needs lightwalletd/RPC client")
+}
+
+/// Query the on-chain status of a transaction by its txid.
+///
+/// TODO: Needs lightwalletd client or chain RPC to look up tx status.
+pub async fn get_transaction_status(
+    _protocol: ProtocolId,
+    _txid: String,
+) -> Result<TxStatus, String> {
+    todo!("get_transaction_status: needs lightwalletd/RPC client")
+}
+
+/// Return the current block height of the network.
+///
+/// TODO: Needs lightwalletd client or chain RPC.
+pub async fn get_current_block_height(_protocol: ProtocolId) -> Result<BlockHeight, String> {
+    todo!("get_current_block_height: needs lightwalletd/RPC client")
+}
+
+/// Estimate the fee for a proposed transfer.
+///
+/// TODO: Needs `TransactionProposer` to build an unsigned tx and query fee
+/// estimates from the chain.
+pub async fn estimate_fee(
+    _protocol: ProtocolId,
+    _to: &str,
+    _amount: u64,
+    _memo: Option<&str>,
+) -> Result<u64, String> {
+    todo!("estimate_fee: needs TransactionProposer + chain fee estimation")
 }

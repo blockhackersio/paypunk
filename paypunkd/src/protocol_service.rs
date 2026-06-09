@@ -2,21 +2,16 @@ use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_types::{Protocol, ProtocolId};
 
-/// Concrete protocol registry — no `dyn` dispatch.
+/// Concrete protocol service — no `dyn` dispatch.
 /// Holds one instance per supported chain and dispatches via match.
-pub struct ProtocolRegistry {
+pub struct ProtocolService {
     pub zcash: ZcashProtocol,
     pub ethereum: EthereumProtocol,
 }
 
-impl ProtocolRegistry {
-    pub fn new(zcash_params: zcash_protocol::consensus::Network) -> Self {
-        Self {
-            zcash: ZcashProtocol {
-                params: zcash_params,
-            },
-            ethereum: EthereumProtocol,
-        }
+impl ProtocolService {
+    pub fn new(zcash: ZcashProtocol, ethereum: EthereumProtocol) -> Self {
+        Self { zcash, ethereum }
     }
 
     pub fn derive_address(

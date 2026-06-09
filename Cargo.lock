@@ -2007,6 +2007,7 @@ dependencies = [
  "keypunkd",
  "orchard",
  "paypunk-api",
+ "paypunk-chains-ethereum",
  "paypunk-chains-zcash",
  "paypunk-ipc",
  "paypunk-types",

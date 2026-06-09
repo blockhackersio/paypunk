@@ -7,7 +7,7 @@ use crate::{
     crypto::Keypair,
     errors::{GenerateError, RestoreError},
     key,
-    protocol::ProtocolRegistry,
+    protocol::ProtocolService,
     seed_store::SeedStore,
 };
 
@@ -89,10 +89,17 @@ pub fn decrypt_seed(
         .map_err(|e| format!("seed decryption failed: {e}"))
 }
 
+/// Validate a BIP39 mnemonic phrase.
+///
+/// Returns `true` if the phrase is a valid 12-word English BIP39 mnemonic.
+pub fn validate_mnemonic(phrase: &str) -> bool {
+    Mnemonic::parse_in(bip39::Language::English, phrase).is_ok()
+}
+
 /// Derive public key material for the given protocol and account.
 pub fn derive_public_key(
     seed: &[u8; 64],
-    registry: &ProtocolRegistry,
+    registry: &ProtocolService,
     protocol: ProtocolId,
     account: u32,
 ) -> Result<Vec<u8>, String> {
@@ -105,7 +112,7 @@ pub fn derive_public_key(
 /// Sign a transaction with the derived private key for the given protocol and account.
 pub fn sign(
     seed: &[u8; 64],
-    registry: &ProtocolRegistry,
+    registry: &ProtocolService,
     protocol: ProtocolId,
     account: u32,
     payload: &[u8],

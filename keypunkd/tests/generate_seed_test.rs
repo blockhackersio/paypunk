@@ -1,5 +1,5 @@
 use keypunkd::crypto::Keypair;
-use keypunkd::protocol::ProtocolRegistry;
+use keypunkd::protocol::ProtocolService;
 use keypunkd::Keypunkd;
 use keypunkd::messages::{KeypunkdRequest, KeypunkdResponse};
 use keypunkd::seed_store::InMemorySeedStore;
@@ -17,7 +17,7 @@ fn msg_with_sender(payload: Vec<u8>, sender: [u8; 32]) -> IpcMessage {
 async fn test_get_public_key() {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
-    let protocols = ProtocolRegistry::new();
+    let protocols = ProtocolService::new();
     let addr = Keypunkd::new(keystore, store, protocols).start();
 
     let sender = Keypair::new().public_key();
@@ -37,7 +37,7 @@ async fn test_get_public_key() {
 async fn test_generate_seed_no_filesystem() {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
-    let protocols = ProtocolRegistry::new();
+    let protocols = ProtocolService::new();
     let addr = Keypunkd::new(keystore, store, protocols).start();
 
     // Client side
@@ -80,7 +80,7 @@ async fn test_generate_seed_no_filesystem() {
 async fn test_generate_seed_empty_password() {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
-    let protocols = ProtocolRegistry::new();
+    let protocols = ProtocolService::new();
     let addr = Keypunkd::new(keystore, store, protocols).start();
 
     let client = Keypair::new();
@@ -121,7 +121,7 @@ async fn test_generate_seed_empty_password() {
 async fn test_rejects_in_process_message() {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
-    let protocols = ProtocolRegistry::new();
+    let protocols = ProtocolService::new();
     let addr = Keypunkd::new(keystore, store, protocols).start();
 
     let bytes = postcard::to_allocvec(&KeypunkdRequest::GetEncryptionKey).unwrap();

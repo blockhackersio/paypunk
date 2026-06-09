@@ -4,12 +4,12 @@ use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
-use crate::protocol_registry::ProtocolRegistry;
+use crate::protocol_service::ProtocolService;
 use crate::usecases;
 
 pub struct Paypunkd {
     pub keypunk_service: keypunkd::services::KeypunkService,
-    pub protocols: ProtocolRegistry,
+    pub protocols: ProtocolService,
     /// Cache of public key bytes per (protocol, account).
     public_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
@@ -17,7 +17,7 @@ pub struct Paypunkd {
 impl Paypunkd {
     pub fn new(
         recipient: Recipient<IpcMessage>,
-        protocols: ProtocolRegistry,
+        protocols: ProtocolService,
     ) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
@@ -50,7 +50,7 @@ impl Paypunkd {
             Ok(k) => k.to_vec(),
             Err(e) => return PaypunkdResponse::Error { message: e },
         };
-        match self.protocols.derive_address(protocol, &key, index) {
+        match usecases::derive_address(&self.protocols, protocol, &key, index) {
             Ok(address) => {
                 debug!(%address, "address derived from cached public key");
                 PaypunkdResponse::AddressDerived { address }

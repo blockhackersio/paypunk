@@ -8,6 +8,7 @@ publish = false
 paypunk-api = { path = "../api" }
 paypunk-types = { path = "../types" }
 paypunk-chains-zcash = { path = "../protocols/zcash" }
+paypunk-chains-ethereum = { path = "../protocols/ethereum" }
 paypunkd = { path = "../paypunkd" }
 keypunkd = { path = "../keypunkd" }
 paypunk-ipc = { path = "../ipc" }

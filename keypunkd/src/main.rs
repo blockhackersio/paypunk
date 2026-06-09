@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use keypunkd::crypto::Keypair;
-use keypunkd::protocol::ProtocolRegistry;
+use keypunkd::protocol::ProtocolService;
 use keypunkd::seed_store::FilesystemSeedStore;
 use keypunkd::Keypunkd;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (secret, public) = keystore.keypair();
     let seed_store = FilesystemSeedStore::new(args.data_dir.join("seed.enc").into_boxed_path());
 
-    let mut protocols = ProtocolRegistry::new();
+    let mut protocols = ProtocolService::new();
     protocols.register(Box::new(ZcashProtocol {
         params: Network::MainNetwork,
     }));

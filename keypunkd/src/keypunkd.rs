@@ -5,7 +5,7 @@ use zeroize::Zeroize;
 
 use crate::crypto::Keypair;
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
-use crate::protocol::ProtocolRegistry;
+use crate::protocol::ProtocolService;
 use crate::seed_store::SeedStore;
 use crate::usecases;
 
@@ -34,13 +34,13 @@ impl Drop for Session {
 pub struct Keypunkd<S: Storage> {
     keystore: Keypair,
     seed_store: S,
-    protocols: ProtocolRegistry,
+    protocols: ProtocolService,
     session: Option<Session>,
     skip_session_auth: bool,
 }
 
 impl<S: Storage> Keypunkd<S> {
-    pub fn new(keystore: Keypair, seed_store: S, protocols: ProtocolRegistry) -> Self {
+    pub fn new(keystore: Keypair, seed_store: S, protocols: ProtocolService) -> Self {
         Self {
             keystore,
             seed_store,

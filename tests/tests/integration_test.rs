@@ -1,12 +1,13 @@
 use keypunkd::crypto::Keypair;
-use keypunkd::protocol::ProtocolRegistry as KeypunkdProtocolRegistry;
+use keypunkd::protocol::ProtocolService as KeypunkdProtocolService;
 use keypunkd::seed_store::InMemorySeedStore;
 use keypunkd::Keypunkd;
 use paypunk_api::Client;
+use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
-use paypunkd::protocol_registry::ProtocolRegistry;
+use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Recipient, Sender};
 use zeroize::Zeroizing;
@@ -18,7 +19,7 @@ fn wire_actors() -> Recipient<IpcMessage> {
     let store = InMemorySeedStore::new();
 
     // keypunkd uses SignerProtocol registry (still object-safe)
-    let mut keypunkd_protocols = KeypunkdProtocolRegistry::new();
+    let mut keypunkd_protocols = KeypunkdProtocolService::new();
     keypunkd_protocols.register(Box::new(ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     }));
@@ -28,9 +29,12 @@ fn wire_actors() -> Recipient<IpcMessage> {
         .start();
     let keypunkd_recipient = keypunkd_addr.recipient();
 
-    // paypunkd uses ProtocolRegistry (concrete types, no dyn)
+    // paypunkd uses ProtocolService (concrete types, no dyn)
+    let paypunkd_zcash = ZcashProtocol {
+        params: zcash_protocol::consensus::Network::MainNetwork,
+    };
     let paypunkd_protocols =
-        ProtocolRegistry::new(zcash_protocol::consensus::Network::MainNetwork);
+        ProtocolService::new(paypunkd_zcash, EthereumProtocol);
 
     let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
     paypunkd_addr.recipient()
