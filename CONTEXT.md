@@ -13,7 +13,7 @@ An actor (tactix) that holds the decrypted spending key in protected memory. Liv
 _Avoid_: Key Daemon, signer
 
 **WalletActor**:
-An actor (tactix) managing non-secret operations: address derivation, LSP sync, balance tracking, transfer construction. Lives inside `paypunkd`. Owns the SQLite wallet state database and `NonSignerProtocol` implementations. Delegates signing to the KeyActor (in `keypunkd`) via IPC when a transfer needs finalization.
+An actor (tactix) managing non-secret operations: address derivation, LSP sync, balance tracking, transfer construction. Lives inside `paypunkd`. Owns the SQLite wallet state database and `Protocol` implementations. Delegates signing to the KeyActor (in `keypunkd`) via IPC when a transfer needs finalization.
 _Avoid_: Wallet Daemon
 
 **Seed**:
@@ -36,7 +36,7 @@ Long-running daemon hosting the KeyActor. Responsible for key generation and sig
 _Avoid_: Key daemon
 
 **paypunkd**:
-Long-running daemon hosting the WalletActor, usecases, and service orchestration. Holds the wallet database (`WalletRepository`) and `NonSignerProtocol` implementations for transaction building, proving, and finalizing. Exposes IPC over Unix socket. Runs as the user's login UID. Never holds key material — delegates signing to keypunkd via IPC.
+Long-running daemon hosting the WalletActor, usecases, and service orchestration. Holds the wallet database (`WalletRepository`) and `Protocol` implementations for transaction building, proving, and finalizing. Exposes IPC over Unix socket. Runs as the user's login UID. Never holds key material — delegates signing to keypunkd via IPC.
 _Avoid_: App daemon
 
 **ipc**:

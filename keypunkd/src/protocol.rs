@@ -1,13 +1,13 @@
 use std::collections::HashMap;
-use paypunk_types::{Protocol, ProtocolId};
+use paypunk_types::{ProtocolId, SignerProtocol};
 
-/// A hardcoded registry of protocol implementations.
+/// A hardcoded registry of signer protocol implementations.
 ///
 /// Protocols are registered at startup in `main.rs` and never change
 /// during the lifetime of the daemon. Adding a new protocol means
-/// implementing `Protocol` in the chain crate and registering it here.
+/// implementing `SignerProtocol` in the chain crate and registering it here.
 pub struct ProtocolRegistry {
-    protocols: HashMap<ProtocolId, Box<dyn Protocol>>,
+    protocols: HashMap<ProtocolId, Box<dyn SignerProtocol>>,
 }
 
 impl ProtocolRegistry {
@@ -17,11 +17,11 @@ impl ProtocolRegistry {
         }
     }
 
-    pub fn register(&mut self, protocol: Box<dyn Protocol>) {
+    pub fn register(&mut self, protocol: Box<dyn SignerProtocol>) {
         self.protocols.insert(protocol.protocol_id(), protocol);
     }
 
-    pub fn get(&self, id: ProtocolId) -> Option<&dyn Protocol> {
+    pub fn get(&self, id: ProtocolId) -> Option<&dyn SignerProtocol> {
         self.protocols.get(&id).map(|b| b.as_ref())
     }
 }

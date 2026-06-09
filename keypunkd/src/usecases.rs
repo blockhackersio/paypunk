@@ -102,7 +102,7 @@ pub fn derive_public_key(
     deriver.derive_public_key(seed, account)
 }
 
-/// Sign a payload with the derived private key for the given protocol and account.
+/// Sign a transaction with the derived private key for the given protocol and account.
 pub fn sign(
     seed: &[u8; 64],
     registry: &ProtocolRegistry,
@@ -113,5 +113,5 @@ pub fn sign(
     let deriver = registry
         .get(protocol)
         .ok_or_else(|| format!("unknown protocol: {protocol:?}"))?;
-    deriver.sign(seed, account, payload)
+    deriver.sign_transaction(seed, account, payload)
 }

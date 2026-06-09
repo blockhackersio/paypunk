@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use keypunkd::crypto::Keypair;
 use keypunkd::protocol::ProtocolRegistry;
 use keypunkd::seed_store::InMemorySeedStore;
@@ -16,16 +18,19 @@ fn wire_actors() -> Recipient<IpcMessage> {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
 
-    let mut protocols = ProtocolRegistry::new();
-    protocols.register(Box::new(ZcashProtocol));
+    // keypunkd uses SignerProtocol registry
+    let mut keypunkd_protocols = ProtocolRegistry::new();
+    keypunkd_protocols.register(Box::new(ZcashProtocol));
 
-    let keypunkd_addr = Keypunkd::new(keystore, store, protocols)
+    let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
         .with_skip_session_auth(true)
         .start();
     let keypunkd_recipient = keypunkd_addr.recipient();
 
-    let mut paypunkd_protocols = ProtocolRegistry::new();
-    paypunkd_protocols.register(Box::new(ZcashProtocol));
+    // paypunkd uses Protocol (non-signer) registry
+    let mut paypunkd_protocols: HashMap<ProtocolId, Box<dyn paypunk_types::Protocol>> =
+        HashMap::new();
+    paypunkd_protocols.insert(ProtocolId::Zcash, Box::new(ZcashProtocol));
 
     let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
     paypunkd_addr.recipient()

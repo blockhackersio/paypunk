@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use keypunkd::protocol::ProtocolRegistry;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler, Recipient};
@@ -11,14 +10,17 @@ use crate::usecases;
 
 pub struct Paypunkd {
     keypunk_service: keypunkd::services::KeypunkService,
-    protocols: ProtocolRegistry,
+    protocols: HashMap<ProtocolId, Box<dyn paypunk_types::Protocol>>,
     /// Cache of public key bytes per (protocol, account).
     /// Populated lazily on first address derivation request for each protocol.
     public_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
 
 impl Paypunkd {
-    pub fn new(recipient: Recipient<IpcMessage>, protocols: ProtocolRegistry) -> Self {
+    pub fn new(
+        recipient: Recipient<IpcMessage>,
+        protocols: HashMap<ProtocolId, Box<dyn paypunk_types::Protocol>>,
+    ) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
             protocols,
@@ -50,7 +52,7 @@ impl Paypunkd {
             Ok(k) => k.to_vec(),
             Err(e) => return PaypunkdResponse::Error { message: e },
         };
-        let Some(protocol) = self.protocols.get(protocol) else {
+        let Some(protocol) = self.protocols.get(&protocol) else {
             let msg = format!("unknown protocol: {protocol:?}");
             warn!(error = %msg);
             return PaypunkdResponse::Error { message: msg };

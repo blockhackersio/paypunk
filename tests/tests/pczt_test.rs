@@ -1,18 +1,18 @@
 use incrementalmerkletree::{Hashable, Level};
-use orchard::circuit::ProvingKey;
-use orchard::keys::{FullViewingKey, Scope, SpendAuthorizingKey, SpendingKey};
+use orchard::keys::{FullViewingKey, Scope, SpendingKey};
 use orchard::note::{ExtractedNoteCommitment, RandomSeed, Rho};
 use orchard::tree::MerkleHashOrchard;
 use orchard::value::NoteValue;
-use pczt::roles::{
-    creator::Creator, io_finalizer::IoFinalizer, prover::Prover, signer::Signer,
-    spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
-};
+use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_types::{Protocol, SignerProtocol};
+use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer};
 use rand_core::OsRng;
 use secp256k1::{Secp256k1, SecretKey};
 use zcash_primitives::transaction::builder::{BuildConfig, Builder};
 use zcash_primitives::transaction::fees::zip317;
+use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::consensus::BranchId;
 use zcash_protocol::local_consensus::LocalNetwork;
 use zcash_protocol::memo::MemoBytes;
 use zcash_protocol::value::Zatoshis;
@@ -22,7 +22,7 @@ use zcash_transparent::util::hash160;
 
 /// Build a shielded Orchard PCZT and run it through the full pipeline:
 /// create → finalize IO → prove → sign → finalize spends → extract.
-/// Verifies the extracted transaction is structurally valid.
+/// Uses ZcashProtocol methods for prove, sign, and finalize.
 #[test]
 fn test_orchard_shielded_pczt_full_pipeline() {
     let params = LocalNetwork {
@@ -38,10 +38,11 @@ fn test_orchard_shielded_pczt_full_pipeline() {
     let target_height = BlockHeight::from_u32(10);
 
     // ── 1. Generate keys and create a note ──────────────────────────────
-    let sk = SpendingKey::from_zip32_seed(&[0xab; 32], 133, zip32::AccountId::try_from(0).unwrap())
+    // Use a 64-byte seed for consistency with protocol methods.
+    let seed = [0xab; 64];
+    let sk = SpendingKey::from_zip32_seed(&seed, 133, zip32::AccountId::try_from(0).unwrap())
         .expect("SpendingKey from seed");
     let fvk = FullViewingKey::from(&sk);
-    let ask = SpendAuthorizingKey::from(&sk);
     let recipient = fvk.address_at(0u32, Scope::External);
 
     let value = NoteValue::from_raw(60_000);
@@ -49,8 +50,7 @@ fn test_orchard_shielded_pczt_full_pipeline() {
     let rseed = RandomSeed::from_bytes([8u8; 32], &rho).into_option().unwrap();
     let note = orchard::Note::from_parts(recipient, value, rho, rseed).unwrap();
 
-    // ── 2. Compute merkle path for a single note at position 0 in an
-    //       otherwise empty tree. The auth path is all empty roots.
+    // ── 2. Compute merkle path for a single note at position 0 ──────────
     let cmx: ExtractedNoteCommitment = note.commitment().into();
     let auth_path: [MerkleHashOrchard; 32] = core::array::from_fn(|i| {
         MerkleHashOrchard::empty_root(Level::from(i as u8))
@@ -72,7 +72,6 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         .add_orchard_spend::<zip317::FeeError>(fvk.clone(), note, merkle_path)
         .expect("add_orchard_spend");
 
-    // Output (change): send remaining value back to ourselves
     let change_addr = fvk.address_at(1u32, Scope::External);
     builder
         .add_orchard_output::<zip317::FeeError>(
@@ -95,38 +94,27 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         .finalize_io()
         .expect("IoFinalizer::finalize_io");
 
-    // ── 5. Prove (Prover role) ──────────────────────────────────────────
-    let pk = ProvingKey::build();
-    let proven = Prover::new(io_finalized)
-        .create_orchard_proof(&pk)
-        .expect("create_orchard_proof")
-        .finish();
+    let pczt_bytes = io_finalized.serialize();
 
-    // ── 6. Sign (Signer role) ───────────────────────────────────────────
-    // The orchard builder may add dummy actions for padding; try signing
-    // each action and skip those with mismatched keys.
-    let mut signer = Signer::new(proven).expect("Signer::new");
-    for i in 0..10 {
-        match signer.sign_orchard(i, &ask) {
-            Ok(()) => break,
-            Err(pczt::roles::signer::Error::InvalidIndex) => break,
-            Err(_) => continue,
-        }
-    }
-    let signed = signer.finish();
+    // ── 5. Prove via ZcashProtocol ──────────────────────────────────────
+    let protocol = ZcashProtocol;
+    let proven_bytes = protocol
+        .prove_transaction(&pczt_bytes)
+        .expect("prove_transaction");
 
-    // ── 7. Finalize spends + extract transaction ────────────────────────
-    let finalized = SpendFinalizer::new(signed)
-        .finalize_spends()
-        .expect("SpendFinalizer::finalize_spends");
+    // ── 6. Sign via ZcashProtocol (SignerProtocol) ──────────────────────
+    let signed_bytes = protocol
+        .sign_transaction(&seed, 0, &proven_bytes)
+        .expect("sign_transaction");
 
-    let orchard_vk = orchard::circuit::VerifyingKey::build();
-    let tx = TransactionExtractor::new(finalized)
-        .with_orchard(&orchard_vk)
-        .extract()
-        .expect("TransactionExtractor::extract");
+    // ── 7. Finalize via ZcashProtocol ───────────────────────────────────
+    let raw_tx = protocol
+        .finalize_transaction(&signed_bytes)
+        .expect("finalize_transaction");
 
     // ── 8. Verify ───────────────────────────────────────────────────────
+    let tx = Transaction::read(&raw_tx[..], BranchId::Nu6)
+        .expect("parse extracted transaction");
     let orchard_bundle = tx.orchard_bundle().expect("orchard bundle");
     // Builder pads to at least 2 actions; 1 real + 1 dummy
     assert_eq!(orchard_bundle.actions().len(), 2);
