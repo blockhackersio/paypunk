@@ -20,7 +20,7 @@ fn wire_actors() -> Recipient<IpcMessage> {
 
     // keypunkd uses SignerProtocol registry
     let mut keypunkd_protocols = ProtocolRegistry::new();
-    keypunkd_protocols.register(Box::new(ZcashProtocol));
+    keypunkd_protocols.register(Box::new(ZcashProtocol::default()));
 
     let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
         .with_skip_session_auth(true)
@@ -30,7 +30,7 @@ fn wire_actors() -> Recipient<IpcMessage> {
     // paypunkd uses Protocol (non-signer) registry
     let mut paypunkd_protocols: HashMap<ProtocolId, Box<dyn paypunk_types::Protocol>> =
         HashMap::new();
-    paypunkd_protocols.insert(ProtocolId::Zcash, Box::new(ZcashProtocol));
+    paypunkd_protocols.insert(ProtocolId::Zcash, Box::new(ZcashProtocol::default()));
 
     let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
     paypunkd_addr.recipient()

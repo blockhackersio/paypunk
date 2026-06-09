@@ -1,18 +1,56 @@
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 
 use orchard::keys::{FullViewingKey, SpendingKey};
 use paypunk_types::{Protocol, ProtocolId, SignerProtocol, WalletRepository};
 use pczt::roles::{
-    prover::Prover, signer::Signer,
-    spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
-    verifier::Verifier,
+    prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
+    tx_extractor::TransactionExtractor, verifier::Verifier,
 };
+use zcash_client_backend::data_api::wallet::{
+    create_pczt_from_proposal, propose_transfer, ConfirmationsPolicy,
+    input_selection::GreedyInputSelector,
+};
+use zcash_client_backend::fees::{
+    standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule,
+};
+use zcash_client_backend::wallet::OvkPolicy;
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::keys::UnifiedSpendingKey;
+use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::local_consensus::LocalNetwork;
+use zcash_protocol::memo::MemoBytes;
+use zcash_protocol::value::Zatoshis;
+use zcash_protocol::ShieldedProtocol;
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::address;
 
-pub struct ZcashProtocol;
+type ZcashWalletDb = WalletDb<SystemClock, LocalNetwork>;
+
+pub struct ZcashProtocol {
+    wallet_db: Option<Arc<Mutex<ZcashWalletDb>>>,
+    params: Option<LocalNetwork>,
+}
+
+impl Default for ZcashProtocol {
+    fn default() -> Self {
+        Self {
+            wallet_db: None,
+            params: None,
+        }
+    }
+}
+
+impl ZcashProtocol {
+    pub fn with_wallet_db(wallet_db: ZcashWalletDb, params: LocalNetwork) -> Self {
+        Self {
+            wallet_db: Some(Arc::new(Mutex::new(wallet_db))),
+            params: Some(params),
+        }
+    }
+}
 
 impl SignerProtocol for ZcashProtocol {
     fn protocol_id(&self) -> ProtocolId {
@@ -122,12 +160,74 @@ impl Protocol for ZcashProtocol {
         &self,
         _public_key: &[u8],
         _repository: &dyn WalletRepository,
-        _account: u32,
-        _to: &str,
-        _amount: u64,
-        _memo: Option<&str>,
+        account: u32,
+        to: &str,
+        amount: u64,
+        memo: Option<&str>,
     ) -> Result<Vec<u8>, String> {
-        Err("propose_and_build requires a full wallet DB with notes — use Builder directly for test PCZTs".to_string())
+        let db = self
+            .wallet_db
+            .as_ref()
+            .ok_or("ZcashProtocol not configured with a wallet DB")?;
+        let params = self
+            .params
+            .as_ref()
+            .ok_or("ZcashProtocol not configured with consensus params")?;
+        let mut wallet_db = db.lock().map_err(|e| e.to_string())?;
+
+        let account_id =
+            zip32::AccountId::try_from(account).map_err(|_| format!("invalid account: {account}"))?;
+
+        // Parse recipient address
+        let to_address = zcash_address::ZcashAddress::try_from_encoded(to)
+            .map_err(|e| format!("invalid recipient address: {e}"))?;
+
+        // Build payment with optional memo
+        let payment = if let Some(memo_text) = memo {
+            let memo = MemoBytes::from_bytes(memo_text.as_bytes())
+                .map_err(|e| format!("invalid memo: {e}"))?;
+            zip321::Payment::new(to_address, Zatoshis::from_u64(amount).map_err(|_| "invalid amount")?, Some(memo))
+                .map_err(|e| format!("payment construction failed: {e}"))?
+        } else {
+            zip321::Payment::without_memo(to_address, Zatoshis::from_u64(amount).map_err(|_| "invalid amount")?)
+        };
+
+        let request = zip321::TransactionRequest::new(vec![payment])
+            .map_err(|e| format!("transaction request failed: {e}"))?;
+
+        let change_strategy = MultiOutputChangeStrategy::new(
+            StandardFeeRule::Zip317,
+            None,
+            ShieldedProtocol::Orchard,
+            DustOutputPolicy::default(),
+            SplitPolicy::with_min_output_value(
+                NonZeroUsize::new(4).unwrap(),
+                Zatoshis::from_u64(10_000_000).unwrap(),
+            ),
+        );
+
+        let proposal = propose_transfer(
+            &mut *wallet_db,
+            params,
+            account_id,
+            &GreedyInputSelector::new(),
+            &change_strategy,
+            request,
+            ConfirmationsPolicy::default(),
+            None,
+        )
+        .map_err(|e| format!("propose_transfer failed: {e}"))?;
+
+        let pczt = create_pczt_from_proposal(
+            &mut *wallet_db,
+            params,
+            account_id,
+            OvkPolicy::Sender,
+            &proposal,
+        )
+        .map_err(|e| format!("create_pczt_from_proposal failed: {e}"))?;
+
+        Ok(pczt.serialize())
     }
 
     fn prove_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
@@ -143,8 +243,8 @@ impl Protocol for ZcashProtocol {
     }
 
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
-        let pczt = pczt::Pczt::parse(transaction)
-            .map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+        let pczt =
+            pczt::Pczt::parse(transaction).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
 
         let finalized = SpendFinalizer::new(pczt)
             .finalize_spends()

@@ -97,7 +97,7 @@ fn test_orchard_shielded_pczt_full_pipeline() {
     let pczt_bytes = io_finalized.serialize();
 
     // ── 5. Prove via ZcashProtocol ──────────────────────────────────────
-    let protocol = ZcashProtocol;
+    let protocol = ZcashProtocol::default();
     let proven_bytes = protocol
         .prove_transaction(&pczt_bytes)
         .expect("prove_transaction");
