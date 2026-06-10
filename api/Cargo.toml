@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-paypunkd = { path = "../paypunkd" }
-paypunk-types = { path = "../types" }
-keypunkd = { path = "../keypunkd" }
-paypunk-ipc = { path = "../ipc" }
-tactix = "1.0"
-zeroize = "1"
+paypunkd.workspace = true
+paypunk-types.workspace = true
+keypunkd.workspace = true
+paypunk-ipc.workspace = true
+tactix.workspace = true
+zeroize.workspace = true

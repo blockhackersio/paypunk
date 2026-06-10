@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-paypunk-types = { path = "../../types" }
-bip32 = "0.5"
-k256 = "0.13"
-sha3 = "0.10"
-hex = "0.4"
-thiserror = "2"
+paypunk-types.workspace = true
+bip32.workspace = true
+k256.workspace = true
+sha3.workspace = true
+hex.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-bip39 = "2"
+bip39.workspace = true

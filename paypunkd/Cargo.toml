@@ -8,17 +8,17 @@ name = "paypunkd"
 path = "src/main.rs"
 
 [dependencies]
-paypunk-ipc = { path = "../ipc" }
-paypunk-types = { path = "../types" }
-paypunk-chains-zcash = { path = "../protocols/zcash" }
-paypunk-chains-ethereum = { path = "../protocols/ethereum" }
-keypunkd = { path = "../keypunkd" }
-zcash_protocol = "0.8"
-tactix = "1.0"
-tokio = { version = "1", features = ["net", "io-util", "rt", "macros", "signal"] }
-serde = { version = "1", features = ["derive"] }
-postcard = { version = "1", features = ["alloc"] }
-clap = { version = "4", features = ["derive"] }
-thiserror = "2"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+paypunk-ipc.workspace = true
+paypunk-types.workspace = true
+paypunk-chains-zcash.workspace = true
+paypunk-chains-ethereum.workspace = true
+keypunkd.workspace = true
+zcash_protocol.workspace = true
+tactix.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "rt", "macros", "signal"] }
+serde = { workspace = true, features = ["derive"] }
+postcard = { workspace = true, features = ["alloc"] }
+clap = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

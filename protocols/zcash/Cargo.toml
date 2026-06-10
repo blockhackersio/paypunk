@@ -8,38 +8,38 @@ default = ["wallet"]
 wallet = ["dep:zcash_client_backend", "dep:zcash_client_sqlite", "dep:tactix", "dep:tokio", "dep:rusqlite", "dep:secrecy"]
 
 [dependencies]
-paypunk-types = { path = "../../types" }
-orchard = "0.13"
-zcash_address = "0.11"
-zcash_protocol = "0.8"
-zcash_primitives = { version = "0.27", features = ["transparent-inputs"] }
-zcash_keys = { version = "0.13", features = ["orchard", "sapling", "transparent-inputs"] }
-zcash_proofs = { version = "0.27", features = ["bundled-prover"] }
-pczt = { version = "0.6", features = ["orchard", "prover", "signer", "io-finalizer", "spend-finalizer", "tx-extractor", "zcp-builder"] }
-zcash_transparent = { version = "0.7", features = ["transparent-inputs"] }
-zip32 = "0.2"
-rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
-rand = "0.8"
-thiserror = "2"
+paypunk-types.workspace = true
+orchard.workspace = true
+zcash_address.workspace = true
+zcash_protocol.workspace = true
+zcash_primitives = { workspace = true, features = ["transparent-inputs"] }
+zcash_keys = { workspace = true, features = ["orchard", "sapling", "transparent-inputs"] }
+zcash_proofs = { workspace = true, features = ["bundled-prover"] }
+pczt = { workspace = true, features = ["orchard", "prover", "signer", "io-finalizer", "spend-finalizer", "tx-extractor", "zcp-builder"] }
+zcash_transparent = { workspace = true, features = ["transparent-inputs"] }
+zip32.workspace = true
+rand_core = { workspace = true, default-features = false, features = ["getrandom"] }
+rand.workspace = true
+thiserror.workspace = true
 
 # Wallet / actor dependencies (optional, behind "wallet" feature)
-zcash_client_backend = { version = "0.22", default-features = false, features = ["orchard", "pczt", "transparent-inputs", "zcash_proofs"], optional = true }
-zcash_client_sqlite = { version = "0.20", features = ["orchard", "transparent-inputs"], optional = true }
-tactix = { version = "1.0", optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
-rusqlite = { version = "0.37", optional = true }
-secrecy = { version = "0.8", optional = true }
+zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "pczt", "transparent-inputs", "zcash_proofs"], optional = true }
+zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"], optional = true }
+tactix = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["full"], optional = true }
+rusqlite = { workspace = true, optional = true }
+secrecy = { workspace = true, optional = true }
 
 [dev-dependencies]
-async-trait = "0.1"
-bip39 = { version = "2", features = ["rand"] }
-futures-util = "0.3"
-prost = "0.14"
-zcash_client_backend = { version = "0.22", default-features = false, features = ["orchard", "lightwalletd-tonic", "sync", "transparent-inputs", "zcash_proofs"] }
-zcash_client_sqlite = { version = "0.20", features = ["orchard", "transparent-inputs"] }
-tokio = { version = "1", features = ["full"] }
-tactix = "1.0"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tonic = "0.14"
-rusqlite = "0.37"
-secrecy = "0.8"
+async-trait.workspace = true
+bip39 = { workspace = true, features = ["rand"] }
+futures-util.workspace = true
+prost.workspace = true
+zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "lightwalletd-tonic", "sync", "transparent-inputs", "zcash_proofs"] }
+zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"] }
+tokio = { workspace = true, features = ["full"] }
+tactix.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tonic.workspace = true
+rusqlite.workspace = true
+secrecy.workspace = true

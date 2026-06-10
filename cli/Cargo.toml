@@ -8,8 +8,8 @@ name = "paypunk"
 path = "src/main.rs"
 
 [dependencies]
-paypunk-api = { path = "../api" }
-paypunk-types = { path = "../types" }
-tokio = { version = "1", features = ["rt", "macros"] }
-clap = { version = "4", features = ["derive"] }
-zeroize = "1"
+paypunk-api.workspace = true
+paypunk-types.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+clap = { workspace = true, features = ["derive"] }
+zeroize.workspace = true

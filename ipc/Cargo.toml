@@ -4,17 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tactix = "1.0"
-tokio = { version = "1", features = ["net", "io-util"] }
-thiserror = "2"
-bytes = "1"
-x25519-dalek = "2"
-blake2 = "0.10"
-rand = "0.8"
-tracing = "0.1"
+tactix.workspace = true
+tokio = { workspace = true, features = ["net", "io-util"] }
+thiserror.workspace = true
+bytes.workspace = true
+x25519-dalek.workspace = true
+blake2.workspace = true
+rand.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
-tokio = { version = "1", features = ["rt", "macros"] }
-serde = { version = "1", features = ["derive"] }
-postcard = { version = "1", features = ["alloc"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+serde = { workspace = true, features = ["derive"] }
+postcard = { workspace = true, features = ["alloc"] }
