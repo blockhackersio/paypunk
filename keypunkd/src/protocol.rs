@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use paypunk_types::{ProtocolId, SignerProtocol};
+use std::collections::HashMap;
 
 /// A hardcoded signer protocol service.
 ///

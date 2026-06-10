@@ -29,12 +29,10 @@ fn wire_actors() -> Recipient<IpcMessage> {
         .start();
     let keypunkd_recipient = keypunkd_addr.recipient();
 
-    // paypunkd uses ProtocolService (concrete types, no dyn)
     let paypunkd_zcash = ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
-    let paypunkd_protocols =
-        ProtocolService::new(paypunkd_zcash, EthereumProtocol);
+    let paypunkd_protocols = ProtocolService::new(paypunkd_zcash, EthereumProtocol);
 
     let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
     paypunkd_addr.recipient()

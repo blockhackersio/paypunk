@@ -12,8 +12,7 @@ impl Protocol for EthereumProtocol {
 
     fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String> {
         let _ = index;
-        address::derive_from_pubkey(public_key)
-            .map_err(|e| e.to_string())
+        address::derive_from_pubkey(public_key).map_err(|e| e.to_string())
     }
 
     fn prove_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
@@ -22,6 +21,16 @@ impl Protocol for EthereumProtocol {
 
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
         Ok(transaction.to_vec())
+    }
+    fn create_transaction(
+        &self,
+        public_key: &[u8],
+        account: u32,
+        to: &str,
+        amount: u64,
+        memo: Option<&str>,
+    ) -> Result<Vec<u8>, String> {
+        Ok(vec![])
     }
 }
 
@@ -32,10 +41,11 @@ impl SignerProtocol for EthereumProtocol {
 
     fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String> {
         let path = format!("m/44'/60'/{account}'/0/0");
-        let parsed = bip32::DerivationPath::from_str(&path)
-            .map_err(|e| format!("invalid path: {e}"))?;
-        let key = bip32::ExtendedPrivateKey::<k256::ecdsa::SigningKey>::derive_from_path(*seed, &parsed)
-            .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
+        let parsed =
+            bip32::DerivationPath::from_str(&path).map_err(|e| format!("invalid path: {e}"))?;
+        let key =
+            bip32::ExtendedPrivateKey::<k256::ecdsa::SigningKey>::derive_from_path(*seed, &parsed)
+                .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
         let ext_pubkey = key.public_key();
         let inner = ext_pubkey.public_key();
         let point = inner.to_encoded_point(false);

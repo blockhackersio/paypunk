@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 
 use orchard::keys::{FullViewingKey, SpendingKey};
-use paypunk_types::{
-    ProposingProtocol, Protocol, ProtocolId, SignerProtocol, TransactionProposer,
-};
+use paypunk_types::{Protocol, ProtocolId, SignerProtocol};
 use pczt::roles::{
     prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
     tx_extractor::TransactionExtractor, verifier::Verifier,
@@ -12,7 +10,6 @@ use zcash_keys::keys::UnifiedSpendingKey;
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::address;
-use crate::wallet_client::ZcashWalletClient;
 
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
@@ -78,8 +75,7 @@ impl SignerProtocol for ZcashProtocol {
 
         if keys.is_empty() {
             let num_actions = pczt.orchard().actions().len();
-            let mut signer =
-                Signer::new(pczt).map_err(|e| format!("Signer::new failed: {e:?}"))?;
+            let mut signer = Signer::new(pczt).map_err(|e| format!("Signer::new failed: {e:?}"))?;
             for i in 0..num_actions {
                 match signer.sign_orchard(i, &ask) {
                     Ok(()) => break,
@@ -91,8 +87,7 @@ impl SignerProtocol for ZcashProtocol {
             return Ok(pczt.serialize());
         }
 
-        let mut signer =
-            Signer::new(pczt).map_err(|e| format!("Signer::new failed: {e:?}"))?;
+        let mut signer = Signer::new(pczt).map_err(|e| format!("Signer::new failed: {e:?}"))?;
         for (_account_index, spends) in &keys {
             for keyref in spends {
                 match keyref {
@@ -132,8 +127,8 @@ impl Protocol for ZcashProtocol {
     }
 
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
-        let pczt = pczt::Pczt::parse(transaction)
-            .map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+        let pczt =
+            pczt::Pczt::parse(transaction).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
 
         let finalized = SpendFinalizer::new(pczt)
             .finalize_spends()
@@ -151,21 +146,17 @@ impl Protocol for ZcashProtocol {
 
         Ok(raw_tx)
     }
-}
 
-impl ProposingProtocol for ZcashProtocol {
-    type TransactionProposer = ZcashWalletClient;
-
-    fn propose_and_build(
+    fn create_transaction(
         &self,
-        proposer: &Self::TransactionProposer,
         public_key: &[u8],
         account: u32,
         to: &str,
         amount: u64,
         memo: Option<&str>,
     ) -> Result<Vec<u8>, String> {
-        proposer.propose_and_build(public_key, account, to, amount, memo)
+        // proposer.create_transaction(public_key, account, to, amount, memo)
+        Ok(vec![])
     }
 }
 

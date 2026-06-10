@@ -37,11 +37,7 @@ impl WalletDbActor {
 impl Actor for WalletDbActor {}
 
 impl Handler<WalletMessage> for WalletDbActor {
-    async fn handle(
-        &mut self,
-        msg: WalletMessage,
-        _ctx: &Ctx<Self>,
-    ) -> Result<Vec<u8>, String> {
+    async fn handle(&mut self, msg: WalletMessage, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
         match msg {
             WalletMessage::ProposeAndBuild {
                 public_key: _,
@@ -50,7 +46,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                 amount: _,
                 memo: _,
             } => Err(format!(
-                "propose_and_build requires a fully synced WalletDb with notes. \
+                "create_transaction requires a fully synced WalletDb with notes. \
                  account={account} is not yet implemented via zcash_client_backend APIs. \
                  This will use propose_standard_transfer_to_address + create_pczt_from_proposal."
             )),

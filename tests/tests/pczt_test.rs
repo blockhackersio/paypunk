@@ -24,11 +24,11 @@ use zcash_transparent::util::hash160;
 /// create → finalize IO → prove → sign → finalize spends → extract.
 ///
 /// NOTE: This test currently builds the PCZT using `zcash_primitives::Builder`
-/// directly because `ZcashProtocol::propose_and_build` requires a fully synced
+/// directly because `ZcashProtocol::create_transaction` requires a fully synced
 /// `WalletDb` with notes. Once `WalletDbActor` is fully implemented with
 /// `zcash_client_backend::propose_standard_transfer_to_address` +
 /// `create_pczt_from_proposal`, this test will be updated to use
-/// `Protocol::propose_and_build` through the actor.
+/// `Protocol::create_transaction` through the actor.
 ///
 /// The prove, sign, and finalize steps already use the Protocol traits.
 #[test]
@@ -54,14 +54,15 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 
     let value = NoteValue::from_raw(60_000);
     let rho = Rho::from_bytes(&[7; 32]).into_option().unwrap();
-    let rseed = RandomSeed::from_bytes([8u8; 32], &rho).into_option().unwrap();
+    let rseed = RandomSeed::from_bytes([8u8; 32], &rho)
+        .into_option()
+        .unwrap();
     let note = orchard::Note::from_parts(recipient, value, rho, rseed).unwrap();
 
     // ── 2. Compute merkle path for a single note at position 0 ──────────
     let cmx: ExtractedNoteCommitment = note.commitment().into();
-    let auth_path: [MerkleHashOrchard; 32] = core::array::from_fn(|i| {
-        MerkleHashOrchard::empty_root(Level::from(i as u8))
-    });
+    let auth_path: [MerkleHashOrchard; 32] =
+        core::array::from_fn(|i| MerkleHashOrchard::empty_root(Level::from(i as u8)));
     let merkle_path = orchard::tree::MerklePath::from_parts(0, auth_path);
     let anchor = merkle_path.root(cmx);
 
@@ -95,8 +96,8 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         .build_for_pczt(OsRng, &zip317::FeeRule::standard())
         .expect("build_for_pczt");
 
-    let created = Creator::build_from_parts(pczt_result.pczt_parts)
-        .expect("Creator::build_from_parts");
+    let created =
+        Creator::build_from_parts(pczt_result.pczt_parts).expect("Creator::build_from_parts");
 
     let io_finalized = IoFinalizer::new(created)
         .finalize_io()
@@ -123,8 +124,7 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         .expect("finalize_transaction");
 
     // ── 7. Verify ───────────────────────────────────────────────────────
-    let tx = Transaction::read(&raw_tx[..], BranchId::Nu6)
-        .expect("parse extracted transaction");
+    let tx = Transaction::read(&raw_tx[..], BranchId::Nu6).expect("parse extracted transaction");
     let orchard_bundle = tx.orchard_bundle().expect("orchard bundle");
     assert_eq!(orchard_bundle.actions().len(), 2);
 }
@@ -181,8 +181,8 @@ fn test_construct_raw_pczt_inline() {
         .build_for_pczt(OsRng, &zip317::FeeRule::standard())
         .expect("build_for_pczt");
 
-    let created = Creator::build_from_parts(pczt_result.pczt_parts)
-        .expect("Creator::build_from_parts");
+    let created =
+        Creator::build_from_parts(pczt_result.pczt_parts).expect("Creator::build_from_parts");
 
     let io_finalized = IoFinalizer::new(created)
         .finalize_io()

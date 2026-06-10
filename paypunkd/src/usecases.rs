@@ -102,7 +102,7 @@ pub fn finalize_transaction(
 
 /// Full PCZT pipeline orchestration:
 /// 1. Fetch public key from keypunkd
-/// 2. propose_and_build via TransactionProposer
+/// 2. create_transaction via TransactionProposer
 /// 3. prove_transaction
 /// 4. sign via keypunkd IPC
 /// 5. finalize_transaction

@@ -86,7 +86,7 @@ paypunk/
 │       ├── messages.rs   # PaypunkdRequest, PaypunkdResponse types
 │       ├── dispatcher.rs # Tactix actor: deserialize → dispatch → serialize
 │       ├── services.rs   # PaypunkService wrapping Recipient<IpcMessage>
-│       └── usecases.rs   # Business logic: propose_and_build, prove, finalize
+│       └── usecases.rs   # Business logic: create_transaction, prove, finalize
 ├── keypunkd/             # Daemon binary: key generation, signing
 │   └── src/
 │       ├── lib.rs        # Crate root, re-exports public modules
@@ -239,7 +239,7 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
   pub trait NonSignerProtocol: Send + Sync {
       fn protocol_id(&self) -> ProtocolId;
       fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String>;
-      fn propose_and_build(
+      fn create_transaction(
           &self, public_key: &[u8], repository: &dyn WalletRepository,
           account: u32, to: &str, amount: u64, memo: Option<&str>,
       ) -> Result<Vec<u8>, String>;
@@ -315,7 +315,7 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
     /// Full PCZT pipeline orchestration:
     /// 1. Fetch FVK from keypunkd via derive_public_key
-    /// 2. Call protocol.propose_and_build(fvk, &repository, account, to, amount, memo) → PCZT
+    /// 2. Call protocol.create_transaction(fvk, &repository, account, to, amount, memo) → PCZT
     /// 3. Call protocol.prove_transaction(&pczt) → proven PCZT
     /// 4. Send PCZT to keypunkd via Sign IPC → signed PCZT
     /// 5. Call protocol.finalize_transaction(&proven, &signed) → raw tx bytes
@@ -486,7 +486,7 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
   impl NonSignerProtocol for ZcashProtocol {
       fn protocol_id(&self) -> ProtocolId { ProtocolId::Zcash }
       fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String>;
-      fn propose_and_build(&self, public_key: &[u8], repository: &dyn WalletRepository,
+      fn create_transaction(&self, public_key: &[u8], repository: &dyn WalletRepository,
           account: u32, to: &str, amount: u64, memo: Option<&str>) -> Result<Vec<u8>, String>;
       fn prove_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String>;
       fn finalize_transaction(&self, transaction: &[u8], signed_transaction: &[u8]) -> Result<Vec<u8>, String>;
@@ -529,7 +529,7 @@ Managed by `zcash_client_sqlite`. Our code does not define the schema — it is 
 
 - **Responsibility**: Ethereum-specific logic. Implements `NonSignerProtocol` and `SignerProtocol` for account-based transactions.
 - **Dependencies**: `paypunk-types`, `bip32`, `k256`, `sha3`, `hex`, `thiserror`
-- **Status**: Not yet implemented. `propose_and_build` creates an RLP-encoded unsigned tx (reads nonce + balance from repository, `get_spendable_resources` returns empty vec). `sign_transaction` signs the tx hash with ECDSA. `prove_transaction` is a no-op (no proofs needed). `finalize_transaction` encodes v/r/s into the RLP tx.
+- **Status**: Not yet implemented. `create_transaction` creates an RLP-encoded unsigned tx (reads nonce + balance from repository, `get_spendable_resources` returns empty vec). `sign_transaction` signs the tx hash with ECDSA. `prove_transaction` is a no-op (no proofs needed). `finalize_transaction` encodes v/r/s into the RLP tx.
 
 ### `cli` crate
 
@@ -559,7 +559,7 @@ The PCZT (Partially Created Zcash Transaction) pipeline splits proving and signi
 ```
 paypunkd                                         keypunkd
 ─────────                                         ────────
-1. propose_and_build
+1. create_transaction
    (repository → notes → Builder → PCZT)
          │
 2. update derivation paths (Updater)
@@ -595,7 +595,7 @@ paypunkd                                         keypunkd
 CLI → api → ipc (postcard) → paypunkd dispatcher → WalletActor message
                                                            ├→ (if sign needed) ipc → keypunkd → SignerProtocol.sign_transaction
                                                            ├→ (if prove needed) NonSignerProtocol.prove_transaction
-                                                           └→ (if build needed) NonSignerProtocol.propose_and_build
+                                                           └→ (if build needed) NonSignerProtocol.create_transaction
                                                            → response → api → CLI
 ```
 
@@ -627,12 +627,12 @@ None. All interaction is via Unix domain socket IPC. The CLI is the user-facing 
 - **Dependencies**: Step 1, Step 2
 
 ### Step 4: protocols/zcash — PCZT implementation
-- **What to implement**: `protocols/zcash` crate. Implement `SignerProtocol` for Zcash (key derivation, PCZT signing via Verifier+Signer roles). Implement `NonSignerProtocol` for Zcash (address derivation, propose_and_build via `zcash_primitives::Builder`, Orchard proving via `Prover`, finalize via Combiner+SpendFinalizer+TransactionExtractor). Implement `WalletRepository` backed by in-memory `zcash_client_sqlite::WalletDb`.
+- **What to implement**: `protocols/zcash` crate. Implement `SignerProtocol` for Zcash (key derivation, PCZT signing via Verifier+Signer roles). Implement `NonSignerProtocol` for Zcash (address derivation, create_transaction via `zcash_primitives::Builder`, Orchard proving via `Prover`, finalize via Combiner+SpendFinalizer+TransactionExtractor). Implement `WalletRepository` backed by in-memory `zcash_client_sqlite::WalletDb`.
 - **Validation checkpoint**: integration test with in-memory SQLite — insert test Orchard notes, run full PCZT pipeline (propose → prove → sign → combine → extract), verify well-formed transaction
 - **Dependencies**: Step 1, Step 3
 
 ### Step 5: paypunkd — PCZT orchestration
-- **What to implement**: `CreateTransfer` IPC message and usecase in paypunkd. Orchestrates the full PCZT pipeline: fetch FVK from keypunkd → `propose_and_build` → `prove_transaction` → Sign via IPC to keypunkd → `finalize_transaction` → store tx → return txid.
+- **What to implement**: `CreateTransfer` IPC message and usecase in paypunkd. Orchestrates the full PCZT pipeline: fetch FVK from keypunkd → `create_transaction` → `prove_transaction` → Sign via IPC to keypunkd → `finalize_transaction` → store tx → return txid.
 - **Validation checkpoint**: end-to-end `create_transfer` flow works with in-process actors (test)
 - **Dependencies**: Step 4
 
