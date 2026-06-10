@@ -1,9 +1,8 @@
+# The `Protocol` + `SignerProtocol` Traits: A Two-Sided Multichain Interface
 
-# The `Protocol` Trait: A Role-Based Multichain Signing Interface
-
-A design document for a Rust trait that unifies transaction construction and
+A design document for the Rust traits that unify transaction construction and
 signing across fundamentally different blockchain paradigms — UTXO, account-model,
-and shielded — using the role-based pipeline established by PSBT and PCZT.
+and shielded — split across two processes for security compartmentalization.
 
 ---
 
@@ -16,7 +15,7 @@ account-nonce transactions signed with secp256k1 over Keccak-256 hashes. Zcash
 Orchard uses shielded note-based transactions authorised with RedPallas signatures
 and proven with Halo 2 zero-knowledge proofs.
 
-Attempting to unify these behind a single `sign(input, key) → output` function
+Attempting to unify these behind a single `sign(input, key) -> output` function
 fails at Zcash's shielded protocols, where proof generation and signing are
 separate steps that may run on separate devices. The PCZT format
 (`pczt` crate in `librustzcash`) and Bitcoin's PSBT (BIP-174/370) both solve this
@@ -24,751 +23,492 @@ the same way: they define a **partially-built transaction** that passes through 
 pipeline of **roles** — Creator, Constructor, Prover, Signer, Extractor — where
 each role adds its contribution and hands the bundle onward.
 
-This document defines a `Protocol` trait that mirrors that role pipeline. Each
-blockchain implements the trait once. The wallet layer calls the same methods
-regardless of chain.
+Paypunk adds a second dimension: **process isolation**. The seed never touches
+paypunkd. The signing key material lives only in keypunkd. This means the role
+pipeline must be split across an IPC boundary.
+
+The two traits mirror that split:
+
+- **`Protocol`** (in paypunkd): address derivation, transaction creation, proving,
+  finalization — all operations that need no private key material (or only the
+  full viewing key, which is not sufficient to spend).
+- **`SignerProtocol`** (in keypunkd): key derivation and signing — operations
+  that require the seed or spending key.
 
 ---
 
-## 2. The Trait
+## 2. The Traits
+
+### 2.1. `Protocol` — Non-Signing Operations (paypunkd)
 
 ```rust
-pub trait Protocol {
-    /// The partially-built transaction flowing between roles.
-    /// Must be serializable — this crosses process/device boundaries.
+pub trait Protocol: Send + Sync {
+    fn protocol_id(&self) -> ProtocolId;
+
+    /// Derive an address from a public key and diversifier index.
     ///
-    /// Bitcoin:     bitcoin::psbt::Psbt
-    /// Ethereum:    a local UnsignedTransaction struct
-    /// Zcash:       pczt::Pczt
-    type Bundle: Clone;
+    /// Bitcoin:    P2PKH/P2WPKH address from compressed public key
+    /// Ethereum:   EIP-55 checksummed address from uncompressed key
+    /// Zcash:      Unified Address from Orchard FVK bytes
+    fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String>;
 
-    /// What the prover needs to generate proofs.
-    ///
-    /// Bitcoin/Ethereum:   ()
-    /// Zcash Sapling:      sapling::keys::FullViewingKey
-    /// Zcash Orchard:      orchard::keys::FullViewingKey
-    type ProofKey;
-
-    /// What the signer needs to authorise spends.
-    ///
-    /// Bitcoin:             secp256k1::SecretKey
-    /// Ethereum:            secp256k1::SecretKey
-    /// Zcash Transparent:   secp256k1::SecretKey
-    /// Zcash Sapling:       sapling::keys::SpendAuthorizingKey
-    /// Zcash Orchard:       orchard::keys::SpendAuthorizingKey
-    type SigningKey;
-
-    /// Chain-specific transaction inputs before construction.
-    type SigningInput;
-
-    /// Signed, broadcast-ready transaction bytes.
-    type SigningOutput;
-
-    /// Pre-sign analysis: input selection, fee estimation.
-    type TransactionPlan;
-
-    // ── Chain identity ──────────────────────────────────────
-
-    fn chain_info(&self) -> ChainInfo;
-
-    // ── Key derivation ──────────────────────────────────────
-
-    /// Derive all key material for one account from a seed.
-    ///
-    /// Bitcoin:    BIP-32/44 → (SecretKey, PublicKey)
-    /// Ethereum:   BIP-32/44 m/44'/60'/account' → (SecretKey, PublicKey)
-    /// Zcash:      ZIP-32 → UnifiedSpendingKey →
-    ///               (transparent SecretKey, Sapling ExtendedSpendingKey,
-    ///                Orchard SpendingKey)
-    fn derive_keys(
-        &self,
-        seed: &[u8],
-        account: u32,
-    ) -> Result<KeySet<Self>, Error>;
-
-    // ── Address ─────────────────────────────────────────────
-
-    /// Derive an address from the key set.
-    ///
-    /// The `diversifier_index` parameter:
-    ///   Bitcoin:    address index in BIP-44 chain
-    ///   Ethereum:   ignored (one address per account)
-    ///   Zcash Sapling/Orchard: diversifier index (ZIP-316),
-    ///                          generates unlinkable addresses
-    ///                          from the same viewing key
-    fn derive_address(
-        &self,
-        keys: &KeySet<Self>,
-        diversifier_index: u32,
-    ) -> Result<Address, Error>;
-
-    fn validate_address(&self, address: &str) -> bool;
-
-    // ── Planning ────────────────────────────────────────────
-
-    /// Build a transaction plan: select inputs, estimate fees.
-    ///
-    /// Bitcoin:    UTXO selection, change output, fee estimation
-    /// Ethereum:   gas estimation
-    /// Zcash:      note selection across pools, fee per ZIP-317
-    fn plan(
-        &self,
-        input: &Self::SigningInput,
-    ) -> Result<Self::TransactionPlan, Error>;
-
-    // ── Role pipeline ───────────────────────────────────────
-
-    /// Creator + Constructor + IO Finalizer.
-    /// Build the bundle structure and seal the set of inputs/outputs.
-    fn new(
-        &self,
-        input: &Self::SigningInput,
-        plan: &Self::TransactionPlan,
-    ) -> Result<Self::Bundle, Error>;
-
-    /// Prover role.
-    /// Generate cryptographic proofs for each shielded action.
-    ///
-    /// Bitcoin/Ethereum: no-op — return bundle unchanged.
-    /// Zcash Sapling:    Groth16 proofs via zcash_proofs
-    /// Zcash Orchard:    Halo 2 proofs via orchard::circuit
-    fn prove(
-        &self,
-        bundle: Self::Bundle,
-        proof_key: &Self::ProofKey,
-    ) -> Result<Self::Bundle, Error>;
-
-    /// Signer role.
-    /// Produce authorization signatures for each spend.
-    ///
-    /// Bitcoin:           ECDSA/Schnorr sig per UTXO input
-    /// Ethereum:          secp256k1 sig over Keccak-256 tx hash
-    /// Zcash Transparent: ECDSA sig per transparent input
-    /// Zcash Sapling:     RedJubjub spend auth sig per Spend
-    /// Zcash Orchard:     RedPallas spend auth sig per Action
-    fn authorize(
-        &self,
-        bundle: Self::Bundle,
-        signing_key: &Self::SigningKey,
-    ) -> Result<Self::Bundle, Error>;
-
-    /// Extractor role.
-    /// Strip metadata, compute any final signatures, emit raw tx.
+    /// Finalize a signed transaction: compute binding signatures,
+    /// strip metadata, emit broadcast-ready raw bytes.
     ///
     /// Bitcoin:    assemble witness, drop PSBT fields
-    /// Ethereum:   already signed after authorize, just serialize
-    /// Zcash:      compute binding signature from accumulated
-    ///             randomness, verify completeness, emit v5 tx
-    fn extract(
+    /// Ethereum:   RLP-encode the signed transaction
+    /// Zcash:      compute binding sig, verify proofs, emit v5 tx
+    fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String>;
+
+    /// Build a new transaction with proofs already generated
+    /// (Creator + Constructor + Prover roles).
+    ///
+    /// Bitcoin:    UTXO selection, change output, fee estimation → PSBT
+    /// Ethereum:   gas estimation, nonce → unsigned EIP-1559 tx
+    /// Zcash:      note selection, ZIP-317 fee → PCZT with proofs
+    fn create_transaction(
         &self,
-        bundle: Self::Bundle,
-    ) -> Result<Self::SigningOutput, Error>;
+        public_key: &[u8],
+        account: u32,
+        to: &str,
+        amount: u64,
+        memo: Option<&str>,
+    ) -> Result<Vec<u8>, String>;
+}
+```
 
-    // ── Convenience ─────────────────────────────────────────
+**Key design choice: byte serialization.** All data crosses trait method
+boundaries as `&[u8]` / `Vec<u8>`. The same serialized bytes flow over the
+Unix socket. Each implementation internally parses into its native types
+(e.g., `pczt::Pczt` for Zcash, RLP bytes for Ethereum). No associated types
+— the traits stay simple and object-safe.
 
-    /// Collapse the full pipeline for wallets holding all keys.
-    fn sign(
+### 2.2. `SignerProtocol` — Signing Operations (keypunkd)
+
+```rust
+pub trait SignerProtocol: Send + Sync {
+    fn protocol_id(&self) -> ProtocolId;
+
+    /// Derive a public key from the seed for a given account.
+    ///
+    /// Returns raw public key bytes that the `Protocol` side can use
+    /// for address derivation.
+    ///
+    /// Bitcoin:    BIP-32 m/84'/0'/account' → compressed secp256k1 pubkey
+    /// Ethereum:   BIP-32 m/44'/60'/account'/0/0 → uncompressed secp256k1 pubkey
+    /// Zcash:      ZIP-32 Orchard → FullViewingKey bytes
+    fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String>;
+
+    /// Sign a partially-built transaction.
+    ///
+    /// The `transaction` bytes are a chain-specific partially-built format
+    /// (e.g., PCZT for Zcash). The seed-derived key is used to produce
+    /// authorization signatures for each spend.
+    ///
+    /// Bitcoin:           ECDSA/Schnorr sig per UTXO input → PSBT
+    /// Ethereum:          secp256k1 sig over Keccak-256 tx hash
+    /// Zcash Orchard:     RedPallas spend auth sig per Action → PCZT
+    fn sign_transaction(
         &self,
-        input: &Self::SigningInput,
-        keys: &KeySet<Self>,
-    ) -> Result<Self::SigningOutput, Error> {
-        let plan = self.plan(input)?;
-        let bundle = self.new(input, &plan)?;
-        let bundle = self.prove(bundle, &keys.proof_key)?;
-        let bundle = self.authorize(bundle, &keys.signing_key)?;
-        self.extract(bundle)
-    }
+        seed: &[u8; 64],
+        account: u32,
+        transaction: &[u8],
+    ) -> Result<Vec<u8>, String>;
 }
+```
 
-pub struct KeySet<P: Protocol + ?Sized> {
-    pub proof_key: P::ProofKey,
-    pub signing_key: P::SigningKey,
-    pub address_key: AddressKey,
+### 2.3. `ProtocolId` — Chain Dispatch
+
+```rust
+pub enum ProtocolId {
+    Zcash,
+    Bitcoin,
+    Ethereum,
+    Monero,
+    Solana,
 }
+```
+
+Each protocol crate registers itself with a `ProtocolId`. The `api` layer
+dispatches calls to the correct implementation based on the requested asset.
+
+---
+
+## 3. Pipeline Orchestration
+
+The WalletActor (in paypunkd) is the pipeline orchestrator. It holds the
+`Protocol` impl and the IPC handle to keypunkd's `SignerProtocol`, and calls
+them in the chain-specific order. The `api` layer exposes a single
+`create_transfer` that hides this complexity — consumers never see the
+individual pipeline steps.
+
+The canonical flow for any chain is: **create → sign → finalize → broadcast**.
+Proving is bundled into `create_transaction` — both steps need the same note
+data and the FullViewingKey is already available as the `public_key` parameter,
+so there's no reason to expose them separately.
+
+## 4. Role Pipeline Across Processes
+
+The role pipeline from PSBT/PCZT — `new -> prove -> authorize -> extract` —
+is split across the two processes, with `prove` internal to `create`:
+
+```
+ paypunkd (Protocol)                 keypunkd (SignerProtocol)
+ ─────────────────────                ─────────────────────────
+ create_transaction()
+ (Creator+Constructor+Prover)
+                                     ──IPC──► sign_transaction()
+                                     ◄──IPC── (Authorize)
+ finalize_transaction()
+ (Extractor)
+```
+
+| Role         | Trait Method           | Process   | Key Material Needed        |
+|--------------|------------------------|-----------|----------------------------|
+| Creator      | `create_transaction`   | paypunkd  | None (public key only)     |
+| Constructor  | `create_transaction`   | paypunkd  | None (public key only)     |
+| Prover       | `create_transaction`   | paypunkd  | FullViewingKey (not secret)|
+| Authorize    | `sign_transaction`     | keypunkd  | Spending key (secret)      |
+| Extractor    | `finalize_transaction` | paypunkd  | None                       |
+
+### 4.1. The Full Transfer Flow
+
+```
+1. api.create_transfer(asset, to, amount, memo)
+       │
+2. paypunkd: derive_address via Protocol::derive_address (for change)
+       │
+3. paypunkd: Protocol::create_transaction → PCZT bytes (with proofs)
+       │         (proving is internal to create_transaction)
+4. paypunkd --IPC--> keypunkd: SignerProtocol::sign_transaction
+       │                keypunkd: unlock seed, derive key, sign
+       │         <--IPC-- return signed PCZT bytes
+       │
+5. paypunkd: Protocol::finalize_transaction → raw tx bytes
+       │
+6. broadcast via lightwalletd / RPC
 ```
 
 ---
 
-## 3. Why Roles, Not `sign()`
+## 4. Implementation: Zcash
 
-The monolithic `sign(input, key) → output` model assumes one party holds all
-keys and performs all operations. This breaks in three real scenarios:
-
-**Hardware wallets.** A Ledger can produce secp256k1 signatures but cannot
-generate Halo 2 proofs — it lacks the memory and compute. PCZT allows the
-proof to be generated on a desktop, then the partially-proven bundle is sent
-to the Ledger for signing, then returned for extraction.
-
-**Multisig / threshold signing.** Multiple signers each call `authorize` on
-the same bundle. Because `authorize` takes and returns the same `Bundle` type,
-it composes naturally — call it N times for N signers.
-
-**Delegation.** A watch-only wallet can `new` and `plan` without any
-private key material, then serialize the `Bundle` and send it elsewhere for
-proving and signing.
-
-The role pipeline is `new → prove → authorize → extract`, but only
-`prove` and `authorize` require key material. The other roles are
-capability-free.
-
----
-
-## 4. Implementation: Bitcoin
-
-Bitcoin maps cleanly because PSBT *is* the partially-built transaction format
-that the trait's `Bundle` type was modelled on.
+Zcash is the primary target and the most complex case. It uses the PCZT format
+(`pczt::Pczt`) as the wire format between all pipeline stages.
 
 ```rust
-impl Protocol for Bitcoin {
-    type Bundle        = bitcoin::psbt::Psbt;
-    type ProofKey      = ();                    // no proofs
-    type SigningKey     = secp256k1::SecretKey;
-    type SigningInput   = BitcoinSigningInput;
-    type SigningOutput  = BitcoinSigningOutput;
-    type TransactionPlan = BitcoinTransactionPlan;
+// protocols/zcash/src/protocol.rs
 
-    fn new(&self, input: &Self::SigningInput, plan: &Self::TransactionPlan)
-        -> Result<Psbt, Error>
-    {
-        // Build unsigned transaction from selected UTXOs and outputs.
-        // Populate PSBT fields: witness_utxo, bip32_derivation, sighash_type.
+impl Protocol for ZcashProtocol {
+    fn protocol_id(&self) -> ProtocolId { ProtocolId::Zcash }
+
+    fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String> {
+        // Deserialize public_key as orchard::keys::FullViewingKey bytes.
+        // Call FullViewingKey::address_at(index, Scope::External).
+        // Encode as Unified Address with "u" HRP.
     }
 
-    fn prove(&self, bundle: Psbt, _: &()) -> Result<Psbt, Error> {
-        Ok(bundle) // No proofs in Bitcoin.
+    fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
+        // Parse bytes as pczt::Pczt.
+        // Use pczt::roles::spend_finalizer::SpendFinalizer.
+        // Verify proofs with orchard::circuit::VerifyingKey.
+        // Compute binding signature.
+        // Extract raw v5 transaction bytes.
     }
 
-    fn authorize(&self, mut bundle: Psbt, key: &secp256k1::SecretKey)
-        -> Result<Psbt, Error>
-    {
-        // For each input:
-        //   Compute sighash (BIP-143 for SegWit, BIP-341 for Taproot).
-        //   Sign with ECDSA or Schnorr depending on script type.
-        //   Insert signature into partial_sigs or tap_key_sig.
-    }
-
-    fn extract(&self, bundle: Psbt) -> Result<Self::SigningOutput, Error> {
-        // For each input: assemble witness stack from partial_sigs + scripts.
-        // Strip all PSBT metadata.
-        // Serialize the final transaction.
-    }
-}
-```
-
-**Key types.** `derive_keys` runs BIP-32 derivation from the seed using the
-chain's BIP-44 path (`m/84'/0'/account'` for native SegWit). `ProofKey` is
-`()` — Bitcoin has no proof system. `SigningKey` is a standard secp256k1
-secret key. The `diversifier_index` parameter in `derive_address` maps to the
-address index in the BIP-44 external chain (`m/84'/0'/account'/0/index`).
-
----
-
-## 5. Implementation: Ethereum
-
-Ethereum is the simplest case. There is no partially-built format analogous
-to PSBT — the "bundle" is just the unsigned transaction.
-
-```rust
-impl Protocol for Ethereum {
-    type Bundle        = EthereumUnsignedTx;
-    type ProofKey      = ();
-    type SigningKey     = secp256k1::SecretKey;
-    type SigningInput   = EthereumSigningInput;
-    type SigningOutput  = EthereumSigningOutput;
-    type TransactionPlan = EthereumTransactionPlan; // gas estimate
-
-    fn new(&self, input: &Self::SigningInput, plan: &Self::TransactionPlan)
-        -> Result<EthereumUnsignedTx, Error>
-    {
-        // Build EIP-1559 or legacy transaction from nonce, gas, to,
-        // value, data, chain_id.
-    }
-
-    fn prove(&self, bundle: EthereumUnsignedTx, _: &()) -> Result<EthereumUnsignedTx, Error> {
-        Ok(bundle) // No proofs.
-    }
-
-    fn authorize(&self, bundle: EthereumUnsignedTx, key: &secp256k1::SecretKey)
-        -> Result<EthereumUnsignedTx, Error>
-    {
-        // RLP-encode the unsigned transaction.
-        // Keccak-256 hash the encoding.
-        // Sign with secp256k1, producing (v, r, s).
-        // Attach signature to the bundle.
-    }
-
-    fn extract(&self, bundle: EthereumUnsignedTx) -> Result<Self::SigningOutput, Error> {
-        // Already signed after authorize.
-        // RLP-encode the signed transaction.
-    }
-}
-```
-
-**Key types.** `derive_keys` runs BIP-32 on path `m/44'/60'/account'/0/0`.
-Ethereum uses one address per account — `diversifier_index` is ignored in
-`derive_address`. `ProofKey` is `()`.
-
----
-
-## 6. Implementation: Zcash Transparent
-
-Zcash transparent is Bitcoin's UTXO model with additional transaction envelope
-fields (`version_group_id`, `branch_id`, `expiry_height`). In the
-`librustzcash` stack, transparent functionality lives in the `zcash_transparent`
-crate, with key management via `zcash_keys`.
-
-```rust
-impl Protocol for ZcashTransparent {
-    type Bundle        = pczt::Pczt;
-    type ProofKey      = ();
-    type SigningKey     = secp256k1::SecretKey;
-    type SigningInput   = ZcashTransparentSigningInput;
-    type SigningOutput  = ZcashSigningOutput;
-    type TransactionPlan = ZcashTransparentPlan;
-
-    fn new(&self, input: &Self::SigningInput, plan: &Self::TransactionPlan)
-        -> Result<pczt::Pczt, Error>
-    {
+    fn create_transaction(
+        &self, public_key: &[u8], account: u32,
+        to: &str, amount: u64, memo: Option<&str>,
+    ) -> Result<Vec<u8>, String> {
         // Use zcash_primitives::transaction::builder::Builder
-        //   to add transparent inputs and outputs.
-        // Call Builder::build_for_pczt() to produce the PCZT.
-        // The pczt crate's "zcp-builder" feature enables this path.
+        // with pczt::roles::io_finalizer to produce PCZT,
+        // THEN prove inline via pczt::roles::prover before returning.
         //
-        // Populate PCZT transparent fields:
-        //   - per-input: prevout, script_pubkey, value, sequence
-        //   - per-output: script_pubkey, value
-    }
-
-    fn prove(&self, bundle: pczt::Pczt, _: &()) -> Result<pczt::Pczt, Error> {
-        Ok(bundle) // No proofs for transparent.
-    }
-
-    fn authorize(&self, bundle: pczt::Pczt, key: &secp256k1::SecretKey)
-        -> Result<pczt::Pczt, Error>
-    {
-        // Use pczt::roles::signer with the transparent feature.
-        // For each transparent input:
-        //   Compute the sighash per ZIP-244 (TxId digest).
-        //   Sign with ECDSA on secp256k1.
-        //   Insert script_sig into the PCZT transparent input.
-    }
-
-    fn extract(&self, bundle: pczt::Pczt) -> Result<Self::SigningOutput, Error> {
-        // Use pczt::roles::tx_extractor.
-        // Verify all transparent inputs are signed.
-        // Emit serialized v5 transaction bytes.
+        // Proving is bundled here because:
+        //   - Both creation and proving need the same note/witness data
+        //   - The FullViewingKey is already in public_key bytes
+        //   - It eliminates a separate IPC round-trip
+        //
+        // Requires WalletDb for note selection and merkle paths.
     }
 }
 ```
-
-**Crate mapping.**
-
-| Trait concept      | `librustzcash` crate               |
-| ------------------ | ---------------------------------- |
-| `Bundle`           | `pczt::Pczt`                       |
-| Key derivation     | `zcash_keys` (transparent feature) |
-| UTXO types         | `zcash_transparent`                |
-| Tx builder         | `zcash_primitives::transaction`    |
-| Signing role       | `pczt::roles::signer`              |
-| Extraction role    | `pczt::roles::tx_extractor`        |
-
----
-
-## 7. Implementation: Zcash Sapling
-
-Sapling introduces the first shielded pool. The key hierarchy is
-fundamentally different from BIP-32: ZIP-32 derives a Sapling
-`ExtendedSpendingKey` from the seed, which yields a `FullViewingKey` (for
-proof generation), a `SpendAuthorizingKey` (for signing), and an
-`IncomingViewingKey` (for address derivation). Addresses are
-`(diversifier, pk_d)` pairs derived from the IVK — not from a public key
-hash.
-
-The proof system is Groth16 (via `zcash_proofs::prover`), requiring
-Sapling-specific parameters loaded at runtime.
 
 ```rust
-impl Protocol for ZcashSapling {
-    type Bundle        = pczt::Pczt;
-    type ProofKey      = sapling::keys::FullViewingKey;
-    type SigningKey     = sapling::keys::SpendAuthorizingKey;
-    type SigningInput   = ZcashSaplingSigningInput;
-    type SigningOutput  = ZcashSigningOutput;
-    type TransactionPlan = ZcashSaplingPlan;
+// protocols/zcash/src/protocol.rs
 
-    fn derive_keys(&self, seed: &[u8], account: u32)
-        -> Result<KeySet<Self>, Error>
-    {
-        // ZIP-32 Sapling key derivation:
-        //   sapling::zip32::ExtendedSpendingKey::master(seed)
-        //     .derive_child(ChildIndex::Hardened(32)) // purpose
-        //     .derive_child(ChildIndex::Hardened(133)) // coin type
-        //     .derive_child(ChildIndex::Hardened(account))
-        //
-        // From ExtendedSpendingKey derive:
-        //   - SpendAuthorizingKey (ask)     → SigningKey
-        //   - FullViewingKey (ak, nk, ovk)  → ProofKey
-        //   - IncomingViewingKey (ivk)       → for address derivation
+impl SignerProtocol for ZcashProtocol {
+    fn protocol_id(&self) -> ProtocolId { ProtocolId::Zcash }
+
+    fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String> {
+        // ZIP-32 Orchard derivation:
+        //   SpendingKey::from_zip32_seed(seed, 133, account)
+        //     .into() -> FullViewingKey
+        // Return FVK bytes.
     }
 
-    fn derive_address(&self, keys: &KeySet<Self>, diversifier_index: u32)
-        -> Result<Address, Error>
-    {
-        // From the Sapling IVK (inside AddressKey):
-        //   Try diversifier indices starting at diversifier_index
-        //   until a valid diversifier is found (not all indices
-        //   produce valid diversifiers on the Jubjub curve).
-        //   Compute pk_d = ivk * G_d(diversifier).
-        //   Encode as Bech32 with "zs" HRP.
-    }
-
-    fn new(&self, input: &Self::SigningInput, plan: &Self::TransactionPlan)
-        -> Result<pczt::Pczt, Error>
-    {
-        // Use zcash_primitives::transaction::builder::Builder.
-        // For each Sapling spend:
-        //   Add note, merkle path, anchor.
-        // For each Sapling output:
-        //   Add recipient address, value, memo.
-        // Call Builder::build_for_pczt().
-    }
-
-    fn prove(&self, bundle: pczt::Pczt, fvk: &sapling::keys::FullViewingKey)
-        -> Result<pczt::Pczt, Error>
-    {
-        // Use pczt::roles::prover with the sapling feature.
-        //
-        // For each Sapling Spend description in the PCZT:
-        //   Build the Spend circuit witness (value commitment,
-        //     anchor, nullifier, rk, merkle path).
-        //   Generate a Groth16 proof using zcash_proofs::prover.
-        //   Insert zkproof into the PCZT Sapling spend.
-        //
-        // For each Sapling Output description:
-        //   Build the Output circuit witness.
-        //   Generate a Groth16 proof.
-        //   Insert zkproof into the PCZT Sapling output.
-        //
-        // This is computationally expensive (~2s per proof on
-        // desktop) and requires the Sapling proving parameters
-        // (sapling-spend.params, sapling-output.params).
-    }
-
-    fn authorize(&self, bundle: pczt::Pczt, ask: &sapling::keys::SpendAuthorizingKey)
-        -> Result<pczt::Pczt, Error>
-    {
-        // Use pczt::roles::signer with the sapling feature.
-        //
-        // Compute the PCZT sighash (ZIP-244 transaction digest).
-        // For each Sapling Spend:
-        //   Generate a RedJubjub spend authorization signature
-        //     using ask and the randomized re-randomization alpha.
-        //   Insert spend_auth_sig into the PCZT Sapling spend.
-    }
-
-    fn extract(&self, bundle: pczt::Pczt) -> Result<Self::SigningOutput, Error> {
-        // Use pczt::roles::tx_extractor.
-        //
-        // Verify all Sapling spends have proofs and signatures.
-        // Compute the Sapling binding signature from the accumulated
-        //   value commitment randomness (bsk → bvk).
-        // Emit serialized v5 transaction.
+    fn sign_transaction(
+        &self, seed: &[u8; 64], account: u32,
+        transaction: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        // Parse bytes as pczt::Pczt.
+        // Derive UnifiedSpendingKey from seed.
+        // For each Orchard Action needing signature:
+        //   Extract zip32_derivation from PCZT to identify account.
+        //   Use Signer::sign_orchard(index, &ask).
+        // Return serialized PCZT with spend_auth_sigs filled in.
     }
 }
 ```
 
-**Crate mapping.**
-
-| Trait concept      | `librustzcash` crate / type                    |
-| ------------------ | ----------------------------------------------- |
-| `Bundle`           | `pczt::Pczt`                                    |
-| `ProofKey`         | `sapling::keys::FullViewingKey`                 |
-| `SigningKey`        | `sapling::keys::SpendAuthorizingKey`            |
-| Key derivation     | `sapling::zip32::ExtendedSpendingKey`           |
-| Address derivation | `sapling::keys::IncomingViewingKey`             |
-| Prover role        | `pczt::roles::prover` + `zcash_proofs::prover`  |
-| Signer role        | `pczt::roles::signer`                           |
-| Extractor role     | `pczt::roles::tx_extractor`                     |
-| Proof system       | Groth16 (bellman)                               |
-| Signature scheme   | RedJubjub (`redjubjub` crate)                   |
-
----
-
-## 8. Implementation: Zcash Orchard
-
-Orchard is the most complex case and the one that drove the trait's design.
-It uses the Pallas curve, RedPallas signatures, and Halo 2 proofs (no trusted
-setup). The key hierarchy is defined by ZIP-32 Orchard derivation, entirely
-separate from both BIP-32 and ZIP-32 Sapling.
-
-### 8.1. Key Hierarchy
+### 4.1. Key Hierarchy
 
 Orchard's key tree, as implemented in the `orchard` crate:
 
 ```
 orchard::keys::SpendingKey               (derived from seed via ZIP-32)
- ├── orchard::keys::SpendAuthorizingKey  (ask: Pallas scalar)
+ ├── orchard::keys::SpendAuthorizingKey  (ask: Pallas scalar) — in keypunkd
  ├── SpendValidatingKey                  (ak: Pallas point)
  ├── NullifierDerivingKey                (nk: Pallas point)
- └── orchard::keys::FullViewingKey       (ak, nk, rivk)
+ └── orchard::keys::FullViewingKey       (ak, nk, rivk) — crosses IPC
       └── orchard::keys::IncomingViewingKey (ivk)
            └── diversifier d → orchard::Address(d, pk_d)
 ```
 
-Mapping to the trait's `KeySet`:
+Mapping to the two traits:
 
-- `ProofKey` = `orchard::keys::FullViewingKey` — needed during proof
-  generation to compute nullifiers, value commitments, and note encryption.
-- `SigningKey` = `orchard::keys::SpendAuthorizingKey` — the RedPallas
-  scalar used to produce spend authorization signatures.
-- `AddressKey` = derived from the `IncomingViewingKey` — used with a
-  diversifier index to generate unlinkable payment addresses.
+- **`SignerProtocol`** holds the seed and derives `SpendAuthorizingKey` from it
+  at signing time. Never exposes the key — signs inside the process boundary.
+- **`Protocol`** receives the `FullViewingKey` bytes (from
+  `SignerProtocol::derive_public_key`) and uses it for address derivation and
+  proof generation. The FVK is not sufficient to spend — it only allows
+  viewing and proving.
 
-### 8.2. The Bundle's Authorization Typestate
+### 4.2. Crate Mapping
 
-The `orchard` crate uses a compile-time typestate pattern for its `Bundle`
-type, parameterized by an `Authorization` associated type. This enforces
-correctness of the construction pipeline at the type level:
+| Trait concept           | `librustzcash` crate / type                    |
+|-------------------------|-----------------------------------------------|
+| Wire format             | `pczt::Pczt`                                  |
+| Prover role (Protocol)  | `pczt::roles::prover` + `zcash_proofs::prover`|
+| Signer role (Signer)    | `pczt::roles::signer`                         |
+| Extractor role (Protocol)| `pczt::roles::tx_extractor`                  |
+| Spend finalizer (Prot.) | `pczt::roles::spend_finalizer`                |
+| Key derivation (Signer) | `orchard::keys::SpendingKey::from_zip32_seed` |
+| Address derivation (Prot)| `orchard::keys::FullViewingKey::address_at`  |
+| Proof system            | Halo 2 (`orchard::circuit`)                   |
+| Signature scheme        | RedPallas (`orchard::keys::SpendAuthorizingKey`) |
 
-```
-Bundle<InProgress<Unproven, Unauthorized>>    // after new
-  → Bundle<InProgress<Proven, Unauthorized>>  // after prove
-  → Bundle<InProgress<Proven, PartiallyAuthorized>> // after authorize (partial)
-  → Bundle<Authorized>                        // fully signed, extractable
-```
+---
 
-The `pczt::Pczt` type wraps this progression in a serializable format. The
-PCZT itself does not carry Rust type-level authorization state — instead, it
-carries flags and optional fields that the `pczt::roles::*` modules validate
-at each step. The Orchard typestate re-emerges inside the extraction step
-when the PCZT is converted back into an `orchard::Bundle<Authorized>`.
+## 5. Implementation: Ethereum
 
-### 8.3. Implementation
+Ethereum is the simplest case. No proof system, no partially-built transaction
+format — the "bundle" is just RLP-encoded transaction bytes.
 
 ```rust
-impl Protocol for ZcashOrchard {
-    type Bundle        = pczt::Pczt;
-    type ProofKey      = orchard::keys::FullViewingKey;
-    type SigningKey     = orchard::keys::SpendAuthorizingKey;
-    type SigningInput   = ZcashOrchardSigningInput;
-    type SigningOutput  = ZcashSigningOutput;
-    type TransactionPlan = ZcashOrchardPlan;
+// protocols/ethereum/src/protocol.rs
 
-    fn derive_keys(&self, seed: &[u8], account: u32)
-        -> Result<KeySet<Self>, Error>
-    {
-        // ZIP-32 Orchard key derivation:
-        //   orchard::keys::SpendingKey::from_zip32_seed(
-        //       seed, coin_type, account
-        //   )
-        //
-        // From SpendingKey:
-        //   .into() → FullViewingKey            (ProofKey)
-        //   SpendAuthorizingKey::from(&sk)       (SigningKey)
-        //   FullViewingKey → IncomingViewingKey  (for addresses)
+impl Protocol for EthereumProtocol {
+    fn protocol_id(&self) -> ProtocolId { ProtocolId::Ethereum }
+
+    fn derive_address(&self, public_key: &[u8], _index: u32) -> Result<String, String> {
+        // Keccak-256 hash of the uncompressed public key (skip first byte).
+        // Take last 20 bytes, EIP-55 checksum encode.
     }
 
-    fn derive_address(&self, keys: &KeySet<Self>, diversifier_index: u32)
-        -> Result<Address, Error>
-    {
-        // orchard::keys::FullViewingKey::address_at(
-        //     diversifier_index, Scope::External
-        // )
-        //
-        // Unlike Sapling, every Orchard diversifier index is valid.
-        // The address is (diversifier, pk_d) on the Pallas curve.
-        // Encoded as part of a Unified Address (ZIP-316) with "u" HRP.
+    fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
+        Ok(transaction.to_vec()) // Already finalized after signing.
     }
 
-    fn new(&self, input: &Self::SigningInput, plan: &Self::TransactionPlan)
-        -> Result<pczt::Pczt, Error>
-    {
-        // Use zcash_primitives::transaction::builder::Builder.
-        //
-        // For each Orchard Action (merged spend + output):
-        //   Add note to spend (with merkle path from shardtree).
-        //   Add recipient (address, value, memo).
-        //   Pad with dummy actions to hide real spend/output count.
-        //
-        // Call Builder::build_for_pczt().
-        //
-        // The resulting PCZT contains:
-        //   pczt::orchard::Action entries with:
-        //     - spend: nullifier, rk, spend_auth_sig (empty)
-        //     - output: cmx, encrypted note, ephemeral key
-        //     - cv_net (value commitment)
-        //     - zkproof (empty, to be filled by prover)
+    fn create_transaction(
+        &self, _public_key: &[u8], _account: u32,
+        _to: &str, _amount: u64, _memo: Option<&str>,
+    ) -> Result<Vec<u8>, String> {
+        Ok(vec![]) // Not yet implemented.
+    }
+}
+
+impl SignerProtocol for EthereumProtocol {
+    fn protocol_id(&self) -> ProtocolId { ProtocolId::Ethereum }
+
+    fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String> {
+        // BIP-32 derivation on path m/44'/60'/{account}'/0/0
+        // using bip32 crate with k256::ecdsa::SigningKey.
+        // Return uncompressed secp256k1 public key bytes.
     }
 
-    fn prove(&self, bundle: pczt::Pczt, fvk: &orchard::keys::FullViewingKey)
-        -> Result<pczt::Pczt, Error>
-    {
-        // Use pczt::roles::prover with the orchard feature.
-        //
-        // For each Orchard Action in the PCZT:
-        //   Reconstruct the circuit witness from the PCZT fields
-        //     and the FullViewingKey.
-        //   Generate a Halo 2 proof using:
-        //     orchard::circuit::ProvingKey::build()
-        //     (no trusted setup — the proving key is deterministic)
-        //   Insert the proof into the PCZT action's zkproof field.
-        //
-        // This is the computationally expensive step.
-        // On desktop hardware: ~1-3s per action.
-        // On a hardware wallet: impossible (insufficient memory).
-        // This is WHY prove and authorize are separate roles.
-    }
-
-    fn authorize(&self, bundle: pczt::Pczt, ask: &orchard::keys::SpendAuthorizingKey)
-        -> Result<pczt::Pczt, Error>
-    {
-        // Use pczt::roles::signer with the orchard feature.
-        //
-        // Compute the PCZT transaction sighash (ZIP-244 digest).
-        //
-        // For each Orchard Action:
-        //   Compute the randomized spend authorizing key:
-        //     rsk = ask + alpha (where alpha is the action's
-        //     randomizer, stored in the PCZT).
-        //   Produce a RedPallas signature over the sighash using rsk.
-        //   Insert spend_auth_sig into the PCZT action.
-        //
-        // This step is lightweight — just a scalar multiply and
-        // a signature. It CAN run on a hardware wallet.
-    }
-
-    fn extract(&self, bundle: pczt::Pczt) -> Result<Self::SigningOutput, Error> {
-        // Use pczt::roles::tx_extractor with the orchard feature.
-        //
-        // Verify all actions have both zkproof and spend_auth_sig.
-        // Verify proofs against:
-        //   orchard::circuit::VerifyingKey::build()
-        //
-        // Compute the Orchard binding signature:
-        //   bsk = sum of all value commitment randomness (rcv)
-        //   Sign the sighash with bsk to produce binding_sig.
-        //   This ties the value balance of the entire bundle.
-        //
-        // Strip PCZT metadata.
-        // Emit serialized v5 transaction bytes.
+    fn sign_transaction(
+        &self, _seed: &[u8; 64], _account: u32,
+        _transaction: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        Err("Ethereum signing not yet implemented".to_string())
     }
 }
 ```
 
-### 8.4. The Hardware Wallet Flow
-
-The role separation enables the following device-crossing flow for Orchard:
-
-```
- Desktop / Cloud                  Hardware Wallet (Ledger/Keystone)
- ────────────────                 ─────────────────────────────────
-
- new(input, plan)
-       │
-       ▼
-    Pczt (no proofs, no sigs)
-       │
- prove(pczt, fvk)
-       │
-       ▼
-    Pczt (proofs present,         serialize & transmit
-          no sigs)          ─────────────────────────►
-                                  authorize(pczt, ask)
-                                        │
-                                        ▼
-                                  Pczt (proofs + sigs)
-                            ◄─────────────────────────
-       │
- extract(pczt)
-       │
-       ▼
- Raw v5 transaction
-       │
- broadcast
-```
-
-The critical insight: `prove` runs on a machine with gigabytes of RAM and
-multi-second compute budget. `authorize` runs on a constrained device that
-can only do scalar arithmetic on the Pallas curve. The PCZT serialization
-format bridges them.
+**Key types.** `derive_public_key` runs BIP-32 on path `m/44'/60'/account'/0/0`
+using the `bip32` crate with `k256::ecdsa::SigningKey`. Ethereum uses one
+address per account — `index` is ignored in `derive_address`.
 
 ---
 
-## 9. Unified Zcash Transactions
+## 6. Why Two Traits, Not One
+
+The monolithic single `Protocol` trait (with `derive_keys` + `sign`) assumes
+one process holds all keys and performs all operations. This breaks in
+Paypunk's three-process architecture:
+
+**Security compartmentalization.** The seed lives in keypunkd, which runs as a
+separate system user. If paypunkd is compromised, the attacker still cannot
+spend funds — they only have access to view keys and can build/prove
+transactions but cannot authorize them.
+
+**Hardware wallets.** A Ledger can produce secp256k1 or RedPallas signatures
+but cannot generate Halo 2 proofs — it lacks the memory and compute. The
+`SignerProtocol` abstraction maps cleanly onto a hardware wallet: the device
+implements `sign_transaction`, while the desktop runs `create_transaction`
+(which includes proving) and `finalize_transaction`.
+
+**Multisig / threshold signing.** Multiple signers each call
+`sign_transaction` on the same bundle. Because the method takes and returns
+serialized bytes, it composes naturally — pipe the output of one signer into
+the input of the next.
+
+**View-only wallets.** A watch-only wallet implements `Protocol` without
+`SignerProtocol` — it can derive addresses, create transactions, and prove,
+but never sign. This is the default state of paypunkd.
+
+### 6.1. Comparison: Role Pipeline vs. Monolithic `sign()`
+
+| Scenario                    | Monolithic `sign()` | Role pipeline (two traits) |
+|-----------------------------|---------------------|---------------------------|
+| Standard desktop wallet     | Works               | Works (extra round-trip)  |
+| Hardware wallet             | Impossible          | Works (prove on desktop)  |
+| Multisig                    | One-shot only       | N signers, N calls        |
+| View-only wallet            | Can't exist         | Protocol only, no Signer  |
+| Compromised paypunkd        | Funds lost          | Funds safe (key in kp)    |
+| Compromised keypunkd        | —                   | Funds lost (but paypunkd isolated) |
+
+---
+
+## 7. The Hardware Wallet Flow
+
+The two-trait split enables the following device-crossing flow for Orchard:
+
+```
+ paypunkd (Protocol)                Hardware Wallet (SignerProtocol)
+ ─────────────────────               ─────────────────────────────────
+ create_transaction()
+   (includes proving)
+       │
+       ▼
+    PCZT bytes (proofs present,      serialize & transmit
+          no sigs)             ─────────────────────────►
+                                       sign_transaction(pczt)
+                                             │
+                                             ▼
+                                       PCZT bytes (proofs + sigs)
+                                ◄─────────────────────────
+       │
+ finalize_transaction(pczt)
+       │
+       ▼
+    Raw v5 transaction
+       │
+    broadcast
+```
+
+The critical insight: `create_transaction` (which includes proving) runs on a
+machine with gigabytes of RAM and multi-second compute budget.
+`sign_transaction` runs on a constrained device that can only do scalar
+arithmetic on the Pallas curve. The PCZT serialization format bridges them.
+
+---
+
+## 8. Unified Zcash Transactions
 
 Real Zcash transactions may contain transparent, Sapling, and Orchard
 components simultaneously. The `pczt::Pczt` struct carries all three as
-optional bundles. A unified Zcash implementation would compose the three
-protocol implementations:
+optional bundles. A unified Zcash implementation handles all three pools
+inside a single `Protocol` + `SignerProtocol` pair:
 
 ```rust
-impl Protocol for Zcash {
-    type Bundle        = pczt::Pczt;
-    type ProofKey      = UnifiedProofKey;       // ((), Option<SaplingFVK>, Option<OrchardFVK>)
-    type SigningKey     = UnifiedSigningKey;     // (Option<secp256k1::SecretKey>,
-                                                //  Option<SaplingASK>,
-                                                //  Option<OrchardASK>)
-    type SigningInput   = ZcashSigningInput;     // may contain all three pools
-    type SigningOutput  = ZcashSigningOutput;
-    type TransactionPlan = ZcashTransactionPlan;
+impl Protocol for ZcashProtocol {
+    // create_transaction builds a PCZT with transparent/Sapling/Orchard
+    //   components based on available funds, then proves all actions inline.
+    // finalize_transaction handles binding signatures for all pools.
+}
+
+impl SignerProtocol for ZcashProtocol {
+    // derive_public_key returns the UnifiedSpendingKey-derived FVK.
+    // sign_transaction signs transparent (secp256k1), Sapling (RedJubjub),
+    //   and Orchard (RedPallas) spends from a single UnifiedSpendingKey.
+}
 ```
 
 This mirrors `zcash_keys::keys::UnifiedSpendingKey`, which bundles
 transparent, Sapling, and Orchard spending keys derived from a single seed
-via ZIP-32. `derive_keys` calls `UnifiedSpendingKey::from_seed()`, and each
-role method delegates to the per-pool logic internally.
+via ZIP-32. `derive_public_key` calls `UnifiedSpendingKey::from_seed()`, and
+each role method delegates to the per-pool logic internally.
 
 The `derive_address` method produces a **Unified Address** (ZIP-316) — a
 single address string (HRP `"u"`) that encodes receivers for all three pools.
-A sender's wallet picks the most shielded receiver it supports. Internally,
-the implementation calls `derive_address` for each pool at the same
-diversifier index, then assembles them into a
-`zcash_keys::address::UnifiedAddress`.
+A sender's wallet picks the most shielded receiver it supports.
 
 ---
 
-## 10. Crate Dependency Map
+## 9. Crate Dependency Map
 
-For a multichain wallet integrating Bitcoin, Ethereum, and Zcash via the
-`Protocol` trait:
+For a multichain wallet integrating Zcash and Ethereum via the two traits:
 
 ```
-your-wallet
- ├── bitcoin          (PSBT, tx building, script)
- ├── secp256k1        (shared by Bitcoin, Ethereum, Zcash transparent)
+paypunkd (Protocol trait)
+ ├── paypunk-types          (trait definitions)
+ ├── paypunk-chains-zcash   (Zcash Protocol impl)
+ │    ├── pczt              (PCZT format, role implementations)
+ │    │    └── orchard      (Orchard protocol types, Halo 2 circuit)
+ │    ├── zcash_primitives  (transaction builder, consensus rules)
+ │    ├── zcash_proofs      (Halo 2 prover for Orchard)
+ │    ├── zcash_keys        (UnifiedAddress, FVK types)
+ │    └── orchard           (circuit, keys, bundle types)
  │
- ├── [your Ethereum tx types]
+ └── paypunk-chains-ethereum (Ethereum Protocol impl)
+      └── sha3              (Keccak-256 for address derivation)
+
+keypunkd (SignerProtocol trait)
+ ├── paypunk-types          (trait definitions)
+ ├── paypunk-chains-zcash   (Zcash SignerProtocol impl)
+ │    ├── pczt              (PCZT parse/serialize, signer role)
+ │    ├── zcash_keys        (UnifiedSpendingKey derivation)
+ │    ├── orchard           (SpendAuthorizingKey, RedPallas)
+ │    └── zip32             (ZIP-32 key derivation)
  │
- ├── pczt             (PCZT format, role implementations)
- │    ├── orchard     (Orchard protocol types, Halo 2 circuit)
- │    ├── sapling-crypto (Sapling protocol types)
- │    └── zcash_transparent
- │
- ├── zcash_primitives (transaction builder, consensus rules)
- ├── zcash_proofs     (Groth16 prover for Sapling)
- ├── zcash_keys       (UnifiedSpendingKey, address encoding)
- ├── zcash_protocol   (NetworkConstants, consensus parameters)
- │
- └── zip32            (ZIP-32 key derivation for Sapling + Orchard)
+ └── paypunk-chains-ethereum (Ethereum SignerProtocol impl)
+      ├── bip32             (BIP-32 key derivation)
+      └── k256              (secp256k1 for ECDSA)
 ```
 
 ---
 
-## 11. What the Trait Does Not Cover
+## 10. What the Traits Do Not Cover
 
-**Block scanning and note discovery.** The trait covers transaction
+**Block scanning and note discovery.** The traits cover transaction
 construction and signing. Discovering which notes belong to a wallet (trial
 decryption of the blockchain) is handled by `zcash_client_backend`'s scanning
 infrastructure and is orthogonal to signing.
 
-**Fee policy.** The `plan` method returns a `TransactionPlan`, but the fee
-algorithm (ZIP-317 for Zcash, EIP-1559 for Ethereum, fee-rate estimation for
-Bitcoin) is internal to each implementation. The trait does not prescribe a
-fee model.
+**Fee policy.** The `create_transaction` method produces a transaction, but
+the fee algorithm (ZIP-317 for Zcash, EIP-1559 for Ethereum) is internal to
+each implementation. The trait does not prescribe a fee model.
 
 **Network interaction.** Broadcasting, mempool management, and confirmation
 tracking are transport-layer concerns outside the trait.
 
-**View-only wallets.** The trait is signing-oriented. A view-only wallet
-would use `derive_address` and the scanning infrastructure but would never
-call `prove`, `authorize`, or `sign`.
+**View-only wallets.** A view-only wallet implements `Protocol` without
+`SignerProtocol` — it can derive addresses and create/prove transactions but
+cannot sign. This is enforced at the process level: paypunkd never holds the
+seed.
+
+**Transaction history and balance tracking.** The traits are
+construction-oriented. Querying balances and history is handled by the
+`WalletActor`'s database and is orthogonal.

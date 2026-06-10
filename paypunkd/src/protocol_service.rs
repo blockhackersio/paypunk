@@ -27,14 +27,6 @@ impl ProtocolService {
         }
     }
 
-    pub fn prove_transaction(&self, id: ProtocolId, transaction: &[u8]) -> Result<Vec<u8>, String> {
-        match id {
-            ProtocolId::Zcash => self.zcash.prove_transaction(transaction),
-            ProtocolId::Ethereum => self.ethereum.prove_transaction(transaction),
-            _ => Err(format!("unsupported protocol: {id:?}")),
-        }
-    }
-
     pub fn finalize_transaction(
         &self,
         id: ProtocolId,

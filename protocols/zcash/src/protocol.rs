@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use orchard::keys::{FullViewingKey, SpendingKey};
 use paypunk_types::{Protocol, ProtocolId, SignerProtocol};
 use pczt::roles::{
-    prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
+    signer::Signer, spend_finalizer::SpendFinalizer,
     tx_extractor::TransactionExtractor, verifier::Verifier,
 };
 use zcash_keys::keys::UnifiedSpendingKey;
@@ -114,18 +114,6 @@ impl Protocol for ZcashProtocol {
         address::derive_from_fvk(public_key, index).map_err(|e| e.to_string())
     }
 
-    fn prove_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
-        let pczt =
-            pczt::Pczt::parse(transaction).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
-
-        let pczt = Prover::new(pczt)
-            .create_orchard_proof(&orchard::circuit::ProvingKey::build())
-            .map_err(|e| format!("orchard proving failed: {e:?}"))?
-            .finish();
-
-        Ok(pczt.serialize())
-    }
-
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
         let pczt =
             pczt::Pczt::parse(transaction).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
@@ -149,14 +137,19 @@ impl Protocol for ZcashProtocol {
 
     fn create_transaction(
         &self,
-        public_key: &[u8],
-        account: u32,
-        to: &str,
-        amount: u64,
-        memo: Option<&str>,
+        _public_key: &[u8],
+        _account: u32,
+        _to: &str,
+        _amount: u64,
+        _memo: Option<&str>,
     ) -> Result<Vec<u8>, String> {
-        // proposer.create_transaction(public_key, account, to, amount, memo)
-        Ok(vec![])
+        // TODO: Build PCZT via zcash_primitives::Builder + zcash_client_backend
+        // proposal APIs, then prove inline before returning. Proving is bundled
+        // into creation because both need the same note/witness data and the
+        // FullViewingKey is already available via public_key.
+        //
+        // Requires WalletDb for note selection and merkle paths.
+        Err("create_transaction not yet implemented — needs WalletDb".to_string())
     }
 }
 

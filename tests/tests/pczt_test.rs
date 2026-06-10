@@ -5,7 +5,9 @@ use orchard::tree::MerkleHashOrchard;
 use orchard::value::NoteValue;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_types::{Protocol, SignerProtocol};
-use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer};
+use pczt::roles::{
+    creator::Creator, io_finalizer::IoFinalizer, prover::Prover,
+};
 use rand_core::OsRng;
 use secp256k1::{Secp256k1, SecretKey};
 use zcash_primitives::transaction::builder::{BuildConfig, Builder};
@@ -105,13 +107,21 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 
     let pczt_bytes = io_finalized.serialize();
 
-    // ── 4. Prove via ZcashProtocol ──────────────────────────────────────
+    // ── 4. Prove via pczt::roles::prover directly ─────────────────────────
+    // Proving is bundled into create_transaction in production, but since
+    // create_transaction is not yet implemented (needs WalletDb), we prove
+    // inline here using the pczt crate directly.
+    let proven_pczt = Prover::new(
+        pczt::Pczt::parse(&pczt_bytes).expect("Pczt::parse"),
+    )
+    .create_orchard_proof(&orchard::circuit::ProvingKey::build())
+    .expect("create_orchard_proof")
+    .finish();
+    let proven_bytes = proven_pczt.serialize();
+
     let protocol = ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
-    let proven_bytes = protocol
-        .prove_transaction(&pczt_bytes)
-        .expect("prove_transaction");
 
     // ── 5. Sign via ZcashProtocol (SignerProtocol) ──────────────────────
     let signed_bytes = protocol

@@ -13,7 +13,6 @@ pub enum ProtocolId {
 pub trait Protocol: Send + Sync {
     fn protocol_id(&self) -> ProtocolId;
     fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String>;
-    fn prove_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String>;
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String>;
     fn create_transaction(
         &self,

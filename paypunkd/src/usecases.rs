@@ -74,18 +74,6 @@ pub fn derive_address(
     protocols.derive_address(protocol, public_key, index)
 }
 
-/// Prove a transaction using the protocol service.
-///
-/// For Zcash this runs the Orchard proving step (no key material needed).
-/// For Ethereum this is a no-op.
-pub fn prove_transaction(
-    protocols: &ProtocolService,
-    protocol: ProtocolId,
-    transaction: &[u8],
-) -> Result<Vec<u8>, String> {
-    protocols.prove_transaction(protocol, transaction)
-}
-
 /// Finalize a signed transaction using the protocol service.
 ///
 /// For Zcash this combines proven + signed PCZTs, finalizes spends,
@@ -102,12 +90,11 @@ pub fn finalize_transaction(
 
 /// Full PCZT pipeline orchestration:
 /// 1. Fetch public key from keypunkd
-/// 2. create_transaction via TransactionProposer
-/// 3. prove_transaction
-/// 4. sign via keypunkd IPC
-/// 5. finalize_transaction
-/// 6. store transaction
-/// 7. return txid
+/// 2. create_transaction (includes proving, no separate step needed)
+/// 3. sign via keypunkd IPC
+/// 4. finalize_transaction
+/// 5. store transaction
+/// 6. return txid
 ///
 /// TODO: Needs `TransactionProposer` (requires chain-specific wallet DB setup
 /// in paypunkd) for storing transactions.

@@ -15,20 +15,16 @@ impl Protocol for EthereumProtocol {
         address::derive_from_pubkey(public_key).map_err(|e| e.to_string())
     }
 
-    fn prove_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
-        Ok(transaction.to_vec())
-    }
-
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
         Ok(transaction.to_vec())
     }
     fn create_transaction(
         &self,
-        public_key: &[u8],
-        account: u32,
-        to: &str,
-        amount: u64,
-        memo: Option<&str>,
+        _public_key: &[u8],
+        _account: u32,
+        _to: &str,
+        _amount: u64,
+        _memo: Option<&str>,
     ) -> Result<Vec<u8>, String> {
         Ok(vec![])
     }
