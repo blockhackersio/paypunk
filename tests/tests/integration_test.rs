@@ -38,63 +38,62 @@ impl EthRpcClient for MockRpcClient {
     }
 }
 
-/// Wire up the full actor chain (no sockets) and drive it through the
-/// public `paypunk_api::Client`.
-fn wire_actors() -> Recipient<IpcMessage> {
-    let keystore = Keypair::new();
-    let store = InMemorySeedStore::new();
-
-    // keypunkd uses SignerProtocol registry (still object-safe)
-    let mut keypunkd_protocols = KeypunkdProtocolService::new();
-    keypunkd_protocols.register(Box::new(ZcashProtocol {
-        params: zcash_protocol::consensus::Network::MainNetwork,
-    }));
-
-    let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
-        .with_skip_session_auth(true)
-        .start();
-    let keypunkd_recipient = keypunkd_addr.recipient();
-
-    let paypunkd_zcash = ZcashProtocol {
-        params: zcash_protocol::consensus::Network::MainNetwork,
-    };
-    let paypunkd_ethereum = EthereumProtocol::new(MockRpcClient::new(0, 0));
-    let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
-
-    let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
-    paypunkd_addr.recipient()
+/// Builder for wiring up the full actor chain in tests.
+///
+/// Defaults to Zcash + Ethereum (zero-balance mock) in both keypunkd and
+/// paypunkd, with session auth disabled.
+///
+/// # Examples
+///
+/// ```ignore
+/// let recipient = TestBuilder::new().build();
+/// let recipient = TestBuilder::new().with_eth_balance(10_000_000_000_000_000_000).build();
+/// ```
+struct TestBuilder {
+    eth_mock: MockRpcClient,
 }
 
-/// Wire up actors with a custom Ethereum mock for balance tests.
-fn wire_actors_with_eth_mock(mock: MockRpcClient) -> Recipient<IpcMessage> {
-    let keystore = Keypair::new();
-    let store = InMemorySeedStore::new();
+impl TestBuilder {
+    fn new() -> Self {
+        Self {
+            eth_mock: MockRpcClient::new(0, 0),
+        }
+    }
 
-    let mut keypunkd_protocols = KeypunkdProtocolService::new();
-    keypunkd_protocols.register(Box::new(ZcashProtocol {
-        params: zcash_protocol::consensus::Network::MainNetwork,
-    }));
-    // keypunkd also needs Ethereum for derive_public_key / sign
-    keypunkd_protocols.register(Box::new(EthereumProtocol::new(())));
+    fn with_eth_balance(mut self, wei: u64) -> Self {
+        self.eth_mock = MockRpcClient::new(wei, 0);
+        self
+    }
 
-    let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
-        .with_skip_session_auth(true)
-        .start();
-    let keypunkd_recipient = keypunkd_addr.recipient();
+    fn build(self) -> Recipient<IpcMessage> {
+        let keystore = Keypair::new();
+        let store = InMemorySeedStore::new();
 
-    let paypunkd_zcash = ZcashProtocol {
-        params: zcash_protocol::consensus::Network::MainNetwork,
-    };
-    let paypunkd_ethereum = EthereumProtocol::new(mock);
-    let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
+        let mut keypunkd_protocols = KeypunkdProtocolService::new();
+        keypunkd_protocols.register(Box::new(ZcashProtocol {
+            params: zcash_protocol::consensus::Network::MainNetwork,
+        }));
+        keypunkd_protocols.register(Box::new(EthereumProtocol::new(())));
 
-    let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
-    paypunkd_addr.recipient()
+        let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
+            .with_skip_session_auth(true)
+            .start();
+        let keypunkd_recipient = keypunkd_addr.recipient();
+
+        let paypunkd_zcash = ZcashProtocol {
+            params: zcash_protocol::consensus::Network::MainNetwork,
+        };
+        let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
+        let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
+
+        let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
+        paypunkd_addr.recipient()
+    }
 }
 
 #[tokio::test]
 async fn test_generate_seed_via_api() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let mnemonic = client
@@ -107,7 +106,7 @@ async fn test_generate_seed_via_api() {
 
 #[tokio::test]
 async fn test_generate_seed_empty_password_via_api() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let mnemonic = client
@@ -120,7 +119,7 @@ async fn test_generate_seed_empty_password_via_api() {
 
 #[tokio::test]
 async fn test_generate_seed_different_passwords_produce_different_seeds() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let mnemonic_1 = client
@@ -128,7 +127,7 @@ async fn test_generate_seed_different_passwords_produce_different_seeds() {
         .await
         .unwrap();
 
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let mnemonic_2 = client
@@ -144,13 +143,13 @@ async fn test_generate_seed_different_passwords_produce_different_seeds() {
 #[tokio::test]
 async fn test_restore_seed_via_api() {
     let password = Zeroizing::new("hunter2".to_string());
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let mnemonic = client.generate_seed(password.clone()).await.unwrap();
     assert_eq!(mnemonic.split_whitespace().count(), 12);
 
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let result = client
@@ -162,7 +161,7 @@ async fn test_restore_seed_via_api() {
 
 #[tokio::test]
 async fn test_restore_seed_invalid_mnemonic_fails() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let result = client
@@ -178,7 +177,7 @@ async fn test_restore_seed_invalid_mnemonic_fails() {
 
 #[tokio::test]
 async fn test_unlock_without_seed_fails() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let result = client.unlock(Zeroizing::new("password".to_string())).await;
@@ -189,7 +188,7 @@ async fn test_unlock_without_seed_fails() {
 
 #[tokio::test]
 async fn test_unlock_with_wrong_password_fails() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     client
@@ -207,7 +206,7 @@ async fn test_unlock_with_wrong_password_fails() {
 
 #[tokio::test]
 async fn test_derive_address_without_unlock_fails() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     client
@@ -223,7 +222,7 @@ async fn test_derive_address_without_unlock_fails() {
 
 #[tokio::test]
 async fn test_unlock_then_derive_address() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let password = Zeroizing::new("hunter2".to_string());
@@ -241,7 +240,7 @@ async fn test_unlock_then_derive_address() {
 
 #[tokio::test]
 async fn test_derive_different_indexes() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let password = Zeroizing::new("password".to_string());
@@ -268,7 +267,7 @@ async fn test_derive_different_indexes() {
 
 #[tokio::test]
 async fn test_derive_address_is_deterministic() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let password = Zeroizing::new("password".to_string());
@@ -295,7 +294,7 @@ async fn test_derive_address_is_deterministic() {
 
 #[tokio::test]
 async fn test_lock_clears_session() {
-    let recipient = wire_actors();
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let password = Zeroizing::new("password".to_string());
@@ -318,8 +317,9 @@ async fn test_lock_clears_session() {
 
 #[tokio::test]
 async fn test_eth_balance_via_mock_rpc() {
-    let mock = MockRpcClient::new(10_000_000_000_000_000_000, 5_000_000_000_000_000_000);
-    let recipient = wire_actors_with_eth_mock(mock);
+    let recipient = TestBuilder::new()
+        .with_eth_balance(10_000_000_000_000_000_000)
+        .build();
     let client = Client::with_recipient(recipient);
 
     let password = Zeroizing::new("hunter2".to_string());
@@ -336,8 +336,7 @@ async fn test_eth_balance_via_mock_rpc() {
 
 #[tokio::test]
 async fn test_eth_balance_zero() {
-    let mock = MockRpcClient::new(0, 0);
-    let recipient = wire_actors_with_eth_mock(mock);
+    let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
 
     let password = Zeroizing::new("hunter2".to_string());
