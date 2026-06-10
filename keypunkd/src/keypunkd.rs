@@ -1,4 +1,5 @@
 use paypunk_ipc::IpcMessage;
+use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler};
 use tracing::{debug, info, warn};
 use zeroize::Zeroize;
@@ -101,6 +102,137 @@ impl<S: Storage> Keypunkd<S> {
     fn clear_session(&mut self) {
         self.session = None;
     }
+
+    fn respond<T>(
+        &self,
+        label: &str,
+        result: Result<T, String>,
+        map_ok: impl FnOnce(T) -> KeypunkdResponse,
+    ) -> KeypunkdResponse {
+        match result {
+            Ok(v) => map_ok(v),
+            Err(e) => {
+                warn!(error = %e, "{label} failed");
+                KeypunkdResponse::Error { message: e }
+            }
+        }
+    }
+
+    fn get_encryption_key(&self) -> KeypunkdResponse {
+        info!("handling GetEncryptionKey");
+        KeypunkdResponse::EncryptionKey {
+            key: self.keystore.public_key(),
+        }
+    }
+
+    fn generate_seed(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> KeypunkdResponse {
+        info!("handling GenerateSeed");
+        self.respond(
+            "generate_seed",
+            usecases::generate_seed(
+                &self.keystore,
+                &encrypted_password,
+                &client_public_key,
+                &self.seed_store,
+            )
+            .map_err(|e| e.to_string()),
+            |encrypted_mnemonic| KeypunkdResponse::SeedGenerated { encrypted_mnemonic },
+        )
+    }
+
+    fn restore_seed(
+        &self,
+        encrypted_mnemonic: Vec<u8>,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> KeypunkdResponse {
+        info!("handling RestoreSeed");
+        self.respond(
+            "restore_seed",
+            usecases::restore_seed(
+                &self.keystore,
+                &encrypted_mnemonic,
+                &encrypted_password,
+                &client_public_key,
+                &self.seed_store,
+            )
+            .map_err(|e| e.to_string()),
+            |()| KeypunkdResponse::SeedRestored,
+        )
+    }
+
+    fn unlock(
+        &mut self,
+        msg: &IpcMessage,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> KeypunkdResponse {
+        info!("handling Unlock");
+        let client_pk = &client_public_key;
+        match usecases::decrypt_seed(
+            &encrypted_password,
+            client_pk,
+            &self.keystore,
+            &self.seed_store,
+        ) {
+            Ok(seed) => {
+                self.set_session(msg, seed);
+                info!("wallet unlocked");
+                KeypunkdResponse::Unlocked
+            }
+            Err(e) => {
+                warn!(error = %e, "unlock failed");
+                KeypunkdResponse::Error { message: e }
+            }
+        }
+    }
+
+    fn derive_public_key(
+        &self,
+        msg: &IpcMessage,
+        protocol: ProtocolId,
+        account: u32,
+    ) -> KeypunkdResponse {
+        info!(?protocol, account, "handling DerivePublicKey");
+        let session = match self.require_session(msg) {
+            Ok(s) => s,
+            Err(e) => return KeypunkdResponse::Error { message: e },
+        };
+        self.respond(
+            "derive_public_key",
+            usecases::derive_public_key(&session.seed, &self.protocols, protocol, account),
+            |key| KeypunkdResponse::ProtocolPublicKey { key },
+        )
+    }
+
+    fn sign(
+        &self,
+        msg: &IpcMessage,
+        protocol: ProtocolId,
+        account: u32,
+        payload: Vec<u8>,
+    ) -> KeypunkdResponse {
+        info!(?protocol, account, "handling Sign");
+        let session = match self.require_session(msg) {
+            Ok(s) => s,
+            Err(e) => return KeypunkdResponse::Error { message: e },
+        };
+        self.respond(
+            "sign",
+            usecases::sign(&session.seed, &self.protocols, protocol, account, &payload),
+            |signature| KeypunkdResponse::Signature { signature },
+        )
+    }
+
+    fn lock(&mut self) -> KeypunkdResponse {
+        info!("handling Lock");
+        self.clear_session();
+        KeypunkdResponse::Locked
+    }
 }
 
 impl<S: Storage> Actor for Keypunkd<S> {}
@@ -115,146 +247,29 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
         debug!(?request, "dispatching request");
 
         let response = match request {
-            // Always allowed — no session check.
-            KeypunkdRequest::GetEncryptionKey => {
-                info!("handling GetEncryptionKey");
-                KeypunkdResponse::EncryptionKey {
-                    key: self.keystore.public_key(),
-                }
-            }
-            // Password-authenticated — sets session on success.
+            KeypunkdRequest::GetEncryptionKey => self.get_encryption_key(),
             KeypunkdRequest::GenerateSeed {
                 encrypted_password,
                 client_public_key,
-            } => {
-                info!("handling GenerateSeed");
-                match usecases::generate_seed(
-                    &self.keystore,
-                    &encrypted_password,
-                    &client_public_key,
-                    &self.seed_store,
-                ) {
-                    Ok(encrypted_mnemonic) => {
-                        info!("seed generated successfully");
-                        KeypunkdResponse::SeedGenerated { encrypted_mnemonic }
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "GenerateSeed failed");
-                        KeypunkdResponse::Error {
-                            message: e.to_string(),
-                        }
-                    }
-                }
-            }
-            // Password-authenticated — sets session on success.
+            } => self.generate_seed(encrypted_password, client_public_key),
             KeypunkdRequest::RestoreSeed {
                 encrypted_mnemonic,
                 encrypted_password,
                 client_public_key,
-            } => {
-                info!("handling RestoreSeed");
-                match usecases::restore_seed(
-                    &self.keystore,
-                    &encrypted_mnemonic,
-                    &encrypted_password,
-                    &client_public_key,
-                    &self.seed_store,
-                ) {
-                    Ok(()) => {
-                        info!("seed restored successfully");
-                        KeypunkdResponse::SeedRestored
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "RestoreSeed failed");
-                        KeypunkdResponse::Error {
-                            message: e.to_string(),
-                        }
-                    }
-                }
-            }
-            // Password-authenticated — decrypts seed, holds in memory.
+            } => self.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key),
             KeypunkdRequest::Unlock {
                 encrypted_password,
                 client_public_key,
-            } => {
-                info!("handling Unlock");
-                let client_pk = &client_public_key;
-                match usecases::decrypt_seed(
-                    &encrypted_password,
-                    client_pk,
-                    &self.keystore,
-                    &self.seed_store,
-                ) {
-                    Ok(seed) => {
-                        self.set_session(&msg, seed);
-                        info!("wallet unlocked");
-                        KeypunkdResponse::Unlocked
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "Unlock failed");
-                        KeypunkdResponse::Error { message: e }
-                    }
-                }
-            }
-            // Requires active session.
+            } => self.unlock(&msg, encrypted_password, client_public_key),
             KeypunkdRequest::DerivePublicKey { protocol, account } => {
-                info!(?protocol, account, "handling DerivePublicKey");
-                match self.require_session(&msg) {
-                    Ok(session) => {
-                        match usecases::derive_public_key(
-                            &session.seed,
-                            &self.protocols,
-                            protocol,
-                            account,
-                        ) {
-                            Ok(key) => {
-                                debug!("view key derived");
-                                KeypunkdResponse::ProtocolPublicKey { key }
-                            }
-                            Err(e) => {
-                                warn!(error = %e, "DerivePublicKey failed");
-                                KeypunkdResponse::Error { message: e }
-                            }
-                        }
-                    }
-                    Err(e) => KeypunkdResponse::Error { message: e },
-                }
+                self.derive_public_key(&msg, protocol, account)
             }
-            // Requires active session.
             KeypunkdRequest::Sign {
                 protocol,
                 account,
                 payload,
-            } => {
-                info!(?protocol, account, "handling Sign");
-                match self.require_session(&msg) {
-                    Ok(session) => {
-                        match usecases::sign(
-                            &session.seed,
-                            &self.protocols,
-                            protocol,
-                            account,
-                            &payload,
-                        ) {
-                            Ok(signature) => {
-                                debug!("signature created");
-                                KeypunkdResponse::Signature { signature }
-                            }
-                            Err(e) => {
-                                warn!(error = %e, "Sign failed");
-                                KeypunkdResponse::Error { message: e }
-                            }
-                        }
-                    }
-                    Err(e) => KeypunkdResponse::Error { message: e },
-                }
-            }
-            // Clears session.
-            KeypunkdRequest::Lock => {
-                info!("handling Lock");
-                self.clear_session();
-                KeypunkdResponse::Locked
-            }
+            } => self.sign(&msg, protocol, account, payload),
+            KeypunkdRequest::Lock => self.lock(),
         };
 
         let encoded =
