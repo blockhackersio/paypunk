@@ -5,6 +5,7 @@ use keypunkd::crypto::Keypair;
 use keypunkd::protocol::ProtocolService;
 use keypunkd::seed_store::FilesystemSeedStore;
 use keypunkd::Keypunkd;
+use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcReceiver;
 use zcash_protocol::consensus::Network;
@@ -48,7 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     protocols.register(Box::new(ZcashProtocol {
         params: Network::MainNetwork,
     }));
-    info!("registered protocol: Zcash");
+    protocols.register(Box::new(EthereumProtocol));
+    info!("registered protocols: Zcash, Ethereum");
 
     let keypunkd = Keypunkd::new(keystore, seed_store, protocols).start();
 

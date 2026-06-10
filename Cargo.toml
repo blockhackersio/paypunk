@@ -39,6 +39,11 @@ sha3 = "0.10"
 hex = "0.4"
 secp256k1 = "0.29"
 
+# Alloy (Ethereum)
+alloy-primitives = { version = "1", default-features = false, features = ["k256"] }
+alloy-consensus = "1"
+alloy-rlp = "0.3"
+
 # Zcash
 zcash_protocol = "0.8"
 zcash_primitives = "0.27"

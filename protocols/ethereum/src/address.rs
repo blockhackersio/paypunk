@@ -1,5 +1,5 @@
+use alloy_primitives::{keccak256, Address};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use sha3::{Digest, Keccak256};
 use std::str::FromStr;
 
 #[derive(Debug, thiserror::Error)]
@@ -10,11 +10,13 @@ pub enum DeriveError {
     InvalidAccount(u32),
     #[error("Invalid path: {0}")]
     InvalidPath(String),
+    #[error("Invalid public key bytes")]
+    InvalidPublicKey,
 }
 
 /// Derive an Ethereum address from a BIP39 seed at the given account and
 /// address index (BIP44: m/44'/60'/{account}'/0/{index}).
-pub fn derive_address(seed: &[u8; 64], account: u32, index: u32) -> Result<String, DeriveError> {
+pub fn derive_address(seed: &[u8; 64], account: u32, index: u32) -> Result<Address, DeriveError> {
     let path = format!("m/44'/60'/{account}'/0/{index}");
     let parsed = bip32::DerivationPath::from_str(&path)
         .map_err(|e| DeriveError::InvalidPath(e.to_string()))?;
@@ -22,27 +24,25 @@ pub fn derive_address(seed: &[u8; 64], account: u32, index: u32) -> Result<Strin
     let ext_pubkey = key.public_key();
     let inner = ext_pubkey.public_key();
     let point = inner.to_encoded_point(false);
-    let hash = Keccak256::digest(&point.as_bytes()[1..]);
-    let address_bytes = &hash[12..];
-    Ok(format!("0x{}", hex::encode(address_bytes)))
+    let hash = keccak256(&point.as_bytes()[1..]);
+    Ok(Address::from_slice(&hash[12..]))
 }
 
 /// Derive an Ethereum address using the default account (0) and the given
 /// address index.
-pub fn derive_address_at_index(seed: &[u8; 64], index: u32) -> Result<String, DeriveError> {
+pub fn derive_address_at_index(seed: &[u8; 64], index: u32) -> Result<Address, DeriveError> {
     derive_address(seed, 0, index)
 }
 
 /// Derive an Ethereum address from serialized public key bytes.
 /// Accepts uncompressed (65 bytes, starts with 0x04) or compressed (33 bytes)
 /// SEC1-encoded public keys.
-pub fn derive_from_pubkey(pubkey_bytes: &[u8]) -> Result<String, DeriveError> {
+pub fn derive_from_pubkey(pubkey_bytes: &[u8]) -> Result<Address, DeriveError> {
     let point = k256::PublicKey::from_sec1_bytes(pubkey_bytes)
-        .map_err(|_| DeriveError::InvalidPath("invalid public key bytes".to_string()))?;
+        .map_err(|_| DeriveError::InvalidPublicKey)?;
     let encoded = point.to_encoded_point(false);
-    let hash = Keccak256::digest(&encoded.as_bytes()[1..]);
-    let address_bytes = &hash[12..];
-    Ok(format!("0x{}", hex::encode(address_bytes)))
+    let hash = keccak256(&encoded.as_bytes()[1..]);
+    Ok(Address::from_slice(&hash[12..]))
 }
 
 /// Validate that a string is a well-formed Ethereum address.
@@ -50,11 +50,7 @@ pub fn derive_from_pubkey(pubkey_bytes: &[u8]) -> Result<String, DeriveError> {
 /// Accepts `0x`-prefixed 40-character hex addresses, optionally with
 /// mixed-case EIP-55 checksum encoding.
 pub fn validate_address(address: &str) -> bool {
-    let addr = address.strip_prefix("0x").or_else(|| address.strip_prefix("0X")).unwrap_or(address);
-    if addr.len() != 40 {
-        return false;
-    }
-    addr.chars().all(|c| c.is_ascii_hexdigit())
+    address.parse::<Address>().is_ok()
 }
 
 #[cfg(test)]
@@ -73,10 +69,9 @@ mod tests {
     fn test_derive_ethereum_address() {
         let seed = seed_from_mnemonic();
         let address = derive_address(&seed, 0, 0).unwrap();
-        // Known Ethereum address for m/44'/60'/0'/0/0 with the standard test mnemonic
         assert_eq!(
-            address,
-            "0x9858effd232b4033e47d90003d41ec34ecaeda94",
+            address.to_string(),
+            "0x9858EfFD232B4033E47d90003D41EC34EcaEda94",
             "got {address}"
         );
     }
@@ -102,7 +97,6 @@ mod tests {
         let seed = seed_from_mnemonic();
         let address = derive_address(&seed, 0, 0).unwrap();
 
-        // Derive the public key the same way
         let path = bip32::DerivationPath::from_str("m/44'/60'/0'/0/0").unwrap();
         let key = bip32::ExtendedPrivateKey::<k256::ecdsa::SigningKey>::derive_from_path(
             seed,
@@ -114,5 +108,13 @@ mod tests {
         let point = inner.to_encoded_point(false);
         let recovered = derive_from_pubkey(point.as_bytes()).unwrap();
         assert_eq!(address, recovered);
+    }
+
+    #[test]
+    fn test_validate_address() {
+        assert!(validate_address("0x9858effd232b4033e47d90003d41ec34ecaeda94"));
+        assert!(validate_address("0x9858EfFd232B4033e47d90003D41eC34ecAeda94"));
+        assert!(!validate_address("invalid"));
+        assert!(!validate_address("0xzzzz"));
     }
 }
