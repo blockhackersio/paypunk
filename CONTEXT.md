@@ -36,7 +36,7 @@ Long-running daemon hosting the KeyActor. Responsible for key generation and sig
 _Avoid_: Key daemon
 
 **paypunkd**:
-Long-running daemon hosting the WalletActor, usecases, and service orchestration. Holds the wallet database (`WalletRepository`) and `Protocol` implementations for transaction building, proving, and finalizing. Exposes IPC over Unix socket. Runs as the user's login UID. Never holds key material — delegates signing to keypunkd via IPC.
+Long-running daemon hosting the WalletActor, usecases, and service orchestration. Holds the wallet database and `Protocol` implementations for transaction building, proving, and finalizing. Exposes IPC over Unix socket. Runs as the user's login UID. Never holds key material — delegates signing to keypunkd via IPC.
 _Avoid_: App daemon
 
 **ipc**:

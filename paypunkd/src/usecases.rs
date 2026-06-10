@@ -110,7 +110,7 @@ pub fn finalize_transaction(
 /// 7. return txid
 ///
 /// TODO: Needs `TransactionProposer` (requires chain-specific wallet DB setup
-/// in paypunkd) and `WalletRepository` trait for storing transactions.
+/// in paypunkd) for storing transactions.
 pub async fn create_transfer(
     _service: &KeypunkService,
     _protocols: &ProtocolService,
@@ -120,24 +120,24 @@ pub async fn create_transfer(
     _amount: u64,
     _memo: Option<&str>,
 ) -> Result<String, String> {
-    todo!("create_transfer: PCZT pipeline not yet implemented — needs TransactionProposer + WalletRepository")
+    todo!("create_transfer: PCZT pipeline not yet implemented — needs TransactionProposer")
 }
 
 /// Query the spendable, pending, and total balance for the given protocol
 /// and account.
 ///
-/// TODO: Needs `WalletRepository` trait and database wiring in paypunkd.
+/// TODO: Needs database wiring in paypunkd.
 pub async fn get_balance(
     _protocols: &ProtocolService,
     _protocol: ProtocolId,
     _account: u32,
 ) -> Result<Balance, String> {
-    todo!("get_balance: needs WalletRepository/database")
+    todo!("get_balance: needs database")
 }
 
 /// Fetch paginated transaction history for the given protocol and account.
 ///
-/// TODO: Needs `WalletRepository` trait and the `Page<T>` / `HistoryEntry`
+/// TODO: Needs the `Page<T>` / `HistoryEntry`
 /// types from the reference API (not yet added to paypunk-types).
 pub async fn get_history(
     _protocol: ProtocolId,
@@ -145,7 +145,7 @@ pub async fn get_history(
     _cursor: Option<String>,
     _limit: u32,
 ) -> Result<String, String> {
-    todo!("get_history: needs WalletRepository + Page/HistoryEntry types")
+    todo!("get_history: needs Page/HistoryEntry types")
 }
 
 /// Trigger a chain scan to detect incoming payments.
