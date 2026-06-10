@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler, Recipient};
@@ -8,17 +10,13 @@ use crate::protocol_service::ProtocolService;
 use crate::usecases;
 
 pub struct Paypunkd {
-    pub keypunk_service: keypunkd::services::KeypunkService,
-    pub protocols: ProtocolService,
-    /// Cache of public key bytes per (protocol, account).
+    keypunk_service: keypunkd::services::KeypunkService,
+    protocols: ProtocolService,
     public_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
 
 impl Paypunkd {
-    pub fn new(
-        recipient: Recipient<IpcMessage>,
-        protocols: ProtocolService,
-    ) -> Self {
+    pub fn new(recipient: Recipient<IpcMessage>, protocols: ProtocolService) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
             protocols,
@@ -39,27 +37,112 @@ impl Paypunkd {
         Ok(self.public_keys.get(&(protocol, account)).unwrap())
     }
 
-    async fn handle_derive_address(
+    fn respond<T>(
+        &self,
+        label: &str,
+        result: Result<T, String>,
+        map_ok: impl FnOnce(T) -> PaypunkdResponse,
+    ) -> PaypunkdResponse {
+        match result {
+            Ok(v) => map_ok(v),
+            Err(e) => {
+                warn!(error = %e, "{label} failed");
+                PaypunkdResponse::Error { message: e }
+            }
+        }
+    }
+
+    async fn get_keypunk_encryption_key(&self) -> PaypunkdResponse {
+        info!("forwarding GetKeypunkEncryptionKey to keypunkd");
+        self.respond(
+            "get_keypunk_encryption_key",
+            usecases::get_keypunk_encryption_key(&self.keypunk_service).await,
+            |key| PaypunkdResponse::KeypunkEncryptionKey { key },
+        )
+    }
+
+    async fn generate_seed(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("forwarding GenerateSeed to keypunkd");
+        self.respond(
+            "generate_seed",
+            usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key)
+                .await,
+            |encrypted_mnemonic| PaypunkdResponse::SeedGenerated { encrypted_mnemonic },
+        )
+    }
+
+    async fn restore_seed(
+        &self,
+        encrypted_mnemonic: Vec<u8>,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("forwarding RestoreSeed to keypunkd");
+        self.respond(
+            "restore_seed",
+            usecases::restore_seed(
+                &self.keypunk_service,
+                encrypted_mnemonic,
+                encrypted_password,
+                client_public_key,
+            )
+            .await,
+            |()| PaypunkdResponse::SeedRestored,
+        )
+    }
+
+    async fn unlock(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("forwarding Unlock to keypunkd");
+        self.respond(
+            "unlock",
+            usecases::unlock(&self.keypunk_service, encrypted_password, client_public_key).await,
+            |()| PaypunkdResponse::Unlocked,
+        )
+    }
+
+    async fn sign(&self, protocol: ProtocolId, account: u32, payload: Vec<u8>) -> PaypunkdResponse {
+        info!(?protocol, account, "forwarding Sign to keypunkd");
+        self.respond(
+            "sign",
+            usecases::sign(&self.keypunk_service, protocol, account, payload).await,
+            |signature| PaypunkdResponse::Signature { signature },
+        )
+    }
+
+    async fn lock(&self) -> PaypunkdResponse {
+        info!("forwarding Lock to keypunkd");
+        self.respond("lock", usecases::lock(&self.keypunk_service).await, |()| {
+            PaypunkdResponse::Locked
+        })
+    }
+
+    async fn derive_address(
         &mut self,
         protocol: ProtocolId,
         account: u32,
         index: u32,
     ) -> PaypunkdResponse {
-        info!(?protocol, account, index, "handling DeriveAddress locally");
+        info!(?protocol, account, index, "deriving address");
         let key = match self.get_or_fetch_public_key(protocol, account).await {
             Ok(k) => k.to_vec(),
-            Err(e) => return PaypunkdResponse::Error { message: e },
-        };
-        match usecases::derive_address(&self.protocols, protocol, &key, index) {
-            Ok(address) => {
-                debug!(%address, "address derived from cached public key");
-                PaypunkdResponse::AddressDerived { address }
-            }
             Err(e) => {
-                warn!(error = %e, "address derivation from public key failed");
-                PaypunkdResponse::Error { message: e }
+                warn!(error = %e, "DeriveAddress failed");
+                return PaypunkdResponse::Error { message: e };
             }
-        }
+        };
+        self.respond(
+            "derive_address",
+            usecases::derive_address(&self.protocols, protocol, &key, index),
+            |address| PaypunkdResponse::AddressDerived { address },
+        )
     }
 }
 
@@ -73,102 +156,37 @@ impl Handler<IpcMessage> for Paypunkd {
         debug!(?request, "dispatching request");
 
         let response = match request {
-            PaypunkdRequest::GetKeypunkEncryptionKey => {
-                info!("forwarding GetKeypunkEncryptionKey to keypunkd");
-                match usecases::get_keypunk_encryption_key(&self.keypunk_service).await {
-                    Ok(key) => PaypunkdResponse::KeypunkEncryptionKey { key },
-                    Err(e) => {
-                        warn!(error = %e, "GetKeypunkEncryptionKey failed");
-                        PaypunkdResponse::Error { message: e }
-                    }
-                }
-            }
+            PaypunkdRequest::GetKeypunkEncryptionKey => self.get_keypunk_encryption_key().await,
             PaypunkdRequest::GenerateSeed {
                 encrypted_password,
                 client_public_key,
             } => {
-                info!("forwarding GenerateSeed to keypunkd");
-                match usecases::generate_seed(
-                    &self.keypunk_service,
-                    encrypted_password,
-                    client_public_key,
-                )
-                .await
-                {
-                    Ok(encrypted_mnemonic) => {
-                        PaypunkdResponse::SeedGenerated { encrypted_mnemonic }
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "GenerateSeed failed");
-                        PaypunkdResponse::Error { message: e }
-                    }
-                }
+                self.generate_seed(encrypted_password, client_public_key)
+                    .await
             }
             PaypunkdRequest::RestoreSeed {
                 encrypted_mnemonic,
                 encrypted_password,
                 client_public_key,
             } => {
-                info!("forwarding RestoreSeed to keypunkd");
-                match usecases::restore_seed(
-                    &self.keypunk_service,
-                    encrypted_mnemonic,
-                    encrypted_password,
-                    client_public_key,
-                )
-                .await
-                {
-                    Ok(()) => PaypunkdResponse::SeedRestored,
-                    Err(e) => {
-                        warn!(error = %e, "RestoreSeed failed");
-                        PaypunkdResponse::Error { message: e }
-                    }
-                }
+                self.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key)
+                    .await
             }
             PaypunkdRequest::Unlock {
                 encrypted_password,
                 client_public_key,
-            } => {
-                info!("forwarding Unlock to keypunkd");
-                match usecases::unlock(&self.keypunk_service, encrypted_password, client_public_key)
-                    .await
-                {
-                    Ok(()) => PaypunkdResponse::Unlocked,
-                    Err(e) => {
-                        warn!(error = %e, "Unlock failed");
-                        PaypunkdResponse::Error { message: e }
-                    }
-                }
-            }
+            } => self.unlock(encrypted_password, client_public_key).await,
             PaypunkdRequest::DeriveAddress {
                 protocol,
                 account,
                 index,
-            } => Self::handle_derive_address(self, protocol, account, index).await,
+            } => self.derive_address(protocol, account, index).await,
             PaypunkdRequest::Sign {
                 protocol,
                 account,
                 payload,
-            } => {
-                info!(?protocol, account, "forwarding Sign to keypunkd");
-                match usecases::sign(&self.keypunk_service, protocol, account, payload).await {
-                    Ok(signature) => PaypunkdResponse::Signature { signature },
-                    Err(e) => {
-                        warn!(error = %e, "Sign failed");
-                        PaypunkdResponse::Error { message: e }
-                    }
-                }
-            }
-            PaypunkdRequest::Lock => {
-                info!("forwarding Lock to keypunkd");
-                match usecases::lock(&self.keypunk_service).await {
-                    Ok(()) => PaypunkdResponse::Locked,
-                    Err(e) => {
-                        warn!(error = %e, "Lock failed");
-                        PaypunkdResponse::Error { message: e }
-                    }
-                }
-            }
+            } => self.sign(protocol, account, payload).await,
+            PaypunkdRequest::Lock => self.lock().await,
         };
 
         let encoded =
@@ -177,5 +195,3 @@ impl Handler<IpcMessage> for Paypunkd {
         Ok(encoded)
     }
 }
-
-use std::collections::HashMap;
