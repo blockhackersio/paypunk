@@ -45,6 +45,18 @@ pub fn derive_from_pubkey(pubkey_bytes: &[u8]) -> Result<String, DeriveError> {
     Ok(format!("0x{}", hex::encode(address_bytes)))
 }
 
+/// Validate that a string is a well-formed Ethereum address.
+///
+/// Accepts `0x`-prefixed 40-character hex addresses, optionally with
+/// mixed-case EIP-55 checksum encoding.
+pub fn validate_address(address: &str) -> bool {
+    let addr = address.strip_prefix("0x").or_else(|| address.strip_prefix("0X")).unwrap_or(address);
+    if addr.len() != 40 {
+        return false;
+    }
+    addr.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

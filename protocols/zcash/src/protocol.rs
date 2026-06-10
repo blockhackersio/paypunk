@@ -114,6 +114,10 @@ impl Protocol for ZcashProtocol {
         address::derive_from_fvk(public_key, index).map_err(|e| e.to_string())
     }
 
+    fn validate_address(&self, address: &str) -> bool {
+        zcash_address::ZcashAddress::try_from_encoded(address).is_ok()
+    }
+
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
         let pczt =
             pczt::Pczt::parse(transaction).map_err(|e| format!("PCZT parse failed: {e:?}"))?;

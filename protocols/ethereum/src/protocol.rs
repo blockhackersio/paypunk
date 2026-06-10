@@ -15,6 +15,10 @@ impl Protocol for EthereumProtocol {
         address::derive_from_pubkey(public_key).map_err(|e| e.to_string())
     }
 
+    fn validate_address(&self, address: &str) -> bool {
+        address::validate_address(address)
+    }
+
     fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
         Ok(transaction.to_vec())
     }
