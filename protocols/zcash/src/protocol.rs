@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use orchard::keys::{FullViewingKey, SpendingKey};
-use paypunk_types::{Protocol, ProtocolId, SignerProtocol};
+use paypunk_types::{AssetId, Protocol, ProtocolId, SignerProtocol};
 use pczt::roles::{
     signer::Signer, spend_finalizer::SpendFinalizer,
     tx_extractor::TransactionExtractor, verifier::Verifier,
@@ -145,6 +145,7 @@ impl Protocol for ZcashProtocol {
         _account: u32,
         _to: &str,
         _amount: u64,
+        _asset: &AssetId,
         _memo: Option<&str>,
     ) -> Result<Vec<u8>, String> {
         // TODO: Build PCZT via zcash_primitives::Builder + zcash_client_backend
@@ -156,7 +157,7 @@ impl Protocol for ZcashProtocol {
         Err("create_transaction not yet implemented — needs WalletDb".to_string())
     }
 
-    fn get_balance(&self, _account: u32, _public_key: &[u8]) -> Result<paypunk_types::Balance, String> {
+    fn get_balance(&self, _account: u32, _public_key: &[u8], _asset: &AssetId) -> Result<paypunk_types::Balance, String> {
         Err("get_balance not yet implemented — needs WalletDb + LSP chain scan".to_string())
     }
 }

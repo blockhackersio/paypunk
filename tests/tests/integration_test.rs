@@ -8,6 +8,7 @@ use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
+use paypunk_types::AssetId;
 use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Recipient, Sender};
@@ -29,12 +30,11 @@ impl MockRpcClient {
 }
 
 impl EthRpcClient for MockRpcClient {
-    fn get_eth_balance(&self, _address: &str) -> Result<u64, String> {
-        Ok(self.eth_balance)
-    }
-
-    fn get_erc20_balance(&self, _address: &str, _token_address: &str) -> Result<u64, String> {
-        Ok(self.erc20_balance)
+    fn get_balance(&self, _address: &str, asset: &AssetId) -> Result<u64, String> {
+        match asset {
+            AssetId::Native => Ok(self.eth_balance),
+            AssetId::Token(_) => Ok(self.erc20_balance),
+        }
     }
 }
 
@@ -62,6 +62,11 @@ impl TestBuilder {
 
     fn with_eth_balance(mut self, wei: u64) -> Self {
         self.eth_mock = MockRpcClient::new(wei, 0);
+        self
+    }
+
+    fn with_erc20_balance(mut self, amount: u64) -> Self {
+        self.eth_mock = MockRpcClient::new(0, amount);
         self
     }
 
@@ -326,7 +331,10 @@ async fn test_eth_balance_via_mock_rpc() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
-    let balance = client.get_balance(ProtocolId::Ethereum, 0).await.unwrap();
+    let balance = client
+        .get_balance(ProtocolId::Ethereum, 0, AssetId::Native)
+        .await
+        .unwrap();
 
     // 10 ETH in wei
     assert_eq!(balance.spendable.0, 10_000_000_000_000_000_000);
@@ -343,9 +351,38 @@ async fn test_eth_balance_zero() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
-    let balance = client.get_balance(ProtocolId::Ethereum, 0).await.unwrap();
+    let balance = client
+        .get_balance(ProtocolId::Ethereum, 0, AssetId::Native)
+        .await
+        .unwrap();
 
     assert_eq!(balance.spendable.0, 0);
     assert_eq!(balance.total.0, 0);
+    assert_eq!(balance.pending.0, 0);
+}
+
+#[tokio::test]
+async fn test_erc20_balance_via_mock_rpc() {
+    let recipient = TestBuilder::new()
+        .with_erc20_balance(5_000_000_000_000_000_000)
+        .build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    let balance = client
+        .get_balance(
+            ProtocolId::Ethereum,
+            0,
+            AssetId::Token("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".to_string()),
+        )
+        .await
+        .unwrap();
+
+    // 5 tokens in smallest unit
+    assert_eq!(balance.spendable.0, 5_000_000_000_000_000_000);
+    assert_eq!(balance.total.0, 5_000_000_000_000_000_000);
     assert_eq!(balance.pending.0, 0);
 }

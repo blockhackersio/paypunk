@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{Balance, ProtocolId};
+use paypunk_types::{AssetId, Balance, ProtocolId};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -137,9 +137,14 @@ impl PaypunkService {
         &self,
         protocol: ProtocolId,
         account: u32,
+        asset: AssetId,
     ) -> Result<Balance, String> {
         match self
-            .send(PaypunkdRequest::GetBalance { protocol, account })
+            .send(PaypunkdRequest::GetBalance {
+                protocol,
+                account,
+                asset,
+            })
             .await?
         {
             PaypunkdResponse::Balance { balance } => Ok(balance),

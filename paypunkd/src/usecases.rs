@@ -1,5 +1,5 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::{Balance, BlockHeight, ProtocolId, TxStatus};
+use paypunk_types::{AssetId, Balance, BlockHeight, ProtocolId, TxStatus};
 
 use crate::protocol_service::ProtocolService;
 
@@ -123,8 +123,9 @@ pub fn get_balance(
     protocol: ProtocolId,
     account: u32,
     public_key: &[u8],
+    asset: &AssetId,
 ) -> Result<Balance, String> {
-    protocols.get(protocol)?.get_balance(account, public_key)
+    protocols.get(protocol)?.get_balance(account, public_key, asset)
 }
 
 /// Fetch paginated transaction history for the given protocol and account.

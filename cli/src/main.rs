@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use paypunk_types::ProtocolId;
+use paypunk_types::{AssetId, ProtocolId};
 
 #[derive(Parser)]
 #[command(
@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(1);
                 }
             };
-            let balance = client.get_balance(protocol_id, account).await?;
+            let balance = client.get_balance(protocol_id, account, AssetId::Native).await?;
             println!(
                 "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",
                 balance.spendable.0,

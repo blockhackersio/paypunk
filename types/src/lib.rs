@@ -9,6 +9,12 @@ pub enum ProtocolId {
     Solana,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum AssetId {
+    Native,
+    Token(String),
+}
+
 /// Crypto operations only, no DB access.
 pub trait Protocol: Send + Sync {
     fn protocol_id(&self) -> ProtocolId;
@@ -21,11 +27,12 @@ pub trait Protocol: Send + Sync {
         account: u32,
         to: &str,
         amount: u64,
+        asset: &AssetId,
         memo: Option<&str>,
     ) -> Result<Vec<u8>, String>;
 
-    /// Query the balance for the given account.
-    fn get_balance(&self, account: u32, public_key: &[u8]) -> Result<Balance, String>;
+    /// Query the balance for the given account and asset.
+    fn get_balance(&self, account: u32, public_key: &[u8], asset: &AssetId) -> Result<Balance, String>;
 }
 
 /// Signer-side protocol: key derivation and transaction signing.

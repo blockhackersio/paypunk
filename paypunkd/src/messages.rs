@@ -1,4 +1,4 @@
-use paypunk_types::{Balance, ProtocolId};
+use paypunk_types::{AssetId, Balance, ProtocolId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -31,6 +31,7 @@ pub enum PaypunkdRequest {
     GetBalance {
         protocol: ProtocolId,
         account: u32,
+        asset: AssetId,
     },
 }
 

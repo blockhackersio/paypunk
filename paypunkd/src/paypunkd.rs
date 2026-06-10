@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use paypunk_ipc::IpcMessage;
+use paypunk_types::AssetId;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
@@ -149,8 +150,9 @@ impl Paypunkd {
         &mut self,
         protocol: ProtocolId,
         account: u32,
+        asset: AssetId,
     ) -> PaypunkdResponse {
-        info!(?protocol, account, "querying balance");
+        info!(?protocol, account, ?asset, "querying balance");
         let key = match self.get_or_fetch_public_key(protocol, account).await {
             Ok(k) => k.to_vec(),
             Err(e) => {
@@ -160,7 +162,7 @@ impl Paypunkd {
         };
         self.respond(
             "get_balance",
-            usecases::get_balance(&self.protocols, protocol, account, &key),
+            usecases::get_balance(&self.protocols, protocol, account, &key, &asset),
             |balance| PaypunkdResponse::Balance { balance },
         )
     }
@@ -207,9 +209,11 @@ impl Handler<IpcMessage> for Paypunkd {
                 payload,
             } => self.sign(protocol, account, payload).await,
             PaypunkdRequest::Lock => self.lock().await,
-            PaypunkdRequest::GetBalance { protocol, account } => {
-                self.get_balance(protocol, account).await
-            }
+            PaypunkdRequest::GetBalance {
+                protocol,
+                account,
+                asset,
+            } => self.get_balance(protocol, account, asset).await,
         };
 
         let encoded =

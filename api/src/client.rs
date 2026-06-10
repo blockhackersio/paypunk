@@ -1,6 +1,6 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
-use paypunk_types::{Balance, ProtocolId};
+use paypunk_types::{AssetId, Balance, ProtocolId};
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -73,12 +73,16 @@ impl Client {
     }
 
     /// Query the spendable, pending, and total balance for the given
-    /// protocol and account.
+    /// protocol, account, and asset.
+    ///
+    /// Use `AssetId::Native` for the chain's native currency (ETH, ZEC, etc.)
+    /// or `AssetId::Token(contract)` for ERC-20 tokens.
     pub async fn get_balance(
         &self,
         protocol: ProtocolId,
         account: u32,
+        asset: AssetId,
     ) -> Result<Balance, String> {
-        crate::functions::get_balance(&self.service, protocol, account).await
+        crate::functions::get_balance(&self.service, protocol, account, asset).await
     }
 }
