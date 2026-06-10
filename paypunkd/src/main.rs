@@ -1,7 +1,7 @@
 use clap::Parser;
 use keypunkd::crypto::Keypair;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
-use paypunk_chains_ethereum::rpc::UnimplementedRpcClient;
+use paypunk_chains_ethereum::rpc::HttpRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::{IpcReceiver, IpcSender};
 use paypunkd::protocol_service::ProtocolService;
@@ -18,6 +18,9 @@ struct Args {
 
     #[arg(short, long, default_value = "/tmp/keypunkd.sock")]
     keypunkd_socket: String,
+
+    #[arg(short, long, default_value = "http://127.0.0.1:8545")]
+    rpc_url: String,
 }
 
 #[tokio::main]
@@ -46,7 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let zcash = ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
-    let ethereum = EthereumProtocol::new(UnimplementedRpcClient);
+    let eth_client = HttpRpcClient::new(args.rpc_url.clone());
+    let ethereum = EthereumProtocol::new(eth_client);
     let mut protocols = ProtocolService::new();
     protocols.register(Box::new(zcash));
     protocols.register(Box::new(ethereum));

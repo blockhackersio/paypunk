@@ -4,6 +4,7 @@ use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use paypunk_types::{AssetId, Balance, Protocol, ProtocolId, SignerProtocol};
 use std::str::FromStr;
+use hex;
 
 use crate::address;
 use crate::rpc::EthRpcClient;
@@ -14,10 +15,15 @@ pub struct EthereumProtocol<T: EthRpcClient> {
 
 impl<T: EthRpcClient> EthereumProtocol<T> {
     pub const COIN_TYPE: u32 = 60;
-    pub const CHAIN_ID: u64 = 1;
 
     pub fn new(client: T) -> Self {
         Self { client }
+    }
+
+    /// Derive the Ethereum address from a public key for use as the "from" field.
+    fn address_from_pubkey(&self, public_key: &[u8]) -> Result<String, String> {
+        let addr = address::derive_from_pubkey(public_key).map_err(|e| e.to_string())?;
+        Ok(addr.to_string())
     }
 }
 
@@ -46,37 +52,52 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
 
     fn create_transaction(
         &self,
-        _public_key: &[u8],
+        public_key: &[u8],
         _account: u32,
         to: &str,
         amount: u64,
         asset: &AssetId,
         memo: Option<&str>,
     ) -> Result<Vec<u8>, String> {
+        let from_addr = self.address_from_pubkey(public_key)?;
         let to_addr: Address = to.parse().map_err(|e| format!("invalid address: {e}"))?;
 
-        let (value, tx_to, gas_limit, input) = match asset {
+        let chain_id = self.client.get_chain_id()?;
+        let nonce = self.client.get_transaction_count(&from_addr)?;
+        let gas_price = self.client.get_gas_price()?;
+        let priority_fee = 1_000_000_000; // 1 gwei tip
+
+        let (value, tx_to, base_gas, input, data_str) = match asset {
             AssetId::Native => {
                 let input = memo
                     .map(|m| alloy_primitives::Bytes::from(m.as_bytes().to_vec()))
                     .unwrap_or_default();
-                (U256::from(amount), TxKind::Call(to_addr), 21_000, input)
+                let data_str = if input.is_empty() {
+                    String::new()
+                } else {
+                    format!("0x{}", hex::encode(&input))
+                };
+                (U256::from(amount), TxKind::Call(to_addr), 21_000u64, input, data_str)
             }
             AssetId::Token(contract) => {
                 let contract_addr: Address = contract
                     .parse()
                     .map_err(|e| format!("invalid token contract: {e}"))?;
                 let input = encode_erc20_transfer(&to_addr, amount);
-                (U256::ZERO, TxKind::Call(contract_addr), 65_000, input)
+                let data_str = format!("0x{}", hex::encode(&input));
+                (U256::ZERO, TxKind::Call(contract_addr), 65_000u64, input, data_str)
             }
         };
 
+        let gas_limit = self.client.estimate_gas(&from_addr, to, &format!("0x{:x}", amount), &data_str)?;
+        let gas_limit = gas_limit.max(base_gas);
+
         let tx = TxEip1559 {
-            chain_id: Self::CHAIN_ID,
-            nonce: 0,
+            chain_id,
+            nonce,
             gas_limit,
-            max_fee_per_gas: 20_000_000_000,
-            max_priority_fee_per_gas: 1_000_000_000,
+            max_fee_per_gas: gas_price,
+            max_priority_fee_per_gas: priority_fee,
             to: tx_to,
             value,
             input,
@@ -87,8 +108,8 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
     }
 
     fn get_balance(&self, _account: u32, public_key: &[u8], asset: &AssetId) -> Result<Balance, String> {
-        let addr = address::derive_from_pubkey(public_key).map_err(|e| e.to_string())?;
-        let balance = self.client.get_balance(&addr.to_string(), asset)?;
+        let addr = self.address_from_pubkey(public_key)?;
+        let balance = self.client.get_balance(&addr, asset)?;
         Ok(Balance {
             spendable: paypunk_types::Amount(balance),
             pending: paypunk_types::Amount(0),
@@ -205,6 +226,27 @@ mod tests {
                 AssetId::Native => Ok(self.eth_balance),
                 AssetId::Token(_) => Ok(self.erc20_balance),
             }
+        }
+        fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
+            Ok(0)
+        }
+        fn get_chain_id(&self) -> Result<u64, String> {
+            Ok(1)
+        }
+        fn send_raw_transaction(&self, _raw_tx: &[u8]) -> Result<String, String> {
+            Ok("0xdeadbeef".to_string())
+        }
+        fn get_gas_price(&self) -> Result<u128, String> {
+            Ok(20_000_000_000)
+        }
+        fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
+            Ok(21_000)
+        }
+        fn get_block_number(&self) -> Result<u64, String> {
+            Ok(19_000_000)
+        }
+        fn get_transaction_receipt(&self, _tx_hash: &str) -> Result<Option<crate::rpc::TxReceipt>, String> {
+            Ok(None)
         }
     }
 

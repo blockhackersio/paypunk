@@ -36,6 +36,27 @@ impl EthRpcClient for MockRpcClient {
             AssetId::Token(_) => Ok(self.erc20_balance),
         }
     }
+    fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
+        Ok(0)
+    }
+    fn get_chain_id(&self) -> Result<u64, String> {
+        Ok(1)
+    }
+    fn send_raw_transaction(&self, _raw_tx: &[u8]) -> Result<String, String> {
+        Ok("0xdeadbeef".to_string())
+    }
+    fn get_gas_price(&self) -> Result<u128, String> {
+        Ok(20_000_000_000)
+    }
+    fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
+        Ok(21_000)
+    }
+    fn get_block_number(&self) -> Result<u64, String> {
+        Ok(19_000_000)
+    }
+    fn get_transaction_receipt(&self, _tx_hash: &str) -> Result<Option<paypunk_chains_ethereum::rpc::TxReceipt>, String> {
+        Ok(None)
+    }
 }
 
 /// Builder for wiring up the full actor chain in tests.
