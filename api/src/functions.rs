@@ -1,5 +1,5 @@
 use keypunkd::crypto::Keypair;
-use paypunk_types::ProtocolId;
+use paypunk_types::{Balance, ProtocolId};
 use zeroize::Zeroizing;
 
 /// Generate a new wallet seed.
@@ -89,4 +89,16 @@ pub async fn sign(
 /// Lock the wallet, zeroizing the in-memory seed in keypunkd.
 pub async fn lock(service: &paypunkd::services::PaypunkService) -> Result<(), String> {
     service.lock().await
+}
+
+/// Query the balance for the given protocol and account.
+///
+/// Delegates to the chain-specific `Protocol::get_balance` implementation
+/// running in paypunkd. Returns spendable, pending, and total amounts.
+pub async fn get_balance(
+    service: &paypunkd::services::PaypunkService,
+    protocol: ProtocolId,
+    account: u32,
+) -> Result<Balance, String> {
+    service.get_balance(protocol, account).await
 }

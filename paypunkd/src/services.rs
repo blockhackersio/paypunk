@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::ProtocolId;
+use paypunk_types::{Balance, ProtocolId};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -128,6 +128,21 @@ impl PaypunkService {
     pub async fn lock(&self) -> Result<(), String> {
         match self.send(PaypunkdRequest::Lock).await? {
             PaypunkdResponse::Locked => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_balance(
+        &self,
+        protocol: ProtocolId,
+        account: u32,
+    ) -> Result<Balance, String> {
+        match self
+            .send(PaypunkdRequest::GetBalance { protocol, account })
+            .await?
+        {
+            PaypunkdResponse::Balance { balance } => Ok(balance),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }

@@ -65,6 +65,10 @@ impl Protocol for EthereumProtocol {
 
         Ok(alloy_rlp::encode(&tx))
     }
+
+    fn get_balance(&self, _account: u32) -> Result<paypunk_types::Balance, String> {
+        Err("get_balance not yet implemented — needs RPC endpoint".to_string())
+    }
 }
 
 impl SignerProtocol for EthereumProtocol {
@@ -74,11 +78,10 @@ impl SignerProtocol for EthereumProtocol {
 
     fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String> {
         let path = format!("m/44'/60'/{account}'/0/0");
-        let parsed = bip32::DerivationPath::from_str(&path)
-            .map_err(|e| format!("invalid path: {e}"))?;
-        let key =
-            bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
-                .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
+        let parsed =
+            bip32::DerivationPath::from_str(&path).map_err(|e| format!("invalid path: {e}"))?;
+        let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
+            .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
         let ext_pubkey = key.public_key();
         let inner = ext_pubkey.public_key();
         let point = inner.to_encoded_point(false);
@@ -92,15 +95,14 @@ impl SignerProtocol for EthereumProtocol {
         transaction: &[u8],
     ) -> Result<Vec<u8>, String> {
         let path = format!("m/44'/60'/{account}'/0/0");
-        let parsed = bip32::DerivationPath::from_str(&path)
-            .map_err(|e| format!("invalid path: {e}"))?;
-        let key =
-            bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
-                .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
+        let parsed =
+            bip32::DerivationPath::from_str(&path).map_err(|e| format!("invalid path: {e}"))?;
+        let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
+            .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
         let sk = key.private_key();
 
-        let tx: TxEip1559 = alloy_rlp::decode_exact(transaction)
-            .map_err(|e| format!("RLP decode failed: {e}"))?;
+        let tx: TxEip1559 =
+            alloy_rlp::decode_exact(transaction).map_err(|e| format!("RLP decode failed: {e}"))?;
 
         let sighash = tx.signature_hash();
 

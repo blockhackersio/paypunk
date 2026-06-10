@@ -115,13 +115,15 @@ pub async fn create_transfer(
 /// Query the spendable, pending, and total balance for the given protocol
 /// and account.
 ///
-/// TODO: Needs database wiring in paypunkd.
-pub async fn get_balance(
-    _protocols: &ProtocolService,
-    _protocol: ProtocolId,
-    _account: u32,
+/// Delegates to the chain-specific `Protocol::get_balance` implementation.
+/// For chains without a wallet DB or RPC endpoint wired yet, the default
+/// trait implementation returns a zero balance.
+pub fn get_balance(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    account: u32,
 ) -> Result<Balance, String> {
-    todo!("get_balance: needs database")
+    protocols.get(protocol)?.get_balance(account)
 }
 
 /// Fetch paginated transaction history for the given protocol and account.

@@ -1,6 +1,6 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
-use paypunk_types::ProtocolId;
+use paypunk_types::{Balance, ProtocolId};
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -70,5 +70,15 @@ impl Client {
     /// Lock the wallet, zeroizing the in-memory seed in keypunkd.
     pub async fn lock(&self) -> Result<(), String> {
         crate::functions::lock(&self.service).await
+    }
+
+    /// Query the spendable, pending, and total balance for the given
+    /// protocol and account.
+    pub async fn get_balance(
+        &self,
+        protocol: ProtocolId,
+        account: u32,
+    ) -> Result<Balance, String> {
+        crate::functions::get_balance(&self.service, protocol, account).await
     }
 }

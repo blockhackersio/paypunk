@@ -23,6 +23,9 @@ pub trait Protocol: Send + Sync {
         amount: u64,
         memo: Option<&str>,
     ) -> Result<Vec<u8>, String>;
+
+    /// Query the balance for the given account.
+    fn get_balance(&self, account: u32) -> Result<Balance, String>;
 }
 
 /// Signer-side protocol: key derivation and transaction signing.

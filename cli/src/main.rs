@@ -51,6 +51,15 @@ enum Commands {
     },
     /// Lock the wallet (zeroize in-memory seed)
     Lock,
+    /// Query the balance for a protocol and account
+    GetBalance {
+        /// Protocol (zcash, bitcoin, ethereum, monero, solana)
+        #[arg(short, long, default_value = "zcash")]
+        protocol: String,
+        /// Account index (default: 0)
+        #[arg(short, long, default_value_t = 0)]
+        account: u32,
+    },
 }
 
 #[tokio::main]
@@ -98,6 +107,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Lock => {
             client.lock().await?;
             println!("Wallet locked");
+        }
+        Commands::GetBalance { protocol, account } => {
+            let protocol_id = match protocol.to_lowercase().as_str() {
+                "zcash" => ProtocolId::Zcash,
+                "bitcoin" => ProtocolId::Bitcoin,
+                "ethereum" => ProtocolId::Ethereum,
+                "monero" => ProtocolId::Monero,
+                "solana" => ProtocolId::Solana,
+                _ => {
+                    eprintln!("Unknown protocol: {protocol}");
+                    std::process::exit(1);
+                }
+            };
+            let balance = client.get_balance(protocol_id, account).await?;
+            println!(
+                "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",
+                balance.spendable.0,
+                balance.pending.0,
+                balance.total.0,
+            );
         }
     }
 

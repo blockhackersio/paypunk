@@ -144,6 +144,15 @@ impl Paypunkd {
             |address| PaypunkdResponse::AddressDerived { address },
         )
     }
+
+    fn get_balance(&self, protocol: ProtocolId, account: u32) -> PaypunkdResponse {
+        info!(?protocol, account, "querying balance");
+        self.respond(
+            "get_balance",
+            usecases::get_balance(&self.protocols, protocol, account),
+            |balance| PaypunkdResponse::Balance { balance },
+        )
+    }
 }
 
 impl Actor for Paypunkd {}
@@ -187,6 +196,9 @@ impl Handler<IpcMessage> for Paypunkd {
                 payload,
             } => self.sign(protocol, account, payload).await,
             PaypunkdRequest::Lock => self.lock().await,
+            PaypunkdRequest::GetBalance { protocol, account } => {
+                self.get_balance(protocol, account)
+            }
         };
 
         let encoded =

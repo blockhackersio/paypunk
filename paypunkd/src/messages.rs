@@ -1,4 +1,4 @@
-use paypunk_types::ProtocolId;
+use paypunk_types::{Balance, ProtocolId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,6 +28,10 @@ pub enum PaypunkdRequest {
         payload: Vec<u8>,
     },
     Lock,
+    GetBalance {
+        protocol: ProtocolId,
+        account: u32,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,5 +43,6 @@ pub enum PaypunkdResponse {
     AddressDerived { address: String },
     Signature { signature: Vec<u8> },
     Locked,
+    Balance { balance: Balance },
     Error { message: String },
 }
