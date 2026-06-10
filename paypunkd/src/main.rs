@@ -1,6 +1,7 @@
 use clap::Parser;
 use keypunkd::crypto::Keypair;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
+use paypunk_chains_ethereum::rpc::UnimplementedRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::{IpcReceiver, IpcSender};
 use paypunkd::protocol_service::ProtocolService;
@@ -45,9 +46,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let zcash = ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
+    let ethereum = EthereumProtocol::new(UnimplementedRpcClient);
     let mut protocols = ProtocolService::new();
     protocols.register(Box::new(zcash));
-    protocols.register(Box::new(EthereumProtocol));
+    protocols.register(Box::new(ethereum));
     info!("registered protocols: Zcash, Ethereum");
 
     let paypunkd = Paypunkd::new(recipient, protocols).start();

@@ -156,7 +156,7 @@ impl Protocol for ZcashProtocol {
         Err("create_transaction not yet implemented — needs WalletDb".to_string())
     }
 
-    fn get_balance(&self, _account: u32) -> Result<paypunk_types::Balance, String> {
+    fn get_balance(&self, _account: u32, _public_key: &[u8]) -> Result<paypunk_types::Balance, String> {
         Err("get_balance not yet implemented — needs WalletDb + LSP chain scan".to_string())
     }
 }

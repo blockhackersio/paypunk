@@ -4,6 +4,7 @@ use keypunkd::seed_store::InMemorySeedStore;
 use keypunkd::Keypunkd;
 use paypunk_api::Client;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
+use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
@@ -11,6 +12,31 @@ use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Recipient, Sender};
 use zeroize::Zeroizing;
+
+/// A mock RPC client that returns fixed balances for testing.
+struct MockRpcClient {
+    eth_balance: u64,
+    erc20_balance: u64,
+}
+
+impl MockRpcClient {
+    fn new(eth_balance: u64, erc20_balance: u64) -> Self {
+        Self {
+            eth_balance,
+            erc20_balance,
+        }
+    }
+}
+
+impl EthRpcClient for MockRpcClient {
+    fn get_eth_balance(&self, _address: &str) -> Result<u64, String> {
+        Ok(self.eth_balance)
+    }
+
+    fn get_erc20_balance(&self, _address: &str, _token_address: &str) -> Result<u64, String> {
+        Ok(self.erc20_balance)
+    }
+}
 
 /// Wire up the full actor chain (no sockets) and drive it through the
 /// public `paypunk_api::Client`.
@@ -32,7 +58,35 @@ fn wire_actors() -> Recipient<IpcMessage> {
     let paypunkd_zcash = ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
-    let paypunkd_protocols = ProtocolService::new(paypunkd_zcash, EthereumProtocol);
+    let paypunkd_ethereum = EthereumProtocol::new(MockRpcClient::new(0, 0));
+    let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
+
+    let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
+    paypunkd_addr.recipient()
+}
+
+/// Wire up actors with a custom Ethereum mock for balance tests.
+fn wire_actors_with_eth_mock(mock: MockRpcClient) -> Recipient<IpcMessage> {
+    let keystore = Keypair::new();
+    let store = InMemorySeedStore::new();
+
+    let mut keypunkd_protocols = KeypunkdProtocolService::new();
+    keypunkd_protocols.register(Box::new(ZcashProtocol {
+        params: zcash_protocol::consensus::Network::MainNetwork,
+    }));
+    // keypunkd also needs Ethereum for derive_public_key / sign
+    keypunkd_protocols.register(Box::new(EthereumProtocol::new(())));
+
+    let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
+        .with_skip_session_auth(true)
+        .start();
+    let keypunkd_recipient = keypunkd_addr.recipient();
+
+    let paypunkd_zcash = ZcashProtocol {
+        params: zcash_protocol::consensus::Network::MainNetwork,
+    };
+    let paypunkd_ethereum = EthereumProtocol::new(mock);
+    let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
 
     let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
     paypunkd_addr.recipient()
@@ -260,4 +314,39 @@ async fn test_lock_clears_session() {
         .await
         .unwrap();
     assert!(addr.starts_with("u1"), "got: {addr}");
+}
+
+#[tokio::test]
+async fn test_eth_balance_via_mock_rpc() {
+    let mock = MockRpcClient::new(10_000_000_000_000_000_000, 5_000_000_000_000_000_000);
+    let recipient = wire_actors_with_eth_mock(mock);
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    let balance = client.get_balance(ProtocolId::Ethereum, 0).await.unwrap();
+
+    // 10 ETH in wei
+    assert_eq!(balance.spendable.0, 10_000_000_000_000_000_000);
+    assert_eq!(balance.total.0, 10_000_000_000_000_000_000);
+    assert_eq!(balance.pending.0, 0);
+}
+
+#[tokio::test]
+async fn test_eth_balance_zero() {
+    let mock = MockRpcClient::new(0, 0);
+    let recipient = wire_actors_with_eth_mock(mock);
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    let balance = client.get_balance(ProtocolId::Ethereum, 0).await.unwrap();
+
+    assert_eq!(balance.spendable.0, 0);
+    assert_eq!(balance.total.0, 0);
+    assert_eq!(balance.pending.0, 0);
 }

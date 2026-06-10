@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     protocols.register(Box::new(ZcashProtocol {
         params: Network::MainNetwork,
     }));
-    protocols.register(Box::new(EthereumProtocol));
+    protocols.register(Box::new(EthereumProtocol::new(())));
     info!("registered protocols: Zcash, Ethereum");
 
     let keypunkd = Keypunkd::new(keystore, seed_store, protocols).start();

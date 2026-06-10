@@ -122,8 +122,9 @@ pub fn get_balance(
     protocols: &ProtocolService,
     protocol: ProtocolId,
     account: u32,
+    public_key: &[u8],
 ) -> Result<Balance, String> {
-    protocols.get(protocol)?.get_balance(account)
+    protocols.get(protocol)?.get_balance(account, public_key)
 }
 
 /// Fetch paginated transaction history for the given protocol and account.

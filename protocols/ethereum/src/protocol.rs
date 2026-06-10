@@ -2,19 +2,26 @@ use alloy_consensus::{SignableTransaction, TxEip1559};
 use alloy_primitives::{Address, Signature, TxKind, U256};
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
-use paypunk_types::{Protocol, ProtocolId, SignerProtocol};
+use paypunk_types::{Balance, Protocol, ProtocolId, SignerProtocol};
 use std::str::FromStr;
 
 use crate::address;
+use crate::rpc::EthRpcClient;
 
-pub struct EthereumProtocol;
-
-impl EthereumProtocol {
-    pub const COIN_TYPE: u32 = 60;
-    pub const CHAIN_ID: u64 = 1;
+pub struct EthereumProtocol<T: EthRpcClient> {
+    pub client: T,
 }
 
-impl Protocol for EthereumProtocol {
+impl<T: EthRpcClient> EthereumProtocol<T> {
+    pub const COIN_TYPE: u32 = 60;
+    pub const CHAIN_ID: u64 = 1;
+
+    pub fn new(client: T) -> Self {
+        Self { client }
+    }
+}
+
+impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
     fn protocol_id(&self) -> ProtocolId {
         ProtocolId::Ethereum
     }
@@ -66,12 +73,18 @@ impl Protocol for EthereumProtocol {
         Ok(alloy_rlp::encode(&tx))
     }
 
-    fn get_balance(&self, _account: u32) -> Result<paypunk_types::Balance, String> {
-        Err("get_balance not yet implemented — needs RPC endpoint".to_string())
+    fn get_balance(&self, _account: u32, public_key: &[u8]) -> Result<Balance, String> {
+        let addr = address::derive_from_pubkey(public_key).map_err(|e| e.to_string())?;
+        let eth_balance = self.client.get_eth_balance(&addr.to_string())?;
+        Ok(Balance {
+            spendable: paypunk_types::Amount(eth_balance),
+            pending: paypunk_types::Amount(0),
+            total: paypunk_types::Amount(eth_balance),
+        })
     }
 }
 
-impl SignerProtocol for EthereumProtocol {
+impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
     fn protocol_id(&self) -> ProtocolId {
         ProtocolId::Ethereum
     }
@@ -137,10 +150,36 @@ impl SignerProtocol for EthereumProtocol {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::EthRpcClient;
     use bip39::Mnemonic;
 
     const MNEMONIC: &str =
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    /// A mock RPC client that returns fixed balances for testing.
+    struct MockRpcClient {
+        eth_balance: u64,
+        erc20_balance: u64,
+    }
+
+    impl MockRpcClient {
+        fn new(eth_balance: u64, erc20_balance: u64) -> Self {
+            Self {
+                eth_balance,
+                erc20_balance,
+            }
+        }
+    }
+
+    impl EthRpcClient for MockRpcClient {
+        fn get_eth_balance(&self, _address: &str) -> Result<u64, String> {
+            Ok(self.eth_balance)
+        }
+
+        fn get_erc20_balance(&self, _address: &str, _token_address: &str) -> Result<u64, String> {
+            Ok(self.erc20_balance)
+        }
+    }
 
     fn seed_from_mnemonic() -> [u8; 64] {
         let mnemonic: Mnemonic = MNEMONIC.parse().unwrap();
@@ -149,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_derive_public_key() {
-        let protocol = EthereumProtocol;
+        let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
         let seed = seed_from_mnemonic();
         let pk = protocol.derive_public_key(&seed, 0).unwrap();
         assert_eq!(pk.len(), 65);
@@ -158,7 +197,7 @@ mod tests {
 
     #[test]
     fn test_derive_address_roundtrip() {
-        let protocol = EthereumProtocol;
+        let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
         let seed = seed_from_mnemonic();
         let pk = protocol.derive_public_key(&seed, 0).unwrap();
         let addr = protocol.derive_address(&pk, 0).unwrap();
@@ -168,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_create_and_sign_transaction() {
-        let protocol = EthereumProtocol;
+        let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
         let seed = seed_from_mnemonic();
         let pk = protocol.derive_public_key(&seed, 0).unwrap();
 
@@ -192,8 +231,19 @@ mod tests {
 
     #[test]
     fn test_validate_address() {
-        let protocol = EthereumProtocol;
+        let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
         assert!(protocol.validate_address("0x9858effd232b4033e47d90003d41ec34ecaeda94"));
         assert!(!protocol.validate_address("invalid"));
+    }
+
+    #[test]
+    fn test_get_balance_uses_rpc_client() {
+        let protocol = EthereumProtocol::new(MockRpcClient::new(10_000_000_000_000_000_000, 0));
+        let seed = seed_from_mnemonic();
+        let pk = protocol.derive_public_key(&seed, 0).unwrap();
+        let balance = protocol.get_balance(0, &pk).unwrap();
+        assert_eq!(balance.spendable.0, 10_000_000_000_000_000_000);
+        assert_eq!(balance.total.0, 10_000_000_000_000_000_000);
+        assert_eq!(balance.pending.0, 0);
     }
 }

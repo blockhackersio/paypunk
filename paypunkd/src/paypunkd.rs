@@ -145,11 +145,22 @@ impl Paypunkd {
         )
     }
 
-    fn get_balance(&self, protocol: ProtocolId, account: u32) -> PaypunkdResponse {
+    async fn get_balance(
+        &mut self,
+        protocol: ProtocolId,
+        account: u32,
+    ) -> PaypunkdResponse {
         info!(?protocol, account, "querying balance");
+        let key = match self.get_or_fetch_public_key(protocol, account).await {
+            Ok(k) => k.to_vec(),
+            Err(e) => {
+                warn!(error = %e, "GetBalance failed");
+                return PaypunkdResponse::Error { message: e };
+            }
+        };
         self.respond(
             "get_balance",
-            usecases::get_balance(&self.protocols, protocol, account),
+            usecases::get_balance(&self.protocols, protocol, account, &key),
             |balance| PaypunkdResponse::Balance { balance },
         )
     }
@@ -197,7 +208,7 @@ impl Handler<IpcMessage> for Paypunkd {
             } => self.sign(protocol, account, payload).await,
             PaypunkdRequest::Lock => self.lock().await,
             PaypunkdRequest::GetBalance { protocol, account } => {
-                self.get_balance(protocol, account)
+                self.get_balance(protocol, account).await
             }
         };
 
