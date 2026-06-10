@@ -71,7 +71,7 @@ pub fn derive_address(
     public_key: &[u8],
     index: u32,
 ) -> Result<String, String> {
-    protocols.derive_address(protocol, public_key, index)
+    protocols.get(protocol)?.derive_address(public_key, index)
 }
 
 /// Finalize a signed transaction using the protocol service.
@@ -83,7 +83,9 @@ pub fn finalize_transaction(
     protocol: ProtocolId,
     transaction: &[u8],
 ) -> Result<Vec<u8>, String> {
-    protocols.finalize_transaction(protocol, transaction)
+    protocols
+        .get(protocol)?
+        .finalize_transaction(transaction)
 }
 
 // ── Stubs: depend on future work ───────────────────────────────────────────

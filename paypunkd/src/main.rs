@@ -45,7 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let zcash = ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
-    let protocols = ProtocolService::new(zcash, EthereumProtocol);
+    let mut protocols = ProtocolService::new();
+    protocols.register(Box::new(zcash));
+    protocols.register(Box::new(EthereumProtocol));
     info!("registered protocols: Zcash, Ethereum");
 
     let paypunkd = Paypunkd::new(recipient, protocols).start();
