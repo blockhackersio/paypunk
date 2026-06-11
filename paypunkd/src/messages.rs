@@ -1,4 +1,4 @@
-use paypunk_types::{AssetId, Balance, ProtocolId};
+use paypunk_types::{Balance, Intent, ProtocolId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,21 +17,22 @@ pub enum PaypunkdRequest {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     },
+    Lock,
+    SubmitIntent {
+        intent: Intent,
+    },
+    ApproveSignature {
+        encrypted_payload: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+    },
     DeriveAddress {
         protocol: ProtocolId,
         account: u32,
         index: u32,
     },
-    Sign {
-        protocol: ProtocolId,
-        account: u32,
-        payload: Vec<u8>,
-    },
-    Lock,
     GetBalance {
-        protocol: ProtocolId,
-        account: u32,
-        asset: AssetId,
+        address: String,
+        asset: String,
     },
 }
 
@@ -41,9 +42,15 @@ pub enum PaypunkdResponse {
     SeedGenerated { encrypted_mnemonic: Vec<u8> },
     SeedRestored,
     Unlocked,
-    AddressDerived { address: String },
-    Signature { signature: Vec<u8> },
     Locked,
+    SignablePreview {
+        raw_artifact: Vec<u8>,
+        parsed_summary: Vec<u8>,
+        keypunkd_signature: Vec<u8>,
+        keypunkd_public_key: [u8; 32],
+    },
+    SignatureApproved { signed_artifact: Vec<u8> },
     Balance { balance: Balance },
+    AddressDerived { address: String },
     Error { message: String },
 }

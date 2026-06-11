@@ -103,7 +103,7 @@ impl Keypair {
         encrypt(&key, (*secret_message).as_ref())
     }
 
-    /// Decrypt a message from a peer.
+    /// Decrypt a message from a peer into a string.
     pub fn decrypt(
         &self,
         encrypted: &[u8],
@@ -113,6 +113,22 @@ impl Keypair {
         let plaintext = decrypt(&key, encrypted)?;
         let s = utf8_decode(plaintext)?;
         Ok(Zeroizing::new(s))
+    }
+
+    /// Encrypt arbitrary bytes to a peer (non-string payload).
+    pub fn encrypt_bytes(&self, payload: &[u8], peer_pk: &[u8; 32]) -> Vec<u8> {
+        let key = self.shared_aes_key(peer_pk);
+        encrypt(&key, payload)
+    }
+
+    /// Decrypt arbitrary bytes from a peer (non-string payload).
+    pub fn decrypt_bytes(
+        &self,
+        encrypted: &[u8],
+        peer_pk: &[u8; 32],
+    ) -> Result<Vec<u8>, CryptoError> {
+        let key = self.shared_aes_key(peer_pk);
+        decrypt(&key, encrypted)
     }
 }
 

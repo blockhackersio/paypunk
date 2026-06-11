@@ -1,7 +1,4 @@
-use std::collections::HashMap;
-
 use paypunk_ipc::IpcMessage;
-use paypunk_types::AssetId;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
@@ -13,7 +10,6 @@ use crate::usecases;
 pub struct Paypunkd {
     keypunk_service: keypunkd::services::KeypunkService,
     protocols: ProtocolService,
-    public_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
 
 impl Paypunkd {
@@ -21,21 +17,7 @@ impl Paypunkd {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
             protocols,
-            public_keys: HashMap::new(),
         }
-    }
-
-    async fn get_or_fetch_public_key(
-        &mut self,
-        protocol: ProtocolId,
-        account: u32,
-    ) -> Result<&[u8], String> {
-        if !self.public_keys.contains_key(&(protocol, account)) {
-            debug!(?protocol, account, "fetching public key from keypunkd");
-            let key = usecases::derive_public_key(&self.keypunk_service, protocol, account).await?;
-            self.public_keys.insert((protocol, account), key);
-        }
-        Ok(self.public_keys.get(&(protocol, account)).unwrap())
     }
 
     fn respond<T>(
@@ -109,20 +91,67 @@ impl Paypunkd {
         )
     }
 
-    async fn sign(&self, protocol: ProtocolId, account: u32, payload: Vec<u8>) -> PaypunkdResponse {
-        info!(?protocol, account, "forwarding Sign to keypunkd");
-        self.respond(
-            "sign",
-            usecases::sign(&self.keypunk_service, protocol, account, payload).await,
-            |signature| PaypunkdResponse::Signature { signature },
-        )
-    }
-
     async fn lock(&self) -> PaypunkdResponse {
         info!("forwarding Lock to keypunkd");
         self.respond("lock", usecases::lock(&self.keypunk_service).await, |()| {
             PaypunkdResponse::Locked
         })
+    }
+
+    async fn submit_intent(&self, intent: paypunk_types::Intent) -> PaypunkdResponse {
+        info!("handling SubmitIntent");
+        self.respond(
+            "submit_intent",
+            usecases::submit_intent(&self.keypunk_service, &self.protocols, &intent).await,
+            |(raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)| {
+                PaypunkdResponse::SignablePreview {
+                    raw_artifact,
+                    parsed_summary,
+                    keypunkd_signature,
+                    keypunkd_public_key,
+                }
+            },
+        )
+    }
+
+    async fn approve_signature(
+        &self,
+        encrypted_payload: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("handling ApproveSignature");
+        self.respond(
+            "approve_signature",
+            usecases::approve_signature(
+                &self.keypunk_service,
+                encrypted_payload,
+                ephemeral_public_key,
+            )
+            .await,
+            |signed_artifact| PaypunkdResponse::SignatureApproved { signed_artifact },
+        )
+    }
+
+    async fn get_balance(
+        &self,
+        address: String,
+        asset: String,
+    ) -> PaypunkdResponse {
+        info!("querying balance");
+        let protocol = match address.split(':').next().unwrap_or("") {
+            "zcash" => ProtocolId::Zcash,
+            "eip155" => ProtocolId::Ethereum,
+            _ => {
+                return PaypunkdResponse::Error {
+                    message: format!("unknown chain in address: {address}"),
+                }
+            }
+        };
+        self.respond(
+            "get_balance",
+            usecases::get_balance(&self.protocols, protocol, &address, &asset),
+            |balance| PaypunkdResponse::Balance { balance },
+        )
     }
 
     async fn derive_address(
@@ -132,38 +161,14 @@ impl Paypunkd {
         index: u32,
     ) -> PaypunkdResponse {
         info!(?protocol, account, index, "deriving address");
-        let key = match self.get_or_fetch_public_key(protocol, account).await {
-            Ok(k) => k.to_vec(),
-            Err(e) => {
-                warn!(error = %e, "DeriveAddress failed");
-                return PaypunkdResponse::Error { message: e };
-            }
-        };
         self.respond(
             "derive_address",
-            usecases::derive_address(&self.protocols, protocol, &key, index),
+            usecases::export_viewing_key(&self.keypunk_service, protocol, account)
+                .await
+                .and_then(|viewing_key| {
+                    usecases::derive_address(&self.protocols, protocol, &viewing_key, index)
+                }),
             |address| PaypunkdResponse::AddressDerived { address },
-        )
-    }
-
-    async fn get_balance(
-        &mut self,
-        protocol: ProtocolId,
-        account: u32,
-        asset: AssetId,
-    ) -> PaypunkdResponse {
-        info!(?protocol, account, ?asset, "querying balance");
-        let key = match self.get_or_fetch_public_key(protocol, account).await {
-            Ok(k) => k.to_vec(),
-            Err(e) => {
-                warn!(error = %e, "GetBalance failed");
-                return PaypunkdResponse::Error { message: e };
-            }
-        };
-        self.respond(
-            "get_balance",
-            usecases::get_balance(&self.protocols, protocol, account, &key, &asset),
-            |balance| PaypunkdResponse::Balance { balance },
         )
     }
 }
@@ -198,22 +203,20 @@ impl Handler<IpcMessage> for Paypunkd {
                 encrypted_password,
                 client_public_key,
             } => self.unlock(encrypted_password, client_public_key).await,
+            PaypunkdRequest::Lock => self.lock().await,
+            PaypunkdRequest::SubmitIntent { intent } => self.submit_intent(intent).await,
+            PaypunkdRequest::ApproveSignature {
+                encrypted_payload,
+                ephemeral_public_key,
+            } => self.approve_signature(encrypted_payload, ephemeral_public_key).await,
+            PaypunkdRequest::GetBalance { address, asset } => {
+                self.get_balance(address, asset).await
+            }
             PaypunkdRequest::DeriveAddress {
                 protocol,
                 account,
                 index,
             } => self.derive_address(protocol, account, index).await,
-            PaypunkdRequest::Sign {
-                protocol,
-                account,
-                payload,
-            } => self.sign(protocol, account, payload).await,
-            PaypunkdRequest::Lock => self.lock().await,
-            PaypunkdRequest::GetBalance {
-                protocol,
-                account,
-                asset,
-            } => self.get_balance(protocol, account, asset).await,
         };
 
         let encoded =

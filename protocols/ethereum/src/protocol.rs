@@ -2,7 +2,9 @@ use alloy_consensus::{SignableTransaction, TxEip1559};
 use alloy_primitives::{Address, Signature, TxKind, U256};
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
-use paypunk_types::{AssetId, Balance, Protocol, ProtocolId, SignerProtocol};
+use paypunk_types::{
+    caip, ArtifactSummary, ChainId, EthereumIntent, Intent, Protocol, ProtocolId, SignerProtocol,
+};
 use std::str::FromStr;
 use hex;
 
@@ -20,7 +22,6 @@ impl<T: EthRpcClient> EthereumProtocol<T> {
         Self { client }
     }
 
-    /// Derive the Ethereum address from a public key for use as the "from" field.
     fn address_from_pubkey(&self, public_key: &[u8]) -> Result<String, String> {
         let addr = address::derive_from_pubkey(public_key).map_err(|e| e.to_string())?;
         Ok(addr.to_string())
@@ -32,65 +33,40 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
         ProtocolId::Ethereum
     }
 
-    fn derive_address(&self, public_key: &[u8], _index: u32) -> Result<String, String> {
-        let addr = address::derive_from_pubkey(public_key).map_err(|e| e.to_string())?;
-        Ok(addr.to_string())
-    }
-
-    fn validate_address(&self, address: &str) -> bool {
-        address::validate_address(address)
-    }
-
-    fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String> {
-        let mut buf = transaction;
-        let signed = alloy_consensus::Signed::<TxEip1559>::eip2718_decode(&mut buf)
-            .map_err(|e| format!("invalid tx: {e}"))?;
-        let mut out = Vec::new();
-        signed.eip2718_encode(&mut out);
-        Ok(out)
-    }
-
-    fn create_transaction(
-        &self,
-        public_key: &[u8],
-        _account: u32,
-        to: &str,
-        amount: u64,
-        asset: &AssetId,
-        memo: Option<&str>,
-    ) -> Result<Vec<u8>, String> {
-        let from_addr = self.address_from_pubkey(public_key)?;
-        let to_addr: Address = to.parse().map_err(|e| format!("invalid address: {e}"))?;
-
-        let chain_id = self.client.get_chain_id()?;
-        let nonce = self.client.get_transaction_count(&from_addr)?;
-        let gas_price = self.client.get_gas_price()?;
-        let priority_fee = 1_000_000_000; // 1 gwei tip
-
-        let (value, tx_to, base_gas, input, data_str) = match asset {
-            AssetId::Native => {
-                let input = memo
-                    .map(|m| alloy_primitives::Bytes::from(m.as_bytes().to_vec()))
-                    .unwrap_or_default();
-                let data_str = if input.is_empty() {
-                    String::new()
-                } else {
-                    format!("0x{}", hex::encode(&input))
-                };
-                (U256::from(amount), TxKind::Call(to_addr), 21_000u64, input, data_str)
-            }
-            AssetId::Token(contract) => {
-                let contract_addr: Address = contract
-                    .parse()
-                    .map_err(|e| format!("invalid token contract: {e}"))?;
-                let input = encode_erc20_transfer(&to_addr, amount);
-                let data_str = format!("0x{}", hex::encode(&input));
-                (U256::ZERO, TxKind::Call(contract_addr), 65_000u64, input, data_str)
-            }
+    fn build(&self, intent: &Intent) -> Result<Vec<u8>, String> {
+        let (to, amount, data) = match intent {
+            Intent::Ethereum(EthereumIntent::Transfer {
+                to,
+                amount,
+                account: _,
+                data,
+            }) => (to.as_str(), amount.as_str(), data.as_deref()),
+            Intent::Ethereum(EthereumIntent::ContractCall {
+                to,
+                amount,
+                account: _,
+                data,
+            }) => (to.as_str(), amount.as_str(), Some(data.as_str())),
+            _ => return Err("unexpected intent variant for Ethereum protocol".to_string()),
         };
 
-        let gas_limit = self.client.estimate_gas(&from_addr, to, &format!("0x{:x}", amount), &data_str)?;
-        let gas_limit = gas_limit.max(base_gas);
+        let to_addr: Address = to
+            .parse()
+            .map_err(|e| format!("invalid address: {e}"))?;
+
+        let amount_u64 = parse_amount(amount)?;
+        let chain_id = self.client.get_chain_id()?;
+        let nonce = 0;
+        let gas_limit = 21_000u64;
+        let gas_price = self.client.get_gas_price()?;
+        let priority_fee = 1_000_000_000;
+
+        let input = data
+            .map(|d| {
+                let hex_str = d.strip_prefix("0x").unwrap_or(d);
+                alloy_primitives::Bytes::from(hex::decode(hex_str).unwrap_or_default())
+            })
+            .unwrap_or_default();
 
         let tx = TxEip1559 {
             chain_id,
@@ -98,8 +74,8 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             gas_limit,
             max_fee_per_gas: gas_price,
             max_priority_fee_per_gas: priority_fee,
-            to: tx_to,
-            value,
+            to: TxKind::Call(to_addr),
+            value: U256::from(amount_u64),
             input,
             access_list: Default::default(),
         };
@@ -107,10 +83,43 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
         Ok(alloy_rlp::encode(&tx))
     }
 
-    fn get_balance(&self, _account: u32, public_key: &[u8], asset: &AssetId) -> Result<Balance, String> {
-        let addr = self.address_from_pubkey(public_key)?;
-        let balance = self.client.get_balance(&addr, asset)?;
-        Ok(Balance {
+    fn validate_address(&self, address: &str) -> bool {
+        address::validate_address(address)
+    }
+
+    fn finalize(&self, signed: &[u8]) -> Result<Vec<u8>, String> {
+        let mut buf = signed;
+        let signed_tx = alloy_consensus::Signed::<TxEip1559>::eip2718_decode(&mut buf)
+            .map_err(|e| format!("invalid tx: {e}"))?;
+        let mut out = Vec::new();
+        signed_tx.eip2718_encode(&mut out);
+        Ok(out)
+    }
+
+    fn get_balance(&self, address: &str, asset: &str) -> Result<paypunk_types::Balance, String> {
+        // Parse CAIP-10 address to get the raw address
+        let account = caip::AccountId::parse(address)
+            .map_err(|e| format!("invalid CAIP-10 address: {e}"))?;
+
+        // Parse CAIP-19 asset to determine native vs token
+        let asset_id = if asset.starts_with("eip155:") {
+            let parsed = caip::AssetId::parse(asset)
+                .map_err(|e| format!("invalid CAIP-19 asset: {e}"))?;
+            if parsed.asset_namespace == "slip44" && parsed.asset_reference == "60" {
+                paypunk_types::AssetId::Native
+            } else if parsed.asset_namespace == "erc20" {
+                paypunk_types::AssetId::Token(parsed.asset_reference)
+            } else {
+                return Err(format!("unsupported asset namespace: {}", parsed.asset_namespace));
+            }
+        } else {
+            paypunk_types::AssetId::Native
+        };
+
+        let balance = self
+            .client
+            .get_balance(&account.account_address, &asset_id)?;
+        Ok(paypunk_types::Balance {
             spendable: paypunk_types::Amount(balance),
             pending: paypunk_types::Amount(0),
             total: paypunk_types::Amount(balance),
@@ -133,24 +142,77 @@ fn encode_erc20_transfer(recipient: &Address, amount: u64) -> alloy_primitives::
     alloy_primitives::Bytes::from(data)
 }
 
+fn parse_amount(amount: &str) -> Result<u64, String> {
+    // Parse human-readable amount string (e.g. "1.5", "0.05")
+    let parts: Vec<&str> = amount.split('.').collect();
+    match parts.len() {
+        1 => {
+            let v: u64 = parts[0].parse().map_err(|e| format!("invalid amount: {e}"))?;
+            Ok(v * 1_000_000_000_000_000_000) // Convert to wei
+        }
+        2 => {
+            let whole: u64 = parts[0]
+                .parse()
+                .map_err(|e| format!("invalid amount: {e}"))?;
+            let fraction_str = format!("{:0<18}", parts[1]);
+            let fraction: u64 = fraction_str[..18]
+                .parse()
+                .map_err(|e| format!("invalid amount: {e}"))?;
+            Ok(whole * 1_000_000_000_000_000_000 + fraction)
+        }
+        _ => Err("invalid amount format".to_string()),
+    }
+}
+
 impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
-    fn protocol_id(&self) -> ProtocolId {
-        ProtocolId::Ethereum
+    fn chain(&self) -> ChainId {
+        let chain_id = self.client.get_chain_id().unwrap_or(1);
+        ChainId {
+            namespace: "eip155".to_string(),
+            reference: chain_id.to_string(),
+        }
     }
 
-    fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String> {
-        let path = format!("m/44'/60'/{account}'/0/0");
-        let parsed =
-            bip32::DerivationPath::from_str(&path).map_err(|e| format!("invalid path: {e}"))?;
-        let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
-            .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
-        let ext_pubkey = key.public_key();
-        let inner = ext_pubkey.public_key();
-        let point = inner.to_encoded_point(false);
-        Ok(point.as_bytes().to_vec())
+    fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String> {
+        if path.len() < 4 {
+            return Err("path must be at least 4 bytes (account)".to_string());
+        }
+        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
+        let secret_key = derive_ethereum_key(seed, account, 0);
+        Ok(secret_key.verifying_key().to_encoded_point(false).as_bytes().to_vec())
     }
 
-    fn sign_transaction(
+    fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String> {
+        let tx: TxEip1559 = alloy_rlp::decode_exact(artifact)
+            .map_err(|e| format!("RLP decode failed: {e}"))?;
+
+        let to = match tx.to {
+            TxKind::Call(addr) => addr.to_string(),
+            TxKind::Create => "contract_creation".to_string(),
+        };
+
+        let amount = format!("{}", tx.value);
+        let fee = format!("{}", tx.max_fee_per_gas * tx.gas_limit as u128);
+
+        let summary = ArtifactSummary {
+            to,
+            amount,
+            fee,
+            memo: None,
+            protocol: ProtocolId::Ethereum,
+        };
+
+        postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
+    }
+
+    fn sign(&self, seed: &[u8; 64], artifact: &[u8]) -> Result<Vec<u8>, String> {
+        // Try account 0 by default
+        self.sign_transaction_inner(seed, 0, artifact)
+    }
+}
+
+impl<T: EthRpcClient> EthereumProtocol<T> {
+    fn sign_transaction_inner(
         &self,
         seed: &[u8; 64],
         account: u32,
@@ -196,6 +258,15 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
     }
 }
 
+/// Derive a k256 ECDSA signing key from a BIP39 seed at the given BIP44 path.
+fn derive_ethereum_key(seed: &[u8; 64], account: u32, index: u32) -> SigningKey {
+    let path = format!("m/44'/60'/{account}'/0/{index}");
+    let parsed = bip32::DerivationPath::from_str(&path).expect("valid BIP44 path");
+    let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
+        .expect("BIP32 derivation");
+    key.private_key().clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,10 +292,10 @@ mod tests {
     }
 
     impl EthRpcClient for MockRpcClient {
-        fn get_balance(&self, _address: &str, asset: &AssetId) -> Result<u64, String> {
+        fn get_balance(&self, _address: &str, asset: &paypunk_types::AssetId) -> Result<u64, String> {
             match asset {
-                AssetId::Native => Ok(self.eth_balance),
-                AssetId::Token(_) => Ok(self.erc20_balance),
+                paypunk_types::AssetId::Native => Ok(self.eth_balance),
+                paypunk_types::AssetId::Token(_) => Ok(self.erc20_balance),
             }
         }
         fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
@@ -256,69 +327,52 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_public_key() {
+    fn test_chain_id() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
-        let seed = seed_from_mnemonic();
-        let pk = protocol.derive_public_key(&seed, 0).unwrap();
-        assert_eq!(pk.len(), 65);
-        assert_eq!(pk[0], 0x04);
+        let chain = protocol.chain();
+        assert_eq!(chain.namespace, "eip155");
+        assert_eq!(chain.reference, "1");
     }
 
     #[test]
-    fn test_derive_address_roundtrip() {
+    fn test_parse_artifact() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
-        let seed = seed_from_mnemonic();
-        let pk = protocol.derive_public_key(&seed, 0).unwrap();
-        let addr = protocol.derive_address(&pk, 0).unwrap();
-        assert!(addr.starts_with("0x"));
-        assert_eq!(addr.len(), 42);
+        let _seed = seed_from_mnemonic();
+
+        // Build an unsigned transaction
+        let intent = Intent::Ethereum(EthereumIntent::Transfer {
+            to: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045".to_string(),
+            amount: "0.0001".to_string(),
+            account: 0,
+            data: None,
+        });
+
+        let unsigned = protocol.build(&intent).unwrap();
+        let parsed = protocol.parse_artifact(&unsigned).unwrap();
+        let summary: ArtifactSummary = postcard::from_bytes(&parsed).unwrap();
+        assert_eq!(summary.protocol, ProtocolId::Ethereum);
     }
 
     #[test]
     fn test_create_and_sign_transaction() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
         let seed = seed_from_mnemonic();
-        let pk = protocol.derive_public_key(&seed, 0).unwrap();
 
-        let unsigned = protocol
-            .create_transaction(
-                &pk,
-                0,
-                "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
-                100_000,
-                &AssetId::Native,
-                None,
-            )
-            .unwrap();
+        let intent = Intent::Ethereum(EthereumIntent::Transfer {
+            to: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045".to_string(),
+            amount: "0.0001".to_string(),
+            account: 0,
+            data: None,
+        });
+
+        let unsigned = protocol.build(&intent).unwrap();
         assert!(!unsigned.is_empty());
 
-        let signed = protocol.sign_transaction(&seed, 0, &unsigned).unwrap();
+        let signed = protocol.sign(&seed, &unsigned).unwrap();
         assert!(!signed.is_empty());
 
-        let finalized = protocol.finalize_transaction(&signed).unwrap();
+        let finalized = protocol.finalize(&signed).unwrap();
         assert_eq!(signed, finalized);
-    }
-
-    #[test]
-    fn test_create_erc20_transaction() {
-        let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
-        let seed = seed_from_mnemonic();
-        let pk = protocol.derive_public_key(&seed, 0).unwrap();
-
-        let unsigned = protocol
-            .create_transaction(
-                &pk,
-                0,
-                "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
-                50_000_000,
-                &AssetId::Token("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".to_string()),
-                None,
-            )
-            .unwrap();
-        assert!(!unsigned.is_empty());
-
-        let signed = protocol.sign_transaction(&seed, 0, &unsigned).unwrap();
-        assert!(!signed.is_empty());
     }
 
     #[test]
@@ -331,9 +385,9 @@ mod tests {
     #[test]
     fn test_get_native_balance() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(10_000_000_000_000_000_000, 0));
-        let seed = seed_from_mnemonic();
-        let pk = protocol.derive_public_key(&seed, 0).unwrap();
-        let balance = protocol.get_balance(0, &pk, &AssetId::Native).unwrap();
+        let address = "eip155:1:0x9858effd232b4033e47d90003d41ec34ecaeda94";
+        let asset = "eip155:1/slip44:60";
+        let balance = protocol.get_balance(address, asset).unwrap();
         assert_eq!(balance.spendable.0, 10_000_000_000_000_000_000);
         assert_eq!(balance.total.0, 10_000_000_000_000_000_000);
         assert_eq!(balance.pending.0, 0);
@@ -342,15 +396,9 @@ mod tests {
     #[test]
     fn test_get_erc20_balance() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 5_000_000_000_000_000_000));
-        let seed = seed_from_mnemonic();
-        let pk = protocol.derive_public_key(&seed, 0).unwrap();
-        let balance = protocol
-            .get_balance(
-                0,
-                &pk,
-                &AssetId::Token("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".to_string()),
-            )
-            .unwrap();
+        let address = "eip155:1:0x9858effd232b4033e47d90003d41ec34ecaeda94";
+        let asset = "eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+        let balance = protocol.get_balance(address, asset).unwrap();
         assert_eq!(balance.spendable.0, 5_000_000_000_000_000_000);
         assert_eq!(balance.total.0, 5_000_000_000_000_000_000);
         assert_eq!(balance.pending.0, 0);

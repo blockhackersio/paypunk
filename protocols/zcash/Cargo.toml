@@ -21,6 +21,7 @@ zip32.workspace = true
 rand_core = { workspace = true, default-features = false, features = ["getrandom"] }
 rand.workspace = true
 thiserror.workspace = true
+postcard = { workspace = true, features = ["alloc"] }
 
 # Wallet / actor dependencies (optional, behind "wallet" feature)
 zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "pczt", "transparent-inputs", "zcash_proofs"], optional = true }

@@ -8,6 +8,7 @@ use keypunkd::Keypunkd;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcReceiver;
+use paypunk_types::ProtocolId;
 use zcash_protocol::consensus::Network;
 use tactix::Actor;
 use tracing::info;
@@ -46,10 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let seed_store = FilesystemSeedStore::new(args.data_dir.join("seed.enc").into_boxed_path());
 
     let mut protocols = ProtocolService::new();
-    protocols.register(Box::new(ZcashProtocol {
+    protocols.register(ProtocolId::Zcash, Box::new(ZcashProtocol {
         params: Network::MainNetwork,
     }));
-    protocols.register(Box::new(EthereumProtocol::new(())));
+    protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
     info!("registered protocols: Zcash, Ethereum");
 
     let keypunkd = Keypunkd::new(keystore, seed_store, protocols).start();

@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{AssetId, Balance, ProtocolId};
+use paypunk_types::{Balance, Intent, ProtocolId};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -85,6 +85,36 @@ impl PaypunkService {
         }
     }
 
+    pub async fn lock(&self) -> Result<(), String> {
+        match self.send(PaypunkdRequest::Lock).await? {
+            PaypunkdResponse::Locked => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn submit_intent(&self, intent: Intent) -> Result<PaypunkdResponse, String> {
+        self.send(PaypunkdRequest::SubmitIntent { intent }).await
+    }
+
+    pub async fn approve_signature(
+        &self,
+        encrypted_payload: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+    ) -> Result<Vec<u8>, String> {
+        match self
+            .send(PaypunkdRequest::ApproveSignature {
+                encrypted_payload,
+                ephemeral_public_key,
+            })
+            .await?
+        {
+            PaypunkdResponse::SignatureApproved { signed_artifact } => Ok(signed_artifact),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
     pub async fn derive_address(
         &self,
         protocol: ProtocolId,
@@ -105,46 +135,13 @@ impl PaypunkService {
         }
     }
 
-    pub async fn sign(
-        &self,
-        protocol: ProtocolId,
-        account: u32,
-        payload: Vec<u8>,
-    ) -> Result<Vec<u8>, String> {
-        match self
-            .send(PaypunkdRequest::Sign {
-                protocol,
-                account,
-                payload,
-            })
-            .await?
-        {
-            PaypunkdResponse::Signature { signature } => Ok(signature),
-            PaypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
-    pub async fn lock(&self) -> Result<(), String> {
-        match self.send(PaypunkdRequest::Lock).await? {
-            PaypunkdResponse::Locked => Ok(()),
-            PaypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
     pub async fn get_balance(
         &self,
-        protocol: ProtocolId,
-        account: u32,
-        asset: AssetId,
+        address: String,
+        asset: String,
     ) -> Result<Balance, String> {
         match self
-            .send(PaypunkdRequest::GetBalance {
-                protocol,
-                account,
-                asset,
-            })
+            .send(PaypunkdRequest::GetBalance { address, asset })
             .await?
         {
             PaypunkdResponse::Balance { balance } => Ok(balance),

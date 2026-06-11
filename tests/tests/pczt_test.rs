@@ -123,15 +123,15 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
 
-    // ── 5. Sign via ZcashProtocol (SignerProtocol) ──────────────────────
+    // ── 5. Sign via ZcashProtocol (SignerProtocol::sign) ────────────────
     let signed_bytes = protocol
-        .sign_transaction(&seed, 0, &proven_bytes)
-        .expect("sign_transaction");
+        .sign(&seed, &proven_bytes)
+        .expect("sign");
 
-    // ── 6. Finalize via ZcashProtocol ───────────────────────────────────
+    // ── 6. Finalize via ZcashProtocol (Protocol::finalize) ──────────────
     let raw_tx = protocol
-        .finalize_transaction(&signed_bytes)
-        .expect("finalize_transaction");
+        .finalize(&signed_bytes)
+        .expect("finalize");
 
     // ── 7. Verify ───────────────────────────────────────────────────────
     let tx = Transaction::read(&raw_tx[..], BranchId::Nu6).expect("parse extracted transaction");

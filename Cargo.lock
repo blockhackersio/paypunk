@@ -2929,9 +2929,11 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 name = "paypunk"
 version = "0.1.0"
 dependencies = [
+ "blake2",
  "clap",
  "paypunk-api",
  "paypunk-types",
+ "postcard",
  "tokio",
  "zeroize",
 ]
@@ -2960,6 +2962,7 @@ dependencies = [
  "hex",
  "k256",
  "paypunk-types",
+ "postcard",
  "reqwest",
  "serde_json",
  "thiserror 2.0.18",
@@ -2975,6 +2978,7 @@ dependencies = [
  "orchard",
  "paypunk-types",
  "pczt",
+ "postcard",
  "prost",
  "rand 0.8.6",
  "rand_core 0.6.4",

@@ -1,12 +1,8 @@
 use keypunkd::crypto::Keypair;
-use paypunk_types::{AssetId, Balance, ProtocolId};
+use paypunk_types::{AssetId, Balance, Intent, ProtocolId};
 use zeroize::Zeroizing;
 
 /// Generate a new wallet seed.
-///
-/// Creates an ephemeral X25519 keypair, encrypts the password to keypunkd's
-/// public key, sends the request through paypunkd, and decrypts the returned
-/// mnemonic.
 pub async fn generate_seed(
     service: &paypunkd::services::PaypunkService,
     password: Zeroizing<String>,
@@ -25,9 +21,6 @@ pub async fn generate_seed(
 }
 
 /// Restore a wallet from an existing BIP39 mnemonic seed phrase.
-///
-/// Encrypts both the mnemonic and password to keypunkd's public key, sends
-/// the request through paypunkd for validation and persistence.
 pub async fn restore_seed(
     service: &paypunkd::services::PaypunkService,
     mnemonic: Zeroizing<String>,
@@ -45,9 +38,6 @@ pub async fn restore_seed(
 }
 
 /// Unlock the wallet by sending the password to keypunkd.
-///
-/// keypunkd decrypts the seed and holds it in memory for subsequent
-/// operations like address derivation.
 pub async fn unlock(
     service: &paypunkd::services::PaypunkService,
     password: Zeroizing<String>,
@@ -60,10 +50,12 @@ pub async fn unlock(
     service.unlock(encrypted_password, client_pk).await
 }
 
-/// Derive an address for the given protocol, account, and diversifier index.
-///
-/// paypunkd caches the protocol's view key material locally, so subsequent
-/// calls for the same (protocol, account) do not require keypunkd roundtrips.
+/// Lock the wallet, zeroizing the in-memory seed in keypunkd.
+pub async fn lock(service: &paypunkd::services::PaypunkService) -> Result<(), String> {
+    service.lock().await
+}
+
+/// Derive an address for the given protocol, account, and index.
 pub async fn derive_address(
     service: &paypunkd::services::PaypunkService,
     protocol: ProtocolId,
@@ -73,33 +65,82 @@ pub async fn derive_address(
     service.derive_address(protocol, account, index).await
 }
 
-/// Sign a payload using the derived private key for the given protocol and account.
+/// Submit an intent for preview.
 ///
-/// The signing request is forwarded to keypunkd where the private key material
-/// lives in protected memory. The signature bytes are returned.
-pub async fn sign(
+/// Returns the raw artifact, parsed summary, keypunkd's signature over
+/// H(raw, parsed), and keypunkd's public key for verification.
+pub async fn submit_intent(
     service: &paypunkd::services::PaypunkService,
-    protocol: ProtocolId,
-    account: u32,
-    payload: Vec<u8>,
+    intent: Intent,
+) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+    match service.submit_intent(intent).await? {
+        paypunkd::messages::PaypunkdResponse::SignablePreview {
+            raw_artifact,
+            parsed_summary,
+            keypunkd_signature,
+            keypunkd_public_key,
+        } => Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)),
+        paypunkd::messages::PaypunkdResponse::Error { message } => Err(message),
+        _ => Err("unexpected response from paypunkd".to_string()),
+    }
+}
+
+/// Approve a previously previewed artifact by encrypting the password
+/// along with the artifact and signature to keypunkd.
+pub async fn approve_signature(
+    service: &paypunkd::services::PaypunkService,
+    raw_artifact: &[u8],
+    keypunkd_signature: &[u8],
+    password: Zeroizing<String>,
 ) -> Result<Vec<u8>, String> {
-    service.sign(protocol, account, payload).await
+    let client_keypair = Keypair::new();
+    let server_pk = service.get_keypunk_encryption_key().await?;
+    let client_pk = client_keypair.public_key();
+
+    // Encode payload: raw_len(4) + raw + sig_len(4) + sig + pw
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&(raw_artifact.len() as u32).to_le_bytes());
+    payload.extend_from_slice(raw_artifact);
+    payload.extend_from_slice(&(keypunkd_signature.len() as u32).to_le_bytes());
+    payload.extend_from_slice(keypunkd_signature);
+    payload.extend_from_slice(password.as_bytes());
+
+    let encrypted_payload = client_keypair.encrypt_bytes(&payload, &server_pk);
+
+    service
+        .approve_signature(encrypted_payload, client_pk)
+        .await
 }
 
-/// Lock the wallet, zeroizing the in-memory seed in keypunkd.
-pub async fn lock(service: &paypunkd::services::PaypunkService) -> Result<(), String> {
-    service.lock().await
-}
-
-/// Query the balance for the given protocol, account, and asset.
-///
-/// Delegates to the chain-specific `Protocol::get_balance` implementation
-/// running in paypunkd. Returns spendable, pending, and total amounts.
+/// Query the balance for the given address and asset (CAIP-10 and CAIP-19).
 pub async fn get_balance(
+    service: &paypunkd::services::PaypunkService,
+    address: String,
+    asset: String,
+) -> Result<Balance, String> {
+    service.get_balance(address, asset).await
+}
+
+/// Legacy balance query using protocol + account + AssetId.
+pub async fn get_balance_legacy(
     service: &paypunkd::services::PaypunkService,
     protocol: ProtocolId,
     account: u32,
     asset: AssetId,
 ) -> Result<Balance, String> {
-    service.get_balance(protocol, account, asset).await
+    // Convert to CAIP format
+    let address = match protocol {
+        ProtocolId::Ethereum => format!("eip155:1:account_{account}"),
+        ProtocolId::Zcash => format!("zcash:mainnet:account_{account}"),
+        _ => return Err("unsupported protocol".to_string()),
+    };
+    let asset_str = match asset {
+        AssetId::Native => match protocol {
+            ProtocolId::Ethereum => "eip155:1/slip44:60".to_string(),
+            ProtocolId::Zcash => "zcash:mainnet/slip44:133".to_string(),
+            _ => return Err("unsupported protocol".to_string()),
+        },
+        AssetId::Token(addr) => format!("eip155:1/erc20:{addr}"),
+    };
+    get_balance(service, address, asset_str).await
 }

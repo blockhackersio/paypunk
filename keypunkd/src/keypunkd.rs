@@ -3,8 +3,10 @@ use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler};
 use tracing::{debug, info, warn};
 use zeroize::Zeroize;
+use blake2::Digest;
 
 use crate::crypto::Keypair;
+use crate::key;
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
 use crate::protocol::ProtocolService;
 use crate::seed_store::SeedStore;
@@ -191,47 +193,197 @@ impl<S: Storage> Keypunkd<S> {
         }
     }
 
-    fn derive_public_key(
-        &self,
-        msg: &IpcMessage,
-        protocol: ProtocolId,
-        account: u32,
-    ) -> KeypunkdResponse {
-        info!(?protocol, account, "handling DerivePublicKey");
-        let session = match self.require_session(msg) {
-            Ok(s) => s,
-            Err(e) => return KeypunkdResponse::Error { message: e },
-        };
-        self.respond(
-            "derive_public_key",
-            usecases::derive_public_key(&session.seed, &self.protocols, protocol, account),
-            |key| KeypunkdResponse::ProtocolPublicKey { key },
-        )
-    }
-
-    fn sign(
-        &self,
-        msg: &IpcMessage,
-        protocol: ProtocolId,
-        account: u32,
-        payload: Vec<u8>,
-    ) -> KeypunkdResponse {
-        info!(?protocol, account, "handling Sign");
-        let session = match self.require_session(msg) {
-            Ok(s) => s,
-            Err(e) => return KeypunkdResponse::Error { message: e },
-        };
-        self.respond(
-            "sign",
-            usecases::sign(&session.seed, &self.protocols, protocol, account, &payload),
-            |signature| KeypunkdResponse::Signature { signature },
-        )
-    }
-
     fn lock(&mut self) -> KeypunkdResponse {
         info!("handling Lock");
         self.clear_session();
         KeypunkdResponse::Locked
+    }
+
+    fn preview_artifact(
+        &self,
+        raw_artifact: Vec<u8>,
+        protocol: ProtocolId,
+        msg: &IpcMessage,
+    ) -> KeypunkdResponse {
+        info!(?protocol, "handling PreviewArtifact");
+        let session = match self.require_session(msg) {
+            Ok(s) => s,
+            Err(e) => return KeypunkdResponse::Error { message: e },
+        };
+
+        // Parse the artifact into a summary
+        let parsed_summary = match usecases::preview_artifact(&self.protocols, protocol, &raw_artifact) {
+            Ok(s) => s,
+            Err(e) => return KeypunkdResponse::Error { message: e },
+        };
+
+        // Sign H(raw, parsed) with keypunkd's keypair for WYSIWYS verification
+        let mut to_sign = Vec::new();
+        to_sign.extend_from_slice(&raw_artifact);
+        to_sign.extend_from_slice(&parsed_summary);
+        let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_sign);
+        let signature = self.keystore.encrypt_bytes(&hash, &session.peer_pk);
+
+        KeypunkdResponse::ArtifactPreview {
+            raw_artifact,
+            parsed_summary,
+            signature,
+            keypunkd_public_key: self.keystore.public_key(),
+        }
+    }
+
+    fn authorize_artifact(
+        &self,
+        encrypted_payload: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+        msg: &IpcMessage,
+    ) -> KeypunkdResponse {
+        info!("handling AuthorizeArtifact");
+        let _session = match self.require_session(msg) {
+            Ok(s) => s,
+            Err(e) => return KeypunkdResponse::Error { message: e },
+        };
+
+        // Decrypt the payload: (raw, sig, pw) encrypted with ephemeral key
+        let plaintext = match self
+            .keystore
+            .decrypt_bytes(&encrypted_payload, &ephemeral_public_key)
+        {
+            Ok(p) => p,
+            Err(e) => return KeypunkdResponse::Error { message: format!("decryption failed: {e}") },
+        };
+
+        // Parse: first 64 bytes = raw_artifact length prefix + raw, then sig, then pw
+        // Format: raw_len(4) + raw(raw_len) + sig_len(4) + sig(sig_len) + pw(rest)
+        if plaintext.len() < 8 {
+            return KeypunkdResponse::Error {
+                message: "invalid encrypted payload".to_string(),
+            };
+        }
+
+        let raw_len = u32::from_le_bytes(plaintext[0..4].try_into().unwrap()) as usize;
+        if plaintext.len() < 4 + raw_len + 4 {
+            return KeypunkdResponse::Error {
+                message: "invalid encrypted payload: truncated".to_string(),
+            };
+        }
+        let raw_end = 4 + raw_len;
+        let raw_artifact = &plaintext[4..raw_end];
+
+        let sig_len = u32::from_le_bytes(plaintext[raw_end..raw_end + 4].try_into().unwrap()) as usize;
+        let sig_start = raw_end + 4;
+        let sig_end = sig_start + sig_len;
+        if plaintext.len() < sig_end {
+            return KeypunkdResponse::Error {
+                message: "invalid encrypted payload: truncated sig".to_string(),
+            };
+        }
+        let sig = &plaintext[sig_start..sig_end];
+        let password_bytes = &plaintext[sig_end..];
+
+        // Re-parse the raw artifact to verify it matches
+        // Try each protocol
+        let parsed_summary = self.try_parse_artifact(raw_artifact);
+
+        // Verify the signature over H(raw, parsed)
+        if let Ok(ref summary) = parsed_summary {
+            let mut to_verify = Vec::new();
+            to_verify.extend_from_slice(raw_artifact);
+            to_verify.extend_from_slice(summary);
+            let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
+
+            // Decrypt the signature to get the expected hash
+            let decrypted_sig = match self.keystore.decrypt_bytes(sig, &ephemeral_public_key) {
+                Ok(d) => d,
+                Err(_) => {
+                    return KeypunkdResponse::Error {
+                        message: "signature verification failed: cannot decrypt".to_string(),
+                    }
+                }
+            };
+
+            if decrypted_sig.as_slice() != hash.as_slice() {
+                return KeypunkdResponse::Error {
+                    message: "artifact verification failed: summary mismatch".to_string(),
+                };
+            }
+        }
+
+        // Decrypt seed with password
+        let password_str = match String::from_utf8(password_bytes.to_vec()) {
+            Ok(s) => s,
+            Err(_) => {
+                return KeypunkdResponse::Error {
+                    message: "invalid password encoding".to_string(),
+                }
+            }
+        };
+
+        let encrypted_store = match self.seed_store.read() {
+            Ok(Some(e)) => e,
+            Ok(None) => {
+                return KeypunkdResponse::Error {
+                    message: "no seed found".to_string(),
+                }
+            }
+            Err(e) => {
+                return KeypunkdResponse::Error {
+                    message: format!("read seed failed: {e}"),
+                }
+            }
+        };
+
+        let seed = match key::decrypt_seed(&encrypted_store, &password_str) {
+            Ok(s) => s,
+            Err(e) => {
+                return KeypunkdResponse::Error {
+                    message: format!("seed decryption failed: {e}"),
+                }
+            }
+        };
+
+        // Sign the artifact
+        let signed_artifact = match usecases::sign_artifact(&seed, &self.protocols, raw_artifact) {
+            Ok(s) => s,
+            Err(e) => return KeypunkdResponse::Error { message: e },
+        };
+
+        KeypunkdResponse::ArtifactAuthorized { signed_artifact }
+    }
+
+    fn try_parse_artifact(&self, raw_artifact: &[u8]) -> Result<Vec<u8>, String> {
+        for id in [
+            ProtocolId::Zcash,
+            ProtocolId::Ethereum,
+            ProtocolId::Bitcoin,
+            ProtocolId::Monero,
+            ProtocolId::Solana,
+        ] {
+            if let Some(deriver) = self.protocols.get(id) {
+                if let Ok(summary) = deriver.parse_artifact(raw_artifact) {
+                    return Ok(summary);
+                }
+            }
+        }
+        Err("no protocol could parse the artifact".to_string())
+    }
+
+    fn export_viewing_key(
+        &self,
+        msg: &IpcMessage,
+        protocol: ProtocolId,
+        account: u32,
+    ) -> KeypunkdResponse {
+        info!(?protocol, account, "handling ExportViewingKey");
+        let session = match self.require_session(msg) {
+            Ok(s) => s,
+            Err(e) => return KeypunkdResponse::Error { message: e },
+        };
+        self.respond(
+            "export_viewing_key",
+            usecases::export_viewing_key(&session.seed, &self.protocols, protocol, account),
+            |key| KeypunkdResponse::ViewingKey { key },
+        )
     }
 }
 
@@ -261,15 +413,18 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 encrypted_password,
                 client_public_key,
             } => self.unlock(&msg, encrypted_password, client_public_key),
-            KeypunkdRequest::DerivePublicKey { protocol, account } => {
-                self.derive_public_key(&msg, protocol, account)
-            }
-            KeypunkdRequest::Sign {
-                protocol,
-                account,
-                payload,
-            } => self.sign(&msg, protocol, account, payload),
             KeypunkdRequest::Lock => self.lock(),
+            KeypunkdRequest::PreviewArtifact {
+                raw_artifact,
+                protocol,
+            } => self.preview_artifact(raw_artifact, protocol, &msg),
+            KeypunkdRequest::AuthorizeArtifact {
+                encrypted_payload,
+                ephemeral_public_key,
+            } => self.authorize_artifact(encrypted_payload, ephemeral_public_key, &msg),
+            KeypunkdRequest::ExportViewingKey { protocol, account } => {
+                self.export_viewing_key(&msg, protocol, account)
+            }
         };
 
         let encoded =

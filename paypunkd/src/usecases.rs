@@ -1,5 +1,5 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::{AssetId, Balance, BlockHeight, ProtocolId, TxStatus};
+use paypunk_types::{Balance, Intent, ProtocolId};
 
 use crate::protocol_service::ProtocolService;
 
@@ -38,68 +38,119 @@ pub async fn unlock(
     service.unlock(encrypted_password, client_public_key).await
 }
 
-pub async fn derive_public_key(
-    service: &KeypunkService,
-    protocol: ProtocolId,
-    account: u32,
-) -> Result<Vec<u8>, String> {
-    service.derive_public_key(protocol, account).await
-}
-
-pub async fn sign(
-    service: &KeypunkService,
-    protocol: ProtocolId,
-    account: u32,
-    payload: Vec<u8>,
-) -> Result<Vec<u8>, String> {
-    service.sign(protocol, account, payload).await
-}
-
 pub async fn lock(service: &KeypunkService) -> Result<(), String> {
     service.lock().await
 }
 
-// ── Local protocol operations ──────────────────────────────────────────────
-
-/// Derive an address from a cached public key using the protocol service.
-///
-/// Callers are responsible for fetching and caching the public key via
-/// `derive_public_key` before calling this function.
-pub fn derive_address(
-    protocols: &ProtocolService,
+pub async fn export_viewing_key(
+    service: &KeypunkService,
     protocol: ProtocolId,
-    public_key: &[u8],
-    index: u32,
-) -> Result<String, String> {
-    protocols.get(protocol)?.derive_address(public_key, index)
+    account: u32,
+) -> Result<Vec<u8>, String> {
+    service.export_viewing_key(protocol, account).await
 }
 
-/// Finalize a signed transaction using the protocol service.
-///
-/// For Zcash this combines proven + signed PCZTs, finalizes spends,
-/// and extracts the raw transaction bytes.
-pub fn finalize_transaction(
+/// Submit an intent: build the unsigned artifact via the protocol,
+/// then forward to keypunkd for parsing and preview.
+pub async fn submit_intent(
+    keypunk_service: &KeypunkService,
+    protocols: &ProtocolService,
+    intent: &Intent,
+) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+    // Determine protocol from intent
+    let protocol_id = match intent {
+        Intent::Zcash(_) => ProtocolId::Zcash,
+        Intent::Ethereum(_) => ProtocolId::Ethereum,
+    };
+
+    // Build the unsigned artifact
+    let protocol = protocols.get(protocol_id)?;
+    let raw_artifact = protocol.build(intent)?;
+
+    // Forward to keypunkd for parsing and preview
+    let preview = keypunk_service
+        .preview_artifact(raw_artifact, protocol_id)
+        .await?;
+
+    match preview {
+        keypunkd::messages::KeypunkdResponse::ArtifactPreview {
+            raw_artifact,
+            parsed_summary,
+            signature,
+            keypunkd_public_key,
+        } => Ok((raw_artifact, parsed_summary, signature, keypunkd_public_key)),
+        keypunkd::messages::KeypunkdResponse::Error { message } => Err(message),
+        _ => Err("unexpected response from keypunkd".to_string()),
+    }
+}
+
+/// Approve and sign an artifact.
+pub async fn approve_signature(
+    keypunk_service: &KeypunkService,
+    encrypted_payload: Vec<u8>,
+    ephemeral_public_key: [u8; 32],
+) -> Result<Vec<u8>, String> {
+    keypunk_service
+        .authorize_artifact(encrypted_payload, ephemeral_public_key)
+        .await
+}
+
+// ── Local protocol operations ──────────────────────────────────────────────
+
+/// Finalize a signed artifact into broadcast-ready bytes.
+pub fn finalize_artifact(
     protocols: &ProtocolService,
     protocol: ProtocolId,
-    transaction: &[u8],
+    signed: &[u8],
 ) -> Result<Vec<u8>, String> {
+    protocols.get(protocol)?.finalize(signed)
+}
+
+/// Derive an address from a viewing key using the protocol service.
+pub fn derive_address(
+    _protocols: &ProtocolService,
+    protocol: ProtocolId,
+    viewing_key: &[u8],
+    index: u32,
+) -> Result<String, String> {
+    match protocol {
+        ProtocolId::Zcash => {
+            paypunk_chains_zcash::address::derive_from_fvk(viewing_key, index)
+                .map_err(|e| e.to_string())
+        }
+        ProtocolId::Ethereum => {
+            paypunk_chains_ethereum::address::derive_from_pubkey(viewing_key)
+                .map(|a| a.to_string())
+                .map_err(|e| e.to_string())
+        }
+        _ => Err(format!("unsupported protocol for address derivation: {protocol:?}")),
+    }
+}
+
+/// Validate an address using the protocol service.
+pub fn validate_address(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    address: &str,
+) -> bool {
     protocols
-        .get(protocol)?
-        .finalize_transaction(transaction)
+        .get(protocol)
+        .map(|p| p.validate_address(address))
+        .unwrap_or(false)
 }
 
 // ── Stubs: depend on future work ───────────────────────────────────────────
 
-/// Full PCZT pipeline orchestration:
-/// 1. Fetch public key from keypunkd
-/// 2. create_transaction (includes proving, no separate step needed)
-/// 3. sign via keypunkd IPC
-/// 4. finalize_transaction
-/// 5. store transaction
-/// 6. return txid
-///
-/// TODO: Needs `TransactionProposer` (requires chain-specific wallet DB setup
-/// in paypunkd) for storing transactions.
+/// Query the spendable, pending, and total balance for the given address and asset.
+pub fn get_balance(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    address: &str,
+    asset: &str,
+) -> Result<Balance, String> {
+    protocols.get(protocol)?.get_balance(address, asset)
+}
+
 pub async fn create_transfer(
     _service: &KeypunkService,
     _protocols: &ProtocolService,
@@ -112,26 +163,6 @@ pub async fn create_transfer(
     todo!("create_transfer: PCZT pipeline not yet implemented — needs TransactionProposer")
 }
 
-/// Query the spendable, pending, and total balance for the given protocol
-/// and account.
-///
-/// Delegates to the chain-specific `Protocol::get_balance` implementation.
-/// For chains without a wallet DB or RPC endpoint wired yet, the default
-/// trait implementation returns a zero balance.
-pub fn get_balance(
-    protocols: &ProtocolService,
-    protocol: ProtocolId,
-    account: u32,
-    public_key: &[u8],
-    asset: &AssetId,
-) -> Result<Balance, String> {
-    protocols.get(protocol)?.get_balance(account, public_key, asset)
-}
-
-/// Fetch paginated transaction history for the given protocol and account.
-///
-/// TODO: Needs the `Page<T>` / `HistoryEntry`
-/// types from the reference API (not yet added to paypunk-types).
 pub async fn get_history(
     _protocol: ProtocolId,
     _account: u32,
@@ -141,16 +172,10 @@ pub async fn get_history(
     todo!("get_history: needs Page/HistoryEntry types")
 }
 
-/// Trigger a chain scan to detect incoming payments.
-///
-/// TODO: Needs LSP/lightwalletd client integration.
 pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), String> {
     todo!("sync_wallet: needs LSP/lightwalletd connection")
 }
 
-/// Broadcast a signed and finalized transaction to the network.
-///
-/// TODO: Needs a lightwalletd gRPC client or RPC endpoint for submission.
 pub async fn broadcast_transaction(
     _protocol: ProtocolId,
     _raw_tx: Vec<u8>,
@@ -158,27 +183,17 @@ pub async fn broadcast_transaction(
     todo!("broadcast_transaction: needs lightwalletd/RPC client")
 }
 
-/// Query the on-chain status of a transaction by its txid.
-///
-/// TODO: Needs lightwalletd client or chain RPC to look up tx status.
 pub async fn get_transaction_status(
     _protocol: ProtocolId,
     _txid: String,
-) -> Result<TxStatus, String> {
+) -> Result<paypunk_types::TxStatus, String> {
     todo!("get_transaction_status: needs lightwalletd/RPC client")
 }
 
-/// Return the current block height of the network.
-///
-/// TODO: Needs lightwalletd client or chain RPC.
-pub async fn get_current_block_height(_protocol: ProtocolId) -> Result<BlockHeight, String> {
+pub async fn get_current_block_height(_protocol: ProtocolId) -> Result<paypunk_types::BlockHeight, String> {
     todo!("get_current_block_height: needs lightwalletd/RPC client")
 }
 
-/// Estimate the fee for a proposed transfer.
-///
-/// TODO: Needs `TransactionProposer` to build an unsigned tx and query fee
-/// estimates from the chain.
 pub async fn estimate_fee(
     _protocol: ProtocolId,
     _to: &str,

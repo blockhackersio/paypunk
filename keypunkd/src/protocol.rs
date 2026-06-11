@@ -17,8 +17,8 @@ impl ProtocolService {
         }
     }
 
-    pub fn register(&mut self, protocol: Box<dyn SignerProtocol>) {
-        self.protocols.insert(protocol.protocol_id(), protocol);
+    pub fn register(&mut self, id: ProtocolId, protocol: Box<dyn SignerProtocol>) {
+        self.protocols.insert(id, protocol);
     }
 
     pub fn get(&self, id: ProtocolId) -> Option<&dyn SignerProtocol> {

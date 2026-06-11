@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
-use paypunk_types::{AssetId, ProtocolId};
+use paypunk_types::{EthereumIntent, Intent, ProtocolId, ZcashIntent};
+use blake2::Digest;
 
 #[derive(Parser)]
 #[command(
@@ -18,45 +19,55 @@ struct Cli {
 enum Commands {
     /// Generate a new wallet seed (initializes the wallet)
     GenerateSeed {
-        /// Password used to encrypt the wallet seed
         #[arg(short, long)]
         password: String,
     },
     /// Restore a wallet from an existing seed phrase
     RestoreSeed {
-        /// The 12-word BIP39 mnemonic seed phrase
         #[arg(short, long)]
         mnemonic: String,
-        /// Password to encrypt the restored seed
         #[arg(short, long)]
         password: String,
     },
     /// Unlock the wallet with the password
     Unlock {
-        /// Wallet password
         #[arg(short, long)]
         password: String,
     },
-    /// Derive an address at the given protocol, account, and diversifier index
-    DeriveAddress {
-        /// Protocol (zcash, bitcoin, ethereum, monero, solana)
-        #[arg(short, long, default_value = "zcash")]
-        protocol: String,
-        /// Account index (default: 0)
-        #[arg(short, long, default_value_t = 0)]
-        account: u32,
-        /// Diversifier / address index (default: 0)
-        #[arg(short, long, default_value_t = 0)]
-        index: u32,
-    },
     /// Lock the wallet (zeroize in-memory seed)
     Lock,
+    /// Submit a Zcash transfer intent for preview
+    SubmitZcashTransfer {
+        #[arg(short, long)]
+        to: String,
+        #[arg(short, long)]
+        amount: String,
+        #[arg(short, long, default_value_t = 0)]
+        account: u32,
+        #[arg(short, long)]
+        memo: Option<String>,
+    },
+    /// Submit an Ethereum transfer intent for preview
+    SubmitEthTransfer {
+        #[arg(short, long)]
+        to: String,
+        #[arg(short, long)]
+        amount: String,
+        #[arg(short, long, default_value_t = 0)]
+        account: u32,
+        #[arg(short, long)]
+        data: Option<String>,
+    },
+    /// Approve a previously submitted intent by providing the password
+    ApproveSignature {
+        /// Password to authorize the signing
+        #[arg(short, long)]
+        password: String,
+    },
     /// Query the balance for a protocol and account
     GetBalance {
-        /// Protocol (zcash, bitcoin, ethereum, monero, solana)
         #[arg(short, long, default_value = "zcash")]
         protocol: String,
-        /// Account index (default: 0)
         #[arg(short, long, default_value_t = 0)]
         account: u32,
     },
@@ -85,28 +96,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client.unlock(password).await?;
             println!("Wallet unlocked");
         }
-        Commands::DeriveAddress {
-            protocol,
-            account,
-            index,
-        } => {
-            let protocol_id = match protocol.to_lowercase().as_str() {
-                "zcash" => ProtocolId::Zcash,
-                "bitcoin" => ProtocolId::Bitcoin,
-                "ethereum" => ProtocolId::Ethereum,
-                "monero" => ProtocolId::Monero,
-                "solana" => ProtocolId::Solana,
-                _ => {
-                    eprintln!("Unknown protocol: {protocol}");
-                    std::process::exit(1);
-                }
-            };
-            let address = client.derive_address(protocol_id, account, index).await?;
-            println!("{address}");
-        }
         Commands::Lock => {
             client.lock().await?;
             println!("Wallet locked");
+        }
+        Commands::SubmitZcashTransfer {
+            to,
+            amount,
+            account,
+            memo,
+        } => {
+            let intent = Intent::Zcash(ZcashIntent::Transfer {
+                to,
+                amount,
+                account,
+                memo,
+            });
+            submit_intent_flow(&client, intent).await?;
+        }
+        Commands::SubmitEthTransfer {
+            to,
+            amount,
+            account,
+            data,
+        } => {
+            let intent = Intent::Ethereum(EthereumIntent::Transfer {
+                to,
+                amount,
+                account,
+                data,
+            });
+            submit_intent_flow(&client, intent).await?;
+        }
+        Commands::ApproveSignature { password: _password } => {
+            println!("ApproveSignature must be used interactively after SubmitIntent");
+            println!("Re-run with a Submit* command first");
         }
         Commands::GetBalance { protocol, account } => {
             let protocol_id = match protocol.to_lowercase().as_str() {
@@ -120,7 +144,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(1);
                 }
             };
-            let balance = client.get_balance(protocol_id, account, AssetId::Native).await?;
+            let asset = paypunk_types::AssetId::Native;
+            let balance = client.get_balance_legacy(protocol_id, account, asset).await?;
             println!(
                 "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",
                 balance.spendable.0,
@@ -131,4 +156,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+async fn submit_intent_flow(client: &paypunk_api::Client, intent: Intent) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Submitting intent for preview...");
+    match client.submit_intent(intent).await {
+        Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
+            // Verify the signature: H(raw, parsed) should match
+            // In a production build, we'd verify against keypunkd's public key
+            let mut to_verify = Vec::new();
+            to_verify.extend_from_slice(&raw_artifact);
+            to_verify.extend_from_slice(&parsed_summary);
+            let _hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
+
+            println!("Artifact preview received:");
+            println!("  Raw artifact: {} bytes", raw_artifact.len());
+
+            // Try to deserialize the parsed summary
+            if let Ok(summary) = postcard::from_bytes::<paypunk_types::ArtifactSummary>(&parsed_summary) {
+                println!("  To: {}", summary.to);
+                println!("  Amount: {}", summary.amount);
+                println!("  Fee: {}", summary.fee);
+                if let Some(memo) = summary.memo {
+                    println!("  Memo: {memo}");
+                }
+                println!("  Protocol: {:?}", summary.protocol);
+            } else {
+                println!("  Parsed summary: {} bytes (raw)", parsed_summary.len());
+            }
+
+            println!("  Signature: {} bytes", keypunkd_signature.len());
+            println!("  Keypunkd public key: {:?}", keypunkd_public_key);
+
+            // Store the preview data for approval (in a real app, we'd use state)
+            // For now, prompt the user to approve
+            println!();
+            println!("To approve, run: paypunk approve-signature --password <your-password>");
+            println!("(In a future version, this will be an interactive prompt)");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    }
 }

@@ -1,6 +1,6 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
-use paypunk_types::{AssetId, Balance, ProtocolId};
+use paypunk_types::{AssetId, Balance, Intent, ProtocolId};
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -47,17 +47,19 @@ impl Client {
     }
 
     /// Unlock the wallet with the given password.
-    ///
-    /// keypunkd will decrypt the seed and hold it in memory for subsequent
-    /// operations.
     pub async fn unlock(&self, password: Zeroizing<String>) -> Result<(), String> {
         crate::functions::unlock(&self.service, password).await
     }
 
+    /// Lock the wallet, zeroizing the in-memory seed in keypunkd.
+    pub async fn lock(&self) -> Result<(), String> {
+        crate::functions::lock(&self.service).await
+    }
+
     /// Derive an address for the given protocol, account, and diversifier index.
     ///
-    /// Requires an active unlocked session in keypunkd.
-    /// The protocol's view key is cached in paypunkd after the first call.
+    /// Fetches the viewing key from keypunkd and derives the address locally
+    /// via the protocol implementation.
     pub async fn derive_address(
         &self,
         protocol: ProtocolId,
@@ -67,22 +69,52 @@ impl Client {
         crate::functions::derive_address(&self.service, protocol, account, index).await
     }
 
-    /// Lock the wallet, zeroizing the in-memory seed in keypunkd.
-    pub async fn lock(&self) -> Result<(), String> {
-        crate::functions::lock(&self.service).await
+    /// Submit an intent for the two-phase authorization flow.
+    ///
+    /// Phase 1: Builds the unsigned artifact, sends it to keypunkd for
+    /// parsing and preview, and returns the preview data for user approval.
+    pub async fn submit_intent(
+        &self,
+        intent: Intent,
+    ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+        crate::functions::submit_intent(&self.service, intent).await
     }
 
-    /// Query the spendable, pending, and total balance for the given
-    /// protocol, account, and asset.
+    /// Approve a previously previewed artifact.
     ///
-    /// Use `AssetId::Native` for the chain's native currency (ETH, ZEC, etc.)
-    /// or `AssetId::Token(contract)` for ERC-20 tokens.
+    /// Phase 2: Encrypts the password along with the artifact and keypunkd's
+    /// signature to keypunkd's public key, then sends for authorization.
+    pub async fn approve_signature(
+        &self,
+        raw_artifact: &[u8],
+        keypunkd_signature: &[u8],
+        password: Zeroizing<String>,
+    ) -> Result<Vec<u8>, String> {
+        crate::functions::approve_signature(
+            &self.service,
+            raw_artifact,
+            keypunkd_signature,
+            password,
+        )
+        .await
+    }
+
+    /// Query the balance for the given address and asset (CAIP-10 and CAIP-19).
     pub async fn get_balance(
+        &self,
+        address: String,
+        asset: String,
+    ) -> Result<Balance, String> {
+        crate::functions::get_balance(&self.service, address, asset).await
+    }
+
+    /// Legacy balance query using protocol + account + AssetId.
+    pub async fn get_balance_legacy(
         &self,
         protocol: ProtocolId,
         account: u32,
         asset: AssetId,
     ) -> Result<Balance, String> {
-        crate::functions::get_balance(&self.service, protocol, account, asset).await
+        crate::functions::get_balance_legacy(&self.service, protocol, account, asset).await
     }
 }

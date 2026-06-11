@@ -8,7 +8,6 @@ use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
-use paypunk_types::AssetId;
 use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Recipient, Sender};
@@ -30,10 +29,10 @@ impl MockRpcClient {
 }
 
 impl EthRpcClient for MockRpcClient {
-    fn get_balance(&self, _address: &str, asset: &AssetId) -> Result<u64, String> {
+    fn get_balance(&self, _address: &str, asset: &paypunk_types::AssetId) -> Result<u64, String> {
         match asset {
-            AssetId::Native => Ok(self.eth_balance),
-            AssetId::Token(_) => Ok(self.erc20_balance),
+            paypunk_types::AssetId::Native => Ok(self.eth_balance),
+            paypunk_types::AssetId::Token(_) => Ok(self.erc20_balance),
         }
     }
     fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
@@ -60,16 +59,6 @@ impl EthRpcClient for MockRpcClient {
 }
 
 /// Builder for wiring up the full actor chain in tests.
-///
-/// Defaults to Zcash + Ethereum (zero-balance mock) in both keypunkd and
-/// paypunkd, with session auth disabled.
-///
-/// # Examples
-///
-/// ```ignore
-/// let recipient = TestBuilder::new().build();
-/// let recipient = TestBuilder::new().with_eth_balance(10_000_000_000_000_000_000).build();
-/// ```
 struct TestBuilder {
     eth_mock: MockRpcClient,
 }
@@ -96,10 +85,10 @@ impl TestBuilder {
         let store = InMemorySeedStore::new();
 
         let mut keypunkd_protocols = KeypunkdProtocolService::new();
-        keypunkd_protocols.register(Box::new(ZcashProtocol {
+        keypunkd_protocols.register(ProtocolId::Zcash, Box::new(ZcashProtocol {
             params: zcash_protocol::consensus::Network::MainNetwork,
         }));
-        keypunkd_protocols.register(Box::new(EthereumProtocol::new(())));
+        keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
 
         let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
             .with_skip_session_auth(true)
@@ -231,22 +220,6 @@ async fn test_unlock_with_wrong_password_fails() {
 }
 
 #[tokio::test]
-async fn test_derive_address_without_unlock_fails() {
-    let recipient = TestBuilder::new().build();
-    let client = Client::with_recipient(recipient);
-
-    client
-        .generate_seed(Zeroizing::new("password".to_string()))
-        .await
-        .unwrap();
-
-    let result = client.derive_address(ProtocolId::Zcash, 0, 0).await;
-
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("no active session"));
-}
-
-#[tokio::test]
 async fn test_unlock_then_derive_address() {
     let recipient = TestBuilder::new().build();
     let client = Client::with_recipient(recipient);
@@ -334,11 +307,10 @@ async fn test_lock_clears_session() {
 
     client.lock().await.unwrap();
 
-    let addr = client
+    let result = client
         .derive_address(ProtocolId::Zcash, 0, 0)
-        .await
-        .unwrap();
-    assert!(addr.starts_with("u1"), "got: {addr}");
+        .await;
+    assert!(result.is_err(), "should fail after lock");
 }
 
 #[tokio::test]
@@ -352,12 +324,20 @@ async fn test_eth_balance_via_mock_rpc() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
-    let balance = client
-        .get_balance(ProtocolId::Ethereum, 0, AssetId::Native)
+    // Derive the address first
+    let addr = client
+        .derive_address(ProtocolId::Ethereum, 0, 0)
         .await
         .unwrap();
 
-    // 10 ETH in wei
+    let balance = client
+        .get_balance(
+            format!("eip155:1:{addr}"),
+            "eip155:1/slip44:60".to_string(),
+        )
+        .await
+        .unwrap();
+
     assert_eq!(balance.spendable.0, 10_000_000_000_000_000_000);
     assert_eq!(balance.total.0, 10_000_000_000_000_000_000);
     assert_eq!(balance.pending.0, 0);
@@ -372,38 +352,20 @@ async fn test_eth_balance_zero() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
+    let addr = client
+        .derive_address(ProtocolId::Ethereum, 0, 0)
+        .await
+        .unwrap();
+
     let balance = client
-        .get_balance(ProtocolId::Ethereum, 0, AssetId::Native)
+        .get_balance(
+            format!("eip155:1:{addr}"),
+            "eip155:1/slip44:60".to_string(),
+        )
         .await
         .unwrap();
 
     assert_eq!(balance.spendable.0, 0);
     assert_eq!(balance.total.0, 0);
-    assert_eq!(balance.pending.0, 0);
-}
-
-#[tokio::test]
-async fn test_erc20_balance_via_mock_rpc() {
-    let recipient = TestBuilder::new()
-        .with_erc20_balance(5_000_000_000_000_000_000)
-        .build();
-    let client = Client::with_recipient(recipient);
-
-    let password = Zeroizing::new("hunter2".to_string());
-    client.generate_seed(password.clone()).await.unwrap();
-    client.unlock(password).await.unwrap();
-
-    let balance = client
-        .get_balance(
-            ProtocolId::Ethereum,
-            0,
-            AssetId::Token("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".to_string()),
-        )
-        .await
-        .unwrap();
-
-    // 5 tokens in smallest unit
-    assert_eq!(balance.spendable.0, 5_000_000_000_000_000_000);
-    assert_eq!(balance.total.0, 5_000_000_000_000_000_000);
     assert_eq!(balance.pending.0, 0);
 }

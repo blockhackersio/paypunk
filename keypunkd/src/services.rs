@@ -85,44 +85,54 @@ impl KeypunkService {
         }
     }
 
-    pub async fn derive_public_key(
-        &self,
-        protocol: ProtocolId,
-        account: u32,
-    ) -> Result<Vec<u8>, String> {
-        match self
-            .send(KeypunkdRequest::DerivePublicKey { protocol, account })
-            .await?
-        {
-            KeypunkdResponse::ProtocolPublicKey { key } => Ok(key),
-            KeypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
-    pub async fn sign(
-        &self,
-        protocol: ProtocolId,
-        account: u32,
-        payload: Vec<u8>,
-    ) -> Result<Vec<u8>, String> {
-        match self
-            .send(KeypunkdRequest::Sign {
-                protocol,
-                account,
-                payload,
-            })
-            .await?
-        {
-            KeypunkdResponse::Signature { signature } => Ok(signature),
-            KeypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
     pub async fn lock(&self) -> Result<(), String> {
         match self.send(KeypunkdRequest::Lock).await? {
             KeypunkdResponse::Locked => Ok(()),
+            KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn preview_artifact(
+        &self,
+        raw_artifact: Vec<u8>,
+        protocol: ProtocolId,
+    ) -> Result<KeypunkdResponse, String> {
+        self.send(KeypunkdRequest::PreviewArtifact {
+            raw_artifact,
+            protocol,
+        })
+        .await
+    }
+
+    pub async fn authorize_artifact(
+        &self,
+        encrypted_payload: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+    ) -> Result<Vec<u8>, String> {
+        match self
+            .send(KeypunkdRequest::AuthorizeArtifact {
+                encrypted_payload,
+                ephemeral_public_key,
+            })
+            .await?
+        {
+            KeypunkdResponse::ArtifactAuthorized { signed_artifact } => Ok(signed_artifact),
+            KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn export_viewing_key(
+        &self,
+        protocol: ProtocolId,
+        account: u32,
+    ) -> Result<Vec<u8>, String> {
+        match self
+            .send(KeypunkdRequest::ExportViewingKey { protocol, account })
+            .await?
+        {
+            KeypunkdResponse::ViewingKey { key } => Ok(key),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }

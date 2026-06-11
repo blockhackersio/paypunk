@@ -96,29 +96,52 @@ pub fn validate_mnemonic(phrase: &str) -> bool {
     Mnemonic::parse_in(bip39::Language::English, phrase).is_ok()
 }
 
-/// Derive public key material for the given protocol and account.
-pub fn derive_public_key(
+/// Export viewing key material for the given protocol and account.
+pub fn export_viewing_key(
     seed: &[u8; 64],
     registry: &ProtocolService,
     protocol: ProtocolId,
     account: u32,
 ) -> Result<Vec<u8>, String> {
+    let path = account.to_le_bytes();
     let deriver = registry
         .get(protocol)
         .ok_or_else(|| format!("unknown protocol: {protocol:?}"))?;
-    deriver.derive_public_key(seed, account)
+    deriver.export_viewing(seed, &path)
 }
 
-/// Sign a transaction with the derived private key for the given protocol and account.
-pub fn sign(
-    seed: &[u8; 64],
+/// Parse an unsigned artifact into a serialized ArtifactSummary for user preview.
+pub fn preview_artifact(
     registry: &ProtocolService,
     protocol: ProtocolId,
-    account: u32,
-    payload: &[u8],
+    raw_artifact: &[u8],
 ) -> Result<Vec<u8>, String> {
     let deriver = registry
         .get(protocol)
         .ok_or_else(|| format!("unknown protocol: {protocol:?}"))?;
-    deriver.sign_transaction(seed, account, payload)
+    deriver.parse_artifact(raw_artifact)
+}
+
+/// Sign an artifact with the decrypted seed.
+pub fn sign_artifact(
+    seed: &[u8; 64],
+    registry: &ProtocolService,
+    raw_artifact: &[u8],
+) -> Result<Vec<u8>, String> {
+    // Find the protocol by trying each one until we find one that accepts the artifact
+    // In practice, the protocol is known from context
+    for id in [
+        ProtocolId::Zcash,
+        ProtocolId::Ethereum,
+        ProtocolId::Bitcoin,
+        ProtocolId::Monero,
+        ProtocolId::Solana,
+    ] {
+        if let Some(deriver) = registry.get(id) {
+            if let Ok(signed) = deriver.sign(seed, raw_artifact) {
+                return Ok(signed);
+            }
+        }
+    }
+    Err("no protocol could sign the artifact".to_string())
 }

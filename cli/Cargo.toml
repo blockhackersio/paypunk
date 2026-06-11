@@ -13,3 +13,5 @@ paypunk-types.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 clap = { workspace = true, features = ["derive"] }
 zeroize.workspace = true
+blake2.workspace = true
+postcard = { workspace = true, features = ["alloc"] }

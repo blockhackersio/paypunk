@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+pub mod caip;
+pub use caip::ChainId;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ProtocolId {
     Zcash,
@@ -15,38 +18,75 @@ pub enum AssetId {
     Token(String),
 }
 
-/// Crypto operations only, no DB access.
+// ── Intent types ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Intent {
+    Zcash(ZcashIntent),
+    Ethereum(EthereumIntent),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ZcashIntent {
+    Transfer {
+        to: String,
+        amount: String,
+        account: u32,
+        memo: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EthereumIntent {
+    Transfer {
+        to: String,
+        amount: String,
+        account: u32,
+        data: Option<String>,
+    },
+    ContractCall {
+        to: String,
+        amount: String,
+        account: u32,
+        data: String,
+    },
+}
+
+// ── Artifact summary ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArtifactSummary {
+    pub to: String,
+    pub amount: String,
+    pub fee: String,
+    pub memo: Option<String>,
+    pub protocol: ProtocolId,
+}
+
+// ── Protocol trait (paypunkd side) ───────────────────────────────────────────
+
+/// Non-signer protocol operations: build unsigned artifacts, finalize signed
+/// artifacts, validate addresses, and query balances.
 pub trait Protocol: Send + Sync {
     fn protocol_id(&self) -> ProtocolId;
-    fn derive_address(&self, public_key: &[u8], index: u32) -> Result<String, String>;
+    fn build(&self, intent: &Intent) -> Result<Vec<u8>, String>;
+    fn finalize(&self, signed: &[u8]) -> Result<Vec<u8>, String>;
     fn validate_address(&self, address: &str) -> bool;
-    fn finalize_transaction(&self, transaction: &[u8]) -> Result<Vec<u8>, String>;
-    fn create_transaction(
-        &self,
-        public_key: &[u8],
-        account: u32,
-        to: &str,
-        amount: u64,
-        asset: &AssetId,
-        memo: Option<&str>,
-    ) -> Result<Vec<u8>, String>;
-
-    /// Query the balance for the given account and asset.
-    fn get_balance(&self, account: u32, public_key: &[u8], asset: &AssetId) -> Result<Balance, String>;
+    fn get_balance(&self, address: &str, asset: &str) -> Result<Balance, String>;
 }
 
-/// Signer-side protocol: key derivation and transaction signing.
-/// Lives inside keypunkd — the security boundary. Never exposes raw key material.
+// ── SignerProtocol trait (keypunkd side) ─────────────────────────────────────
+
+/// Signer-side protocol operations: export viewing keys, parse unsigned
+/// artifacts for user preview, and sign artifacts.
 pub trait SignerProtocol: Send + Sync {
-    fn protocol_id(&self) -> ProtocolId;
-    fn derive_public_key(&self, seed: &[u8; 64], account: u32) -> Result<Vec<u8>, String>;
-    fn sign_transaction(
-        &self,
-        seed: &[u8; 64],
-        account: u32,
-        transaction: &[u8],
-    ) -> Result<Vec<u8>, String>;
+    fn chain(&self) -> ChainId;
+    fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String>;
+    fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String>;
+    fn sign(&self, seed: &[u8; 64], artifact: &[u8]) -> Result<Vec<u8>, String>;
 }
+
+// ── Data model ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Address(pub String);
