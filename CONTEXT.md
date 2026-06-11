@@ -23,8 +23,12 @@ A 12-word BIP39 mnemonic phrase from which all wallet keys are deterministically
 A unique receiving address derived for each incoming payment. One address per payment — never reused (post-v1 goal; address reuse is acceptable for initial build).
 _Avoid_: Reuse
 
+**Intent**:
+A strongly-typed enum representing what the user wants to do. One variant per protocol (e.g., `Intent::Zcash(ZcashIntent::Transfer { ... })`). Constructed by the API layer, consumed by `Protocol::build()`. All amounts are human-readable strings; addresses are raw protocol-level strings.
+_Avoid_: Transaction intent, message
+
 **Transfer**:
-An outbound payment from the wallet to a recipient's Zcash Address, including an Amount and an optional Memo. Initiated by the user or an agent acting on their behalf.
+An outbound payment from the wallet to a recipient's Zcash Address, including an Amount and an optional Memo. Initiated by the user or an agent acting on their behalf via an `Intent::Zcash(ZcashIntent::Transfer)`.
 _Avoid_: Transaction (ambiguous with chain-level tx), sending
 
 **Incoming Payment**:
@@ -44,11 +48,11 @@ Library crate providing a tactix actor that serializes/deserializes messages wit
 _Avoid_: Transport, wire
 
 **api**:
-Public-facing library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `create_transfer`, etc.) that accept an asset type and dispatch to the appropriate chain backend. Hides IPC/tactix details from consumers. Internally communicates with paypunkd via the ipc crate.
+Public-facing library that CLI and TUI depend on. Provides high-level functions (`get_balance`, `submit_intent`, `approve_signature`, etc.) that construct `Intent` values and communicate with paypunkd via IPC. Hides IPC/tactix details from consumers. Internally communicates with paypunkd via the ipc crate.
 _Avoid_: SDK
 
 **protocols**:
-Directory of chain-specific implementation crates (e.g., `protocols/zcash`, `protocols/ethereum`). Each implements `NonSignerProtocol` and `SignerProtocol` traits from `paypunk-types`.
+Directory of chain-specific implementation crates (e.g., `protocols/zcash`, `protocols/ethereum`). Each implements `Protocol` and `SignerProtocol` traits from `paypunk-types`.
 _Avoid_: adapters
 
 ## Architecture
@@ -64,7 +68,7 @@ _Avoid_: adapters
 
 **keypunkd**: Key daemon — hosts KeyActor. Seed generation, signing via `SignerProtocol`. Runs as a separate system user.
 
-**paypunkd**: App daemon — hosts WalletActor, usecases, service orchestration, chain backend injection (`NonSignerProtocol`).
+**paypunkd**: App daemon — hosts WalletActor, usecases, service orchestration, chain backend injection (`Protocol`).
 
 **paypunk**: CLI binary. Connects to paypunkd via api. Includes TUI mode (ratatui) for interactive use.
 
