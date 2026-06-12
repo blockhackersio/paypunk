@@ -98,11 +98,11 @@ impl Paypunkd {
         })
     }
 
-    async fn submit_intent(&self, intent: paypunk_types::Intent) -> PaypunkdResponse {
+    async fn submit_intent(&self, intent: paypunk_types::Intent, derivation_path: Vec<u8>) -> PaypunkdResponse {
         info!("handling SubmitIntent");
         self.respond(
             "submit_intent",
-            usecases::submit_intent(&self.keypunk_service, &self.protocols, &intent).await,
+            usecases::submit_intent(&self.keypunk_service, &self.protocols, &intent, &derivation_path).await,
             |(raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)| {
                 PaypunkdResponse::SignablePreview {
                     raw_artifact,
@@ -118,6 +118,7 @@ impl Paypunkd {
         &self,
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
+        derivation_path: Vec<u8>,
     ) -> PaypunkdResponse {
         info!("handling ApproveSignature");
         self.respond(
@@ -126,6 +127,7 @@ impl Paypunkd {
                 &self.keypunk_service,
                 encrypted_payload,
                 ephemeral_public_key,
+                derivation_path,
             )
             .await,
             |signed_artifact| PaypunkdResponse::SignatureApproved { signed_artifact },
@@ -214,11 +216,12 @@ impl Handler<IpcMessage> for Paypunkd {
                 client_public_key,
             } => self.unlock(encrypted_password, client_public_key).await,
             PaypunkdRequest::Lock => self.lock().await,
-            PaypunkdRequest::SubmitIntent { intent } => self.submit_intent(intent).await,
+            PaypunkdRequest::SubmitIntent { intent, derivation_path } => self.submit_intent(intent, derivation_path).await,
             PaypunkdRequest::ApproveSignature {
                 encrypted_payload,
                 ephemeral_public_key,
-            } => self.approve_signature(encrypted_payload, ephemeral_public_key).await,
+                derivation_path,
+            } => self.approve_signature(encrypted_payload, ephemeral_public_key, derivation_path).await,
             PaypunkdRequest::GetBalance { address, asset } => {
                 self.get_balance(address, asset).await
             }

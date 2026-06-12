@@ -93,19 +93,29 @@ impl PaypunkService {
         }
     }
 
-    pub async fn submit_intent(&self, intent: Intent) -> Result<PaypunkdResponse, String> {
-        self.send(PaypunkdRequest::SubmitIntent { intent }).await
+    pub async fn submit_intent(
+        &self,
+        intent: Intent,
+        derivation_path: Vec<u8>,
+    ) -> Result<PaypunkdResponse, String> {
+        self.send(PaypunkdRequest::SubmitIntent {
+            intent,
+            derivation_path,
+        })
+        .await
     }
 
     pub async fn approve_signature(
         &self,
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
+        derivation_path: Vec<u8>,
     ) -> Result<Vec<u8>, String> {
         match self
             .send(PaypunkdRequest::ApproveSignature {
                 encrypted_payload,
                 ephemeral_public_key,
+                derivation_path,
             })
             .await?
         {
@@ -135,11 +145,7 @@ impl PaypunkService {
         }
     }
 
-    pub async fn get_balance(
-        &self,
-        address: String,
-        asset: String,
-    ) -> Result<Balance, String> {
+    pub async fn get_balance(&self, address: String, asset: String) -> Result<Balance, String> {
         match self
             .send(PaypunkdRequest::GetBalance { address, asset })
             .await?

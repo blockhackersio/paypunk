@@ -72,9 +72,12 @@ impl SignerProtocol for ZcashProtocol {
         postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
     }
 
-    fn sign(&self, seed: &[u8; 64], artifact: &[u8]) -> Result<Vec<u8>, String> {
-        // Try to find account from the artifact, default to 0
-        self.sign_transaction_inner(seed, 0, artifact)
+    fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String> {
+        if path.len() < 4 {
+            return Err("path must be at least 4 bytes (account)".to_string());
+        }
+        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
+        self.sign_transaction_inner(seed, account, artifact)
     }
 }
 

@@ -126,6 +126,7 @@ pub fn preview_artifact(
 pub fn sign_artifact(
     seed: &[u8; 64],
     registry: &ProtocolService,
+    path: &[u8],
     raw_artifact: &[u8],
 ) -> Result<Vec<u8>, String> {
     // Find the protocol by trying each one until we find one that accepts the artifact
@@ -138,7 +139,7 @@ pub fn sign_artifact(
         ProtocolId::Solana,
     ] {
         if let Some(deriver) = registry.get(id) {
-            if let Ok(signed) = deriver.sign(seed, raw_artifact) {
+            if let Ok(signed) = deriver.sign(seed, path, raw_artifact) {
                 return Ok(signed);
             }
         }

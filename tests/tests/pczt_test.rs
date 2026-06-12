@@ -124,8 +124,9 @@ fn test_orchard_shielded_pczt_full_pipeline() {
     };
 
     // ── 5. Sign via ZcashProtocol (SignerProtocol::sign) ────────────────
+    let path = 0u32.to_le_bytes();
     let signed_bytes = protocol
-        .sign(&seed, &proven_bytes)
+        .sign(&seed, &path, &proven_bytes)
         .expect("sign");
 
     // ── 6. Finalize via ZcashProtocol (Protocol::finalize) ──────────────

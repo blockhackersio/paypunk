@@ -48,6 +48,8 @@ enum Commands {
         asset: String,
         #[arg(short, long)]
         memo: Option<String>,
+        #[arg(short, long, default_value_t = 0)]
+        account: u32,
     },
     /// Submit an Ethereum transfer intent for preview
     SubmitEthTransfer {
@@ -61,12 +63,16 @@ enum Commands {
         asset: String,
         #[arg(short, long)]
         data: Option<String>,
+        #[arg(short, long, default_value_t = 0)]
+        account: u32,
     },
     /// Approve a previously submitted intent by providing the password
     ApproveSignature {
         /// Password to authorize the signing
         #[arg(short, long)]
         password: String,
+        #[arg(short, long, default_value_t = 0)]
+        account: u32,
     },
     /// Query the balance for a protocol and account
     GetBalance {
@@ -110,6 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             from,
             asset,
             memo,
+            account,
         } => {
             let intent = Intent::Zcash(ZcashIntent::Transfer {
                 to,
@@ -118,7 +125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 asset,
                 memo,
             });
-            submit_intent_flow(&client, intent).await?;
+            let path = account.to_le_bytes();
+            submit_intent_flow(&client, intent, &path).await?;
         }
         Commands::SubmitEthTransfer {
             to,
@@ -126,6 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             from,
             asset,
             data,
+            account,
         } => {
             let intent = Intent::Ethereum(EthereumIntent::Transfer {
                 to,
@@ -134,9 +143,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 asset,
                 data,
             });
-            submit_intent_flow(&client, intent).await?;
+            let path = account.to_le_bytes();
+            submit_intent_flow(&client, intent, &path).await?;
         }
-        Commands::ApproveSignature { password: _password } => {
+        Commands::ApproveSignature { password, account } => {
+            let path = account.to_le_bytes();
+            println!("Approving signature for account {account}...");
+            // In a real app, the preview data would be stored in state between
+            // submit and approve. For now this is a placeholder.
             println!("ApproveSignature must be used interactively after SubmitIntent");
             println!("Re-run with a Submit* command first");
         }
@@ -166,15 +180,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn submit_intent_flow(client: &paypunk_api::Client, intent: Intent) -> Result<(), Box<dyn std::error::Error>> {
+async fn submit_intent_flow(client: &paypunk_api::Client, intent: Intent, derivation_path: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     println!("Submitting intent for preview...");
-    match client.submit_intent(intent).await {
+    match client.submit_intent(intent, derivation_path).await {
         Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
-            // Verify the signature: H(raw, parsed) should match
+            // Verify the signature: H(raw, parsed, path) should match
             // In a production build, we'd verify against keypunkd's public key
             let mut to_verify = Vec::new();
             to_verify.extend_from_slice(&raw_artifact);
             to_verify.extend_from_slice(&parsed_summary);
+            to_verify.extend_from_slice(derivation_path);
             let _hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
 
             println!("Artifact preview received:");

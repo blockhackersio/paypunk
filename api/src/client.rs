@@ -76,8 +76,9 @@ impl Client {
     pub async fn submit_intent(
         &self,
         intent: Intent,
+        derivation_path: &[u8],
     ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
-        crate::functions::submit_intent(&self.service, intent).await
+        crate::functions::submit_intent(&self.service, intent, derivation_path).await
     }
 
     /// Approve a previously previewed artifact.
@@ -89,12 +90,14 @@ impl Client {
         raw_artifact: &[u8],
         keypunkd_signature: &[u8],
         password: Zeroizing<String>,
+        derivation_path: &[u8],
     ) -> Result<Vec<u8>, String> {
         crate::functions::approve_signature(
             &self.service,
             raw_artifact,
             keypunkd_signature,
             password,
+            derivation_path,
         )
         .await
     }

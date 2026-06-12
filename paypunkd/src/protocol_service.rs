@@ -1,7 +1,7 @@
-use paypunk_types::{Protocol, ProtocolId};
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_types::{Protocol, ProtocolId};
 use std::collections::HashMap;
 
 /// A registry of non-signer protocol implementations.

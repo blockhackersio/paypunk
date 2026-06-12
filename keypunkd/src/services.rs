@@ -97,10 +97,12 @@ impl KeypunkService {
         &self,
         raw_artifact: Vec<u8>,
         protocol: ProtocolId,
+        derivation_path: Vec<u8>,
     ) -> Result<KeypunkdResponse, String> {
         self.send(KeypunkdRequest::PreviewArtifact {
             raw_artifact,
             protocol,
+            derivation_path,
         })
         .await
     }
@@ -109,11 +111,13 @@ impl KeypunkService {
         &self,
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
+        derivation_path: Vec<u8>,
     ) -> Result<Vec<u8>, String> {
         match self
             .send(KeypunkdRequest::AuthorizeArtifact {
                 encrypted_payload,
                 ephemeral_public_key,
+                derivation_path,
             })
             .await?
         {

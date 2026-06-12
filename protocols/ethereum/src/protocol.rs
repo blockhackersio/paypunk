@@ -202,9 +202,12 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
         postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
     }
 
-    fn sign(&self, seed: &[u8; 64], artifact: &[u8]) -> Result<Vec<u8>, String> {
-        // Try account 0 by default
-        self.sign_transaction_inner(seed, 0, artifact)
+    fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String> {
+        if path.len() < 4 {
+            return Err("path must be at least 4 bytes (account)".to_string());
+        }
+        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
+        self.sign_transaction_inner(seed, account, artifact)
     }
 }
 
@@ -367,7 +370,8 @@ mod tests {
         let unsigned = protocol.build(&intent).unwrap();
         assert!(!unsigned.is_empty());
 
-        let signed = protocol.sign(&seed, &unsigned).unwrap();
+        let path = 0u32.to_le_bytes();
+        let signed = protocol.sign(&seed, &path, &unsigned).unwrap();
         assert!(!signed.is_empty());
 
         let finalized = protocol.finalize(&signed).unwrap();

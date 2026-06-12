@@ -203,6 +203,7 @@ impl<S: Storage> Keypunkd<S> {
         &self,
         raw_artifact: Vec<u8>,
         protocol: ProtocolId,
+        derivation_path: Vec<u8>,
         msg: &IpcMessage,
     ) -> KeypunkdResponse {
         info!(?protocol, "handling PreviewArtifact");
@@ -217,10 +218,11 @@ impl<S: Storage> Keypunkd<S> {
             Err(e) => return KeypunkdResponse::Error { message: e },
         };
 
-        // Sign H(raw, parsed) with keypunkd's keypair for WYSIWYS verification
+        // Sign H(raw, parsed, path) with keypunkd's keypair for WYSIWYS verification
         let mut to_sign = Vec::new();
         to_sign.extend_from_slice(&raw_artifact);
         to_sign.extend_from_slice(&parsed_summary);
+        to_sign.extend_from_slice(&derivation_path);
         let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_sign);
         let signature = self.keystore.encrypt_bytes(&hash, &session.peer_pk);
 
@@ -236,6 +238,7 @@ impl<S: Storage> Keypunkd<S> {
         &self,
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
+        derivation_path: Vec<u8>,
         msg: &IpcMessage,
     ) -> KeypunkdResponse {
         info!("handling AuthorizeArtifact");
@@ -285,11 +288,12 @@ impl<S: Storage> Keypunkd<S> {
         // Try each protocol
         let parsed_summary = self.try_parse_artifact(raw_artifact);
 
-        // Verify the signature over H(raw, parsed)
+        // Verify the signature over H(raw, parsed, path)
         if let Ok(ref summary) = parsed_summary {
             let mut to_verify = Vec::new();
             to_verify.extend_from_slice(raw_artifact);
             to_verify.extend_from_slice(summary);
+            to_verify.extend_from_slice(&derivation_path);
             let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
 
             // Decrypt the signature to get the expected hash
@@ -343,7 +347,7 @@ impl<S: Storage> Keypunkd<S> {
         };
 
         // Sign the artifact
-        let signed_artifact = match usecases::sign_artifact(&seed, &self.protocols, raw_artifact) {
+        let signed_artifact = match usecases::sign_artifact(&seed, &self.protocols, &derivation_path, raw_artifact) {
             Ok(s) => s,
             Err(e) => return KeypunkdResponse::Error { message: e },
         };
@@ -417,11 +421,13 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
             KeypunkdRequest::PreviewArtifact {
                 raw_artifact,
                 protocol,
-            } => self.preview_artifact(raw_artifact, protocol, &msg),
+                derivation_path,
+            } => self.preview_artifact(raw_artifact, protocol, derivation_path, &msg),
             KeypunkdRequest::AuthorizeArtifact {
                 encrypted_payload,
                 ephemeral_public_key,
-            } => self.authorize_artifact(encrypted_payload, ephemeral_public_key, &msg),
+                derivation_path,
+            } => self.authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path, &msg),
             KeypunkdRequest::ExportViewingKey { protocol, account } => {
                 self.export_viewing_key(&msg, protocol, account)
             }

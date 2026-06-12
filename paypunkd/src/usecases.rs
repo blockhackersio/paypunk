@@ -56,6 +56,7 @@ pub async fn submit_intent(
     keypunk_service: &KeypunkService,
     protocols: &ProtocolService,
     intent: &Intent,
+    derivation_path: &[u8],
 ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
     // Determine protocol from intent
     let protocol_id = match intent {
@@ -69,7 +70,7 @@ pub async fn submit_intent(
 
     // Forward to keypunkd for parsing and preview
     let preview = keypunk_service
-        .preview_artifact(raw_artifact, protocol_id)
+        .preview_artifact(raw_artifact, protocol_id, derivation_path.to_vec())
         .await?;
 
     match preview {
@@ -89,9 +90,10 @@ pub async fn approve_signature(
     keypunk_service: &KeypunkService,
     encrypted_payload: Vec<u8>,
     ephemeral_public_key: [u8; 32],
+    derivation_path: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
     keypunk_service
-        .authorize_artifact(encrypted_payload, ephemeral_public_key)
+        .authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path)
         .await
 }
 

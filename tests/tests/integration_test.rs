@@ -47,13 +47,22 @@ impl EthRpcClient for MockRpcClient {
     fn get_gas_price(&self) -> Result<u128, String> {
         Ok(20_000_000_000)
     }
-    fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
+    fn estimate_gas(
+        &self,
+        _from: &str,
+        _to: &str,
+        _value: &str,
+        _data: &str,
+    ) -> Result<u64, String> {
         Ok(21_000)
     }
     fn get_block_number(&self) -> Result<u64, String> {
         Ok(19_000_000)
     }
-    fn get_transaction_receipt(&self, _tx_hash: &str) -> Result<Option<paypunk_chains_ethereum::rpc::TxReceipt>, String> {
+    fn get_transaction_receipt(
+        &self,
+        _tx_hash: &str,
+    ) -> Result<Option<paypunk_chains_ethereum::rpc::TxReceipt>, String> {
         Ok(None)
     }
 }
@@ -85,9 +94,12 @@ impl TestBuilder {
         let store = InMemorySeedStore::new();
 
         let mut keypunkd_protocols = KeypunkdProtocolService::new();
-        keypunkd_protocols.register(ProtocolId::Zcash, Box::new(ZcashProtocol {
-            params: zcash_protocol::consensus::Network::MainNetwork,
-        }));
+        keypunkd_protocols.register(
+            ProtocolId::Zcash,
+            Box::new(ZcashProtocol {
+                params: zcash_protocol::consensus::Network::MainNetwork,
+            }),
+        );
         keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
 
         let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols)
@@ -331,10 +343,7 @@ async fn test_eth_balance_via_mock_rpc() {
         .unwrap();
 
     let balance = client
-        .get_balance(
-            format!("eip155:1:{addr}"),
-            "eip155:1/slip44:60".to_string(),
-        )
+        .get_balance(format!("eip155:1:{addr}"), "eip155:1/slip44:60".to_string())
         .await
         .unwrap();
 
@@ -358,10 +367,7 @@ async fn test_eth_balance_zero() {
         .unwrap();
 
     let balance = client
-        .get_balance(
-            format!("eip155:1:{addr}"),
-            "eip155:1/slip44:60".to_string(),
-        )
+        .get_balance(format!("eip155:1:{addr}"), "eip155:1/slip44:60".to_string())
         .await
         .unwrap();
 

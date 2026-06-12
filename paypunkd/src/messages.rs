@@ -20,10 +20,12 @@ pub enum PaypunkdRequest {
     Lock,
     SubmitIntent {
         intent: Intent,
+        derivation_path: Vec<u8>,
     },
     ApproveSignature {
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
+        derivation_path: Vec<u8>,
     },
     DeriveAddress {
         protocol: ProtocolId,

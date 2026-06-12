@@ -86,7 +86,7 @@ pub trait SignerProtocol: Send + Sync {
     fn chain(&self) -> ChainId;
     fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String>;
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String>;
-    fn sign(&self, seed: &[u8; 64], artifact: &[u8]) -> Result<Vec<u8>, String>;
+    fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String>;
 }
 
 // ── Data model ───────────────────────────────────────────────────────────────

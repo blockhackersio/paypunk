@@ -68,18 +68,27 @@ pub async fn derive_address(
 /// Submit an intent for preview.
 ///
 /// Returns the raw artifact, parsed summary, keypunkd's signature over
-/// H(raw, parsed), and keypunkd's public key for verification.
+/// H(raw, parsed, path), and keypunkd's public key for verification.
 pub async fn submit_intent(
     service: &paypunkd::services::PaypunkService,
     intent: Intent,
+    derivation_path: &[u8],
 ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
-    match service.submit_intent(intent).await? {
+    match service
+        .submit_intent(intent, derivation_path.to_vec())
+        .await?
+    {
         paypunkd::messages::PaypunkdResponse::SignablePreview {
             raw_artifact,
             parsed_summary,
             keypunkd_signature,
             keypunkd_public_key,
-        } => Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)),
+        } => Ok((
+            raw_artifact,
+            parsed_summary,
+            keypunkd_signature,
+            keypunkd_public_key,
+        )),
         paypunkd::messages::PaypunkdResponse::Error { message } => Err(message),
         _ => Err("unexpected response from paypunkd".to_string()),
     }
@@ -92,6 +101,7 @@ pub async fn approve_signature(
     raw_artifact: &[u8],
     keypunkd_signature: &[u8],
     password: Zeroizing<String>,
+    derivation_path: &[u8],
 ) -> Result<Vec<u8>, String> {
     let client_keypair = Keypair::new();
     let server_pk = service.get_keypunk_encryption_key().await?;
@@ -108,7 +118,7 @@ pub async fn approve_signature(
     let encrypted_payload = client_keypair.encrypt_bytes(&payload, &server_pk);
 
     service
-        .approve_signature(encrypted_payload, client_pk)
+        .approve_signature(encrypted_payload, client_pk, derivation_path.to_vec())
         .await
 }
 

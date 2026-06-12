@@ -27,11 +27,13 @@ pub enum KeypunkdRequest {
     PreviewArtifact {
         raw_artifact: Vec<u8>,
         protocol: ProtocolId,
+        derivation_path: Vec<u8>,
     },
     /// Authorize and sign an artifact after user approval.
     AuthorizeArtifact {
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
+        derivation_path: Vec<u8>,
     },
     /// Export chain-specific viewing key material for the given path.
     ExportViewingKey {
