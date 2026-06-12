@@ -31,7 +31,8 @@ pub enum ZcashIntent {
     Transfer {
         to: String,
         amount: String,
-        account: u32,
+        from: String,
+        asset: String,
         memo: Option<String>,
     },
 }
@@ -41,13 +42,15 @@ pub enum EthereumIntent {
     Transfer {
         to: String,
         amount: String,
-        account: u32,
+        from: String,
+        asset: String,
         data: Option<String>,
     },
     ContractCall {
         to: String,
         amount: String,
-        account: u32,
+        from: String,
+        asset: String,
         data: String,
     },
 }

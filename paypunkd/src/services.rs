@@ -118,7 +118,7 @@ impl PaypunkService {
     pub async fn derive_address(
         &self,
         protocol: ProtocolId,
-        account: u32,
+        account: String,
         index: u32,
     ) -> Result<String, String> {
         match self

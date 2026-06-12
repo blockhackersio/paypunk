@@ -161,9 +161,14 @@ impl Protocol for ZcashProtocol {
             Intent::Zcash(ZcashIntent::Transfer {
                 to,
                 amount,
-                account: _,
+                from,
+                asset: _,
                 memo: _,
             }) => {
+                // Validate the from address
+                if !self.validate_address(from) {
+                    return Err(format!("invalid from address: {from}"));
+                }
                 // TODO: Build PCZT via zcash_primitives::Builder + zcash_client_backend
                 // proposal APIs, then prove inline before returning.
                 //

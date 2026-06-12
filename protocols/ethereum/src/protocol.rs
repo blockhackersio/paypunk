@@ -34,21 +34,28 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
     }
 
     fn build(&self, intent: &Intent) -> Result<Vec<u8>, String> {
-        let (to, amount, data) = match intent {
+        let (to, amount, data, from) = match intent {
             Intent::Ethereum(EthereumIntent::Transfer {
                 to,
                 amount,
-                account: _,
+                from,
+                asset: _,
                 data,
-            }) => (to.as_str(), amount.as_str(), data.as_deref()),
+            }) => (to.as_str(), amount.as_str(), data.as_deref(), from.as_str()),
             Intent::Ethereum(EthereumIntent::ContractCall {
                 to,
                 amount,
-                account: _,
+                from,
+                asset: _,
                 data,
-            }) => (to.as_str(), amount.as_str(), Some(data.as_str())),
+            }) => (to.as_str(), amount.as_str(), Some(data.as_str()), from.as_str()),
             _ => return Err("unexpected intent variant for Ethereum protocol".to_string()),
         };
+
+        // Validate the from address
+        if !address::validate_address(from) {
+            return Err(format!("invalid from address: {from}"));
+        }
 
         let to_addr: Address = to
             .parse()
@@ -102,19 +109,9 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             .map_err(|e| format!("invalid CAIP-10 address: {e}"))?;
 
         // Parse CAIP-19 asset to determine native vs token
-        let asset_id = if asset.starts_with("eip155:") {
-            let parsed = caip::AssetId::parse(asset)
-                .map_err(|e| format!("invalid CAIP-19 asset: {e}"))?;
-            if parsed.asset_namespace == "slip44" && parsed.asset_reference == "60" {
-                paypunk_types::AssetId::Native
-            } else if parsed.asset_namespace == "erc20" {
-                paypunk_types::AssetId::Token(parsed.asset_reference)
-            } else {
-                return Err(format!("unsupported asset namespace: {}", parsed.asset_namespace));
-            }
-        } else {
-            paypunk_types::AssetId::Native
-        };
+        let parsed = caip::AssetId::parse(asset)
+            .map_err(|e| format!("invalid CAIP-19 asset: {e}"))?;
+        let asset_id = parsed.to_asset_enum("60");
 
         let balance = self
             .client
@@ -343,7 +340,8 @@ mod tests {
         let intent = Intent::Ethereum(EthereumIntent::Transfer {
             to: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045".to_string(),
             amount: "0.0001".to_string(),
-            account: 0,
+            from: "0x9858effd232b4033e47d90003d41ec34ecaeda94".to_string(),
+            asset: "eip155:1/slip44:60".to_string(),
             data: None,
         });
 
@@ -361,7 +359,8 @@ mod tests {
         let intent = Intent::Ethereum(EthereumIntent::Transfer {
             to: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045".to_string(),
             amount: "0.0001".to_string(),
-            account: 0,
+            from: "0x9858effd232b4033e47d90003d41ec34ecaeda94".to_string(),
+            asset: "eip155:1/slip44:60".to_string(),
             data: None,
         });
 

@@ -27,7 +27,7 @@ pub enum PaypunkdRequest {
     },
     DeriveAddress {
         protocol: ProtocolId,
-        account: u32,
+        account: String,
         index: u32,
     },
     GetBalance {

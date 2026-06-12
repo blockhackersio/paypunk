@@ -56,14 +56,14 @@ impl Client {
         crate::functions::lock(&self.service).await
     }
 
-    /// Derive an address for the given protocol, account, and diversifier index.
+    /// Derive an address for the given protocol, CAIP-10 account, and diversifier index.
     ///
     /// Fetches the viewing key from keypunkd and derives the address locally
     /// via the protocol implementation.
     pub async fn derive_address(
         &self,
         protocol: ProtocolId,
-        account: u32,
+        account: String,
         index: u32,
     ) -> Result<String, String> {
         crate::functions::derive_address(&self.service, protocol, account, index).await

@@ -230,7 +230,7 @@ async fn test_unlock_then_derive_address() {
     client.unlock(password).await.unwrap();
 
     let address = client
-        .derive_address(ProtocolId::Zcash, 0, 0)
+        .derive_address(ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
         .await
         .unwrap();
     assert!(address.starts_with("u1"), "got: {address}");
@@ -247,15 +247,15 @@ async fn test_derive_different_indexes() {
     client.unlock(password).await.unwrap();
 
     let addr0 = client
-        .derive_address(ProtocolId::Zcash, 0, 0)
+        .derive_address(ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
         .await
         .unwrap();
     let addr1 = client
-        .derive_address(ProtocolId::Zcash, 0, 1)
+        .derive_address(ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 1)
         .await
         .unwrap();
     let addr2 = client
-        .derive_address(ProtocolId::Zcash, 0, 2)
+        .derive_address(ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 2)
         .await
         .unwrap();
 
@@ -274,14 +274,14 @@ async fn test_derive_address_is_deterministic() {
 
     client.unlock(password.clone()).await.unwrap();
     let addr_a = client
-        .derive_address(ProtocolId::Zcash, 0, 0)
+        .derive_address(ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
         .await
         .unwrap();
     client.lock().await.unwrap();
 
     client.unlock(password).await.unwrap();
     let addr_b = client
-        .derive_address(ProtocolId::Zcash, 0, 0)
+        .derive_address(ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
         .await
         .unwrap();
 
@@ -301,14 +301,14 @@ async fn test_lock_clears_session() {
     client.unlock(password).await.unwrap();
 
     client
-        .derive_address(ProtocolId::Zcash, 0, 0)
+        .derive_address(ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
         .await
         .unwrap();
 
     client.lock().await.unwrap();
 
     let result = client
-        .derive_address(ProtocolId::Zcash, 0, 0)
+        .derive_address(ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
         .await;
     assert!(result.is_err(), "should fail after lock");
 }
@@ -326,7 +326,7 @@ async fn test_eth_balance_via_mock_rpc() {
 
     // Derive the address first
     let addr = client
-        .derive_address(ProtocolId::Ethereum, 0, 0)
+        .derive_address(ProtocolId::Ethereum, "eip155:1:0".to_string(), 0)
         .await
         .unwrap();
 
@@ -353,7 +353,7 @@ async fn test_eth_balance_zero() {
     client.unlock(password).await.unwrap();
 
     let addr = client
-        .derive_address(ProtocolId::Ethereum, 0, 0)
+        .derive_address(ProtocolId::Ethereum, "eip155:1:0".to_string(), 0)
         .await
         .unwrap();
 

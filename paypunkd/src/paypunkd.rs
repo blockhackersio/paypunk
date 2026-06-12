@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::ProtocolId;
+use paypunk_types::{caip, ProtocolId};
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
@@ -157,13 +157,23 @@ impl Paypunkd {
     async fn derive_address(
         &mut self,
         protocol: ProtocolId,
-        account: u32,
+        account: String,
         index: u32,
     ) -> PaypunkdResponse {
         info!(?protocol, account, index, "deriving address");
+        let account_num = match caip::AccountId::parse(&account)
+            .and_then(|a| a.account_number())
+        {
+            Ok(n) => n,
+            Err(e) => {
+                return PaypunkdResponse::Error {
+                    message: format!("invalid CAIP-10 account: {e}"),
+                }
+            }
+        };
         self.respond(
             "derive_address",
-            usecases::export_viewing_key(&self.keypunk_service, protocol, account)
+            usecases::export_viewing_key(&self.keypunk_service, protocol, account_num)
                 .await
                 .and_then(|viewing_key| {
                     usecases::derive_address(&self.protocols, protocol, &viewing_key, index)

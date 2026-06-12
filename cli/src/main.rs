@@ -42,8 +42,10 @@ enum Commands {
         to: String,
         #[arg(short, long)]
         amount: String,
-        #[arg(short, long, default_value_t = 0)]
-        account: u32,
+        #[arg(short, long)]
+        from: String,
+        #[arg(short, long, default_value = "zcash:mainnet/slip44:133")]
+        asset: String,
         #[arg(short, long)]
         memo: Option<String>,
     },
@@ -53,8 +55,10 @@ enum Commands {
         to: String,
         #[arg(short, long)]
         amount: String,
-        #[arg(short, long, default_value_t = 0)]
-        account: u32,
+        #[arg(short, long)]
+        from: String,
+        #[arg(short, long, default_value = "eip155:1/slip44:60")]
+        asset: String,
         #[arg(short, long)]
         data: Option<String>,
     },
@@ -103,13 +107,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::SubmitZcashTransfer {
             to,
             amount,
-            account,
+            from,
+            asset,
             memo,
         } => {
             let intent = Intent::Zcash(ZcashIntent::Transfer {
                 to,
                 amount,
-                account,
+                from,
+                asset,
                 memo,
             });
             submit_intent_flow(&client, intent).await?;
@@ -117,13 +123,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::SubmitEthTransfer {
             to,
             amount,
-            account,
+            from,
+            asset,
             data,
         } => {
             let intent = Intent::Ethereum(EthereumIntent::Transfer {
                 to,
                 amount,
-                account,
+                from,
+                asset,
                 data,
             });
             submit_intent_flow(&client, intent).await?;

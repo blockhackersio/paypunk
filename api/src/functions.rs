@@ -55,11 +55,11 @@ pub async fn lock(service: &paypunkd::services::PaypunkService) -> Result<(), St
     service.lock().await
 }
 
-/// Derive an address for the given protocol, account, and index.
+/// Derive an address for the given protocol, CAIP-10 account, and index.
 pub async fn derive_address(
     service: &paypunkd::services::PaypunkService,
     protocol: ProtocolId,
-    account: u32,
+    account: String,
     index: u32,
 ) -> Result<String, String> {
     service.derive_address(protocol, account, index).await
@@ -130,8 +130,8 @@ pub async fn get_balance_legacy(
 ) -> Result<Balance, String> {
     // Convert to CAIP format
     let address = match protocol {
-        ProtocolId::Ethereum => format!("eip155:1:account_{account}"),
-        ProtocolId::Zcash => format!("zcash:mainnet:account_{account}"),
+        ProtocolId::Ethereum => format!("eip155:1:{account}"),
+        ProtocolId::Zcash => format!("zcash:mainnet:{account}"),
         _ => return Err("unsupported protocol".to_string()),
     };
     let asset_str = match asset {
@@ -140,7 +140,7 @@ pub async fn get_balance_legacy(
             ProtocolId::Zcash => "zcash:mainnet/slip44:133".to_string(),
             _ => return Err("unsupported protocol".to_string()),
         },
-        AssetId::Token(addr) => format!("eip155:1/erc20:{addr}"),
+        AssetId::Token(addr) => addr,
     };
     get_balance(service, address, asset_str).await
 }
