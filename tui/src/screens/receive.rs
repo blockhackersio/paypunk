@@ -1,0 +1,179 @@
+use crate::api::types::*;
+use crate::api::WalletApi;
+use crate::app::Nav;
+use crate::screens::help::HelpScreen;
+use crate::screens::Screen;
+use crate::ui;
+use ratatui::layout::{Constraint, Layout, Margin};
+use ratatui::style::Style;
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Paragraph};
+use ratatui::Frame;
+use ratatui_cheese::fieldset::{Fieldset, FieldsetFill};
+
+pub struct ReceiveScreen {
+    selected_chain: usize,
+    chains: Vec<(String, String)>,
+    copied_feedback: Option<String>,
+}
+
+impl ReceiveScreen {
+    pub fn new(initial_chain: &str) -> Self {
+        let chains = vec![
+            ("eip155:1".into(), "Ethereum".into()),
+            ("bip122:00040fe8ec8471911baa1f7c215a71e9".into(), "Zcash".into()),
+        ];
+        let sel = chains.iter().position(|(id, _)| id == initial_chain).unwrap_or(0);
+        Self { selected_chain: sel, chains, copied_feedback: None }
+    }
+}
+
+impl Screen for ReceiveScreen {
+    fn name(&self) -> &str { "Receive" }
+
+    fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
+        let chain = &self.chains[self.selected_chain].0;
+        api.refresh_receive(chain);
+    }
+
+    fn init(&mut self, _api: &dyn WalletApi) {}
+
+    fn render(&mut self, frame: &mut Frame, api: &dyn WalletApi) {
+        let theme = ui::theme();
+        let area = frame.area();
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(3),
+        ]).split(area);
+        let header = chunks[0]; let body = chunks[1]; let footer = chunks[2];
+
+        let title = theme.title(" Receive Funds ").centered();
+        frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
+
+        let chain = &self.chains[self.selected_chain].0;
+        match api.receive_state(chain) {
+            ApiState::Loading => {
+                let block = Block::new().style(Style::new().bg(ui::BG));
+                frame.render_widget(block, body);
+                let msg = Paragraph::new(Line::from(vec![
+                    theme.muted(" Loading..."),
+                ])).centered().style(Style::new().bg(ui::BG));
+                frame.render_widget(msg, body);
+            }
+            ApiState::Error(err) => {
+                ui::render_error_banner(frame, body, &err);
+                let msg = Paragraph::new(Line::from(vec![
+                    theme.error(" Could not load receive data. "),
+                ])).centered().style(Style::new().bg(ui::BG));
+                frame.render_widget(msg, body.inner(Margin { vertical: 4, horizontal: 2 }));
+            }
+            ApiState::Loaded(ref data) => {
+                let chain_title = format!(" on {}", self.chains[self.selected_chain].1);
+                let fieldset = Fieldset::new()
+                    .title(&chain_title)
+                    .fill(FieldsetFill::Dash)
+                    .top_alignment(ratatui::layout::Alignment::Left);
+                let inner = fieldset.inner(body);
+                frame.render_widget(fieldset, body);
+
+                let inner2 = inner.inner(Margin { vertical: 2, horizontal: 4 });
+
+                let mut lines = Vec::new();
+                lines.push(Line::from(vec![theme.muted("Address:")]));
+                lines.push(Line::from(vec![theme.accent(format!("  {}", data.address))]));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    theme.muted("Format: "),
+                    theme.span(&data.address_format),
+                ]));
+                lines.push(Line::from(""));
+
+                let qr_short = if data.qr_payload.len() > 60 {
+                    format!("{}...", &data.qr_payload[..60])
+                } else {
+                    data.qr_payload.clone()
+                };
+                lines.push(Line::from(vec![theme.muted("QR Payload:")]));
+                lines.push(Line::from(vec![theme.span(format!("  {}", qr_short))]));
+                lines.push(Line::from(""));
+                if let Some(ref feedback) = self.copied_feedback {
+                    lines.push(Line::from(vec![theme.success(feedback)]));
+                    lines.push(Line::from(""));
+                }
+                lines.push(Line::from(""));
+
+                let chain_name = if data.chain_id.contains("eip155") { "ETH" } else { "ZEC" };
+                lines.push(Line::from(vec![
+                    Span::styled(" ╔══ QR CODE ══╗", Style::new().fg(ui::palette().muted)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled(" ║              ║", Style::new().fg(ui::palette().muted)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled(format!(" ║   {} ADDR   ║", chain_name), Style::new().fg(ui::palette().primary)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled(" ║  ██▄██ ▄██▄  ║", Style::new().fg(ui::palette().foreground)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled(" ║  ████ █████  ║", Style::new().fg(ui::palette().foreground)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled(" ║  ▄▀▀█ █▄▄█  ║", Style::new().fg(ui::palette().foreground)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled(" ║              ║", Style::new().fg(ui::palette().muted)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled(" ╚══════════════╝", Style::new().fg(ui::palette().muted)),
+                ]));
+
+                let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
+                frame.render_widget(para, inner2);
+            }
+        }
+
+        let footer_text = theme.help_line([
+            ("←/→", "Chain"),
+            ("c", "Copy Address"),
+            ("Esc", "Back"),
+            ("?", "Help"),
+        ]);
+        let fb = Block::new().style(Style::new().bg(ui::SURFACE));
+        frame.render_widget(fb, footer);
+        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+    }
+
+    fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Left | KeyCode::Char('1') => {
+                self.selected_chain = 0;
+                let chain = &self.chains[0].0;
+                api.submit_receive(ReceiveInput { selected_chain_id: chain.clone() });
+                api.refresh_receive(chain);
+            }
+            KeyCode::Right | KeyCode::Char('2') => {
+                self.selected_chain = 1;
+                let chain = &self.chains[1].0;
+                api.submit_receive(ReceiveInput { selected_chain_id: chain.clone() });
+                api.refresh_receive(chain);
+            }
+            KeyCode::Char('c') => {
+                let chain = &self.chains[self.selected_chain].0;
+                if let ApiState::Loaded(ref data) = api.receive_state(chain) {
+                    let mut cb = arboard::Clipboard::new().ok();
+                    if let Some(ref mut clipboard) = cb {
+                        let _ = clipboard.set_text(data.address.clone());
+                    }
+                    self.copied_feedback = Some("Copied!".into());
+                }
+            }
+            KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
+            KeyCode::Esc => return Nav::Pop,
+            _ => {}
+        }
+        Nav::None
+    }
+}

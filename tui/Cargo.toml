@@ -1,0 +1,14 @@
+[package]
+name = "paypunk-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ratatui-cheese = "0.7"
+ratatui-bubbletea-theme = "0.1"
+ratatui-bubbletea-components = "0.1"
+arboard = "3"

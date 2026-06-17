@@ -1,0 +1,295 @@
+use std::fmt;
+
+#[derive(Debug, Clone)]
+pub struct ApiError(pub String);
+
+impl fmt::Display for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ApiState<T> {
+    Loading,
+    Loaded(T),
+    Error(String),
+}
+
+impl<T> ApiState<T> {
+    pub fn as_ref(&self) -> ApiState<&T> {
+        match self {
+            ApiState::Loading => ApiState::Loading,
+            ApiState::Loaded(v) => ApiState::Loaded(v),
+            ApiState::Error(e) => ApiState::Error(e.clone()),
+        }
+    }
+}
+
+// ── Setup ──
+
+#[derive(Debug, Clone)]
+pub struct SetupData {
+    pub app_version: String,
+    pub wallet_exists: bool,
+    pub new_mnemonic: Vec<String>,
+    pub word_count: usize,
+    pub import_methods: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WordVerification {
+    pub index: usize,
+    pub word: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetupCreateInput {
+    pub verification_words: Vec<WordVerification>,
+    pub backup_confirmed: bool,
+    pub password: String,
+    pub biometric_enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetupImportInput {
+    pub method: String,
+    pub secret: String,
+    pub password: String,
+}
+
+// ── Home ──
+
+#[derive(Debug, Clone)]
+pub struct AccountInfo {
+    pub account_id: String,
+    pub chain_id: String,
+    pub address: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BalanceInfo {
+    pub token_id: String,
+    pub chain_id: String,
+    pub symbol: String,
+    pub decimals: u8,
+    pub raw_balance: String,
+    pub fiat_value: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingTx {
+    pub tx_hash: String,
+    pub status: String,
+    pub block_explorer_url: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct HomeData {
+    pub accounts: Vec<AccountInfo>,
+    pub balances: Vec<BalanceInfo>,
+    pub total_fiat_value: f64,
+    pub fiat_currency: String,
+    pub pending_tx: Option<PendingTx>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HomeInput {
+    pub selected_account_id: String,
+    pub refresh: bool,
+}
+
+// ── Receive ──
+
+#[derive(Debug, Clone)]
+pub struct ReceiveData {
+    pub address: String,
+    pub chain_id: String,
+    pub address_format: String,
+    pub qr_payload: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReceiveInput {
+    pub selected_chain_id: String,
+}
+
+// ── Send ──
+
+#[derive(Debug, Clone)]
+pub struct FeeDataEth {
+    pub base_fee_per_gas: String,
+    pub max_priority_fee_per_gas: String,
+    pub gas_limit_estimate: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct FeeRates {
+    pub slow: u64,
+    pub medium: u64,
+    pub fast: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct UtxoInfo {
+    pub txid: String,
+    pub vout: u32,
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum FeeData {
+    Eth(FeeDataEth),
+    Zec(FeeRates),
+}
+
+#[derive(Debug, Clone)]
+pub struct SendData {
+    pub from_address: String,
+    pub spendable_balance: String,
+    pub decimals: u8,
+    pub chain_id: String,
+    pub fee_data: FeeData,
+    pub nonce: Option<u64>,
+    pub utxos: Option<Vec<UtxoInfo>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FeeSelection {
+    pub tier: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SendReviewInput {
+    pub to_address: String,
+    pub amount: String,
+    pub token_id: String,
+    pub chain_id: String,
+    pub fee_selection: FeeSelection,
+}
+
+#[derive(Debug, Clone)]
+pub struct SendReviewData {
+    pub to_address: String,
+    pub amount: String,
+    pub fee_estimate: String,
+    pub total_amount: String,
+    pub chain_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthConfirmation {
+    pub auth_type: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReviewedDetails {
+    pub to_address: String,
+    pub amount: String,
+    pub fee_estimate: String,
+    pub total_amount: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SendConfirmInput {
+    pub reviewed: ReviewedDetails,
+    pub auth_confirmation: AuthConfirmation,
+    pub signed_tx: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SendResult {
+    pub tx_hash: String,
+    pub status: String,
+    pub block_explorer_url: String,
+}
+
+// ── Wallets ──
+
+#[derive(Debug, Clone)]
+pub struct WalletDerivation {
+    pub index: usize,
+    pub address: String,
+    pub chain_id: String,
+    pub chain_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WalletsData {
+    pub wallets: Vec<WalletDerivation>,
+}
+
+// ── Assets ──
+
+#[derive(Debug, Clone)]
+pub struct AssetRow {
+    pub name: String,
+    pub ticker: String,
+    pub price: String,
+    pub price_change: String,
+    pub price_change_up: bool,
+    pub holdings_value: String,
+    pub holdings_amount: String,
+    pub chain_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetsData {
+    pub assets: Vec<AssetRow>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LockData {
+    pub auth_methods: LockAuthMethods,
+    pub failed_attempts: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct LockAuthMethods {
+    pub biometric_available: bool,
+    pub password_set: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct Credential {
+    pub cred_type: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct LockInput {
+    pub credential: Credential,
+}
+
+// ── Settings ──
+
+#[derive(Debug, Clone)]
+pub struct SecuritySettings {
+    pub biometric_enabled: bool,
+    pub auto_lock_minutes: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SettingsData {
+    pub security: SecuritySettings,
+    pub fiat_currency: String,
+    pub app_version: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdatedSecurity {
+    pub auto_lock_minutes: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SettingsInput {
+    pub updated_security: UpdatedSecurity,
+    pub fiat_currency: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RevealPhraseInput {
+    pub auth_type: String,
+    pub value: String,
+}

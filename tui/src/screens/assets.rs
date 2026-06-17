@@ -1,0 +1,198 @@
+use crate::api::types::*;
+use crate::api::WalletApi;
+use crate::app::Nav;
+use crate::components::asset_item::{AssetAction, AssetItem};
+use crate::components::button::{Button, ButtonSize};
+use crate::components::flex_box::FlexBox;
+use crate::components::list::List;
+use crate::components::Component;
+use crate::screens::help::HelpScreen;
+use crate::screens::receive::ReceiveScreen;
+use crate::screens::send::SendScreen;
+use crate::screens::Screen;
+use crate::ui;
+use ratatui::layout::{Constraint, Layout, Margin};
+use ratatui::style::Style;
+use ratatui::text::Line;
+use ratatui::widgets::{Block, Padding, Paragraph};
+use ratatui::Frame;
+
+enum AssetsFocus {
+    Buttons(usize),
+    Table,
+}
+
+pub struct AssetsScreen {
+    chain_id: String,
+    account_name: String,
+    data: Option<AssetsData>,
+    list: List<AssetAction>,
+    focus: AssetsFocus,
+}
+
+impl AssetsScreen {
+    pub fn new(chain_id: &str, account_name: &str) -> Self {
+        Self {
+            chain_id: chain_id.to_string(),
+            account_name: account_name.to_string(),
+            data: None,
+            list: List::new(vec![]).row_height(2),
+            focus: AssetsFocus::Buttons(0),
+        }
+    }
+}
+
+impl Screen for AssetsScreen {
+    fn name(&self) -> &str { "Assets" }
+
+    fn init(&mut self, api: &dyn WalletApi) {
+        let data = api.get_assets(&self.chain_id);
+        let items: Vec<Box<dyn Component<AssetAction>>> = data.assets.iter()
+            .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
+            .collect();
+        self.list = List::new(items).row_height(2);
+        self.data = Some(data);
+    }
+
+    fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
+        let theme = ui::theme();
+        let area = frame.area();
+        let chunks = Layout::vertical([
+            Constraint::Length(4),
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(3),
+        ]).split(area);
+        let header = chunks[0]; let buttons = chunks[1]; let body = chunks[2]; let footer = chunks[3];
+
+        let title = theme.title(" PayPunk Wallet ").centered();
+        frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
+
+        let chain_label = if self.chain_id.contains("eip155") { "Ethereum" } else { "Zcash" };
+        let subtitle = Paragraph::new(Line::from(format!("{} — {} ({})", self.account_name, chain_label, self.chain_id)).centered())
+            .style(theme.text);
+        frame.render_widget(subtitle, header.inner(Margin { vertical: 2, horizontal: 0 }));
+
+        let on_buttons = matches!(self.focus, AssetsFocus::Buttons(_));
+        let mut send_btn = Button::new(" \u{2191} Send ").size(ButtonSize::Sm);
+        send_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(0)));
+        let mut recv_btn = Button::new(" \u{2193} Receive ").size(ButtonSize::Sm);
+        recv_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(1)));
+
+        let mut btn_bar = FlexBox::horizontal()
+            .bg(ui::BG)
+            .margin(Padding { top: 1, bottom: 1, left: 2, right: 2 })
+            .gap(2)
+            .child_with(Constraint::Length(10), send_btn)
+            .child_with(Constraint::Length(13), recv_btn);
+        btn_bar.render(frame, buttons);
+
+        let block = theme.titled_block("");
+        let inner = block.inner(body);
+        frame.render_widget(block, body);
+
+        let on_table = matches!(self.focus, AssetsFocus::Table);
+        self.list.set_focused(on_table);
+
+        let table_area = inner.inner(Margin { vertical: 0, horizontal: 1 });
+        let header_style = Style::new().fg(ui::palette().muted);
+        let name_width = (table_area.width as usize).saturating_sub(32);
+        let header_line = Line::from(vec![
+            ratatui::text::Span::styled(format!(" {:width$} ", "Asset", width = name_width), header_style),
+            ratatui::text::Span::styled(format!(" {:>14} ", "Price"), header_style),
+            ratatui::text::Span::styled(format!(" {:>14} ", "Holdings"), header_style),
+        ]);
+        frame.render_widget(
+            Paragraph::new(header_line).style(Style::new().bg(ui::BG)),
+            table_area.inner(Margin { vertical: 0, horizontal: 0 }),
+        );
+
+        let sep_style = Style::new().fg(ui::palette().border);
+        let sep_line = Line::from(vec![
+            ratatui::text::Span::styled(format!(" {:-<width$} ", "", width = name_width), sep_style),
+            ratatui::text::Span::styled(format!(" {:->14} ", ""), sep_style),
+            ratatui::text::Span::styled(format!(" {:->14} ", ""), sep_style),
+        ]);
+        frame.render_widget(
+            Paragraph::new(sep_line).style(Style::new().bg(ui::BG)),
+            table_area.inner(Margin { vertical: 1, horizontal: 0 }),
+        );
+
+        self.list.render(frame, table_area.inner(Margin { vertical: 2, horizontal: 0 }));
+
+        let footer_text = theme.help_line([
+            ("↑↓", "Navigate"),
+            ("←/→", "Send/Receive"),
+            ("Enter", "Select action"),
+            ("Esc", "Back to wallets"),
+            ("?", "Help"),
+        ]);
+        let fb = Block::new().style(Style::new().bg(ui::SURFACE));
+        frame.render_widget(fb, footer);
+        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+    }
+
+    fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
+            _ => {}
+        }
+
+        match self.focus {
+            AssetsFocus::Buttons(ref mut sel) => match key.code {
+                KeyCode::Left | KeyCode::Right => {
+                    *sel = if *sel == 0 { 1 } else { 0 };
+                }
+                KeyCode::Down => {
+                    if self.data.as_ref().map_or(false, |d| !d.assets.is_empty()) {
+                        self.focus = AssetsFocus::Table;
+                        self.list.set_focused(true);
+                    }
+                }
+                KeyCode::Enter => {
+                    return if *sel == 0 {
+                        Nav::Push(Box::new(SendScreen::new(&self.chain_id)))
+                    } else {
+                        Nav::Push(Box::new(ReceiveScreen::new(&self.chain_id)))
+                    };
+                }
+                KeyCode::Esc => return Nav::Pop,
+                _ => {}
+            },
+            AssetsFocus::Table => match key.code {
+                KeyCode::Up => {
+                    if self.list.selected().map_or(true, |i| i == 0) {
+                        self.focus = AssetsFocus::Buttons(0);
+                        self.list.set_focused(false);
+                    } else {
+                        let _ = self.list.handle_event(key);
+                    }
+                }
+                KeyCode::Down => {
+                    let _ = self.list.handle_event(key);
+                }
+                KeyCode::Left => {
+                    self.focus = AssetsFocus::Buttons(0);
+                    self.list.set_focused(false);
+                }
+                KeyCode::Right => {
+                    self.focus = AssetsFocus::Buttons(1);
+                    self.list.set_focused(false);
+                }
+                KeyCode::Enter => {
+                    if let Some(idx) = self.list.selected() {
+                        if let Some(ref data) = self.data {
+                            if idx < data.assets.len() {
+                                return Nav::Push(Box::new(SendScreen::new(&self.chain_id)));
+                            }
+                        }
+                    }
+                }
+                KeyCode::Esc => return Nav::Pop,
+                _ => {}
+            },
+        }
+        Nav::None
+    }
+}
