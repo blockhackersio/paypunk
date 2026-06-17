@@ -67,32 +67,6 @@ impl KeypunkService {
         }
     }
 
-    pub async fn unlock(
-        &self,
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
-    ) -> Result<(), String> {
-        match self
-            .send(KeypunkdRequest::Unlock {
-                encrypted_password,
-                client_public_key,
-            })
-            .await?
-        {
-            KeypunkdResponse::Unlocked => Ok(()),
-            KeypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
-    pub async fn lock(&self) -> Result<(), String> {
-        match self.send(KeypunkdRequest::Lock).await? {
-            KeypunkdResponse::Locked => Ok(()),
-            KeypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
     pub async fn preview_artifact(
         &self,
         raw_artifact: Vec<u8>,
@@ -129,11 +103,18 @@ impl KeypunkService {
 
     pub async fn export_viewing_key(
         &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
         protocol: ProtocolId,
         account: u32,
     ) -> Result<Vec<u8>, String> {
         match self
-            .send(KeypunkdRequest::ExportViewingKey { protocol, account })
+            .send(KeypunkdRequest::ExportViewingKey {
+                encrypted_password,
+                client_public_key,
+                protocol,
+                account,
+            })
             .await?
         {
             KeypunkdResponse::ViewingKey { key } => Ok(key),

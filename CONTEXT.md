@@ -9,7 +9,7 @@ A Zcash key manager capable of generating Addresses, checking Balance, building 
 _Avoid_: Vault, safe
 
 **KeyActor**:
-An actor (tactix) that holds the decrypted spending key in protected memory. Lives inside `keypunkd`. The security boundary — only accepts `Unlock`, `Lock`, `Sign`, and `DerivePublicKey` messages. Never exposes raw key material. Uses `SignerProtocol` implementations to perform chain-specific signing.
+An actor (tactix) that holds the decrypted spending key in protected memory. Lives inside `keypunkd`. The security boundary — only accepts `Sign` and `DerivePublicKey` messages. Never exposes raw key material. Uses `SignerProtocol` implementations to perform chain-specific signing. Stateless — the seed is derived from the encrypted store on each `AuthorizeArtifact` or `ExportViewingKey` call using the password provided in the request.
 _Avoid_: Key Daemon, signer
 
 **WalletActor**:
@@ -17,7 +17,7 @@ An actor (tactix) managing non-secret operations: address derivation, LSP sync, 
 _Avoid_: Wallet Daemon
 
 **Seed**:
-A 12-word BIP39 mnemonic phrase from which all wallet keys are deterministically derived. Stored at rest in a dedicated file (`seed.enc`), encrypted with an Argon2id-derived key from the user's password. The seed file is eventually owned by a different system user than the wallet process for security compartmentalization.
+A 12-word BIP39 mnemonic phrase from which all wallet keys are deterministically derived. Stored at rest in a dedicated file (`seed.enc`), encrypted with an Argon2id-derived key from the user's password. The seed file is eventually owned by a different system user than the wallet process for security compartmentalization. The seed is decrypted on-demand for each `AuthorizeArtifact` or `ExportViewingKey` call — it is never held in memory between requests.
 
 **Address**:
 A unique receiving address derived for each incoming payment. One address per payment — never reused (post-v1 goal; address reuse is acceptable for initial build).

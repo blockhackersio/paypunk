@@ -47,7 +47,7 @@ Individual privacy-conscious users, including developers and agent operators run
 ### Architecture
 
 - **Three-process model** — `keypunkd` (key daemon), `paypunkd` (app daemon), `paypunk` (CLI/TUI). Process separation from v1 enforces the security boundary — neither the CLI nor the application daemon ever hold key material.
-- **Key isolation** — The KeyActor (in keypunkd) must never expose raw private keys. It accepts sign/prove requests and returns only results (signatures, protocol proofs).
+- **Key isolation** — The KeyActor (in keypunkd) must never expose raw private keys. It accepts sign/prove requests and returns only results (signatures, protocol proofs). The password is required on each `AuthorizeArtifact` and `ExportViewingKey` call — there is no long-lived unlocked session.
 - **IPC** — A tactix actor wrapping Unix domain sockets with postcard serialization. The message types are the IPC contract — the same protocol regardless of whether actors are in-process or cross-process. Includes X25519-based per-message authentication (see ADR-001).
 - **Structured logging** — `tracing` crate with env-filter support. Info-level for operations, debug for scan details, warn/error for failures.
 

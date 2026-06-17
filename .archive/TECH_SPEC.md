@@ -244,11 +244,9 @@ enum PaypunkdRequest {
     GetBalance { address: String, asset: String },
 
     // Seed management (unchanged)
-    GetKeypunkEncryptionKey,
+    GetEncryptionKey,
     GenerateSeed { encrypted_password: Vec<u8>, client_public_key: [u8; 32] },
     RestoreSeed { encrypted_mnemonic: Vec<u8>, encrypted_password: Vec<u8>, client_public_key: [u8; 32] },
-    Unlock { encrypted_password: Vec<u8>, client_public_key: [u8; 32] },
-    Lock,
 }
 
 enum PaypunkdResponse {
@@ -258,11 +256,9 @@ enum PaypunkdResponse {
     Balance { balance: Balance },
 
     // Seed management (unchanged)
-    KeypunkEncryptionKey { key: [u8; 32] },
+    EncryptionKey { key: [u8; 32] },
     SeedGenerated { encrypted_mnemonic: Vec<u8> },
     SeedRestored,
-    Unlocked,
-    Locked,
     Error { message: String },
 }
 ```
@@ -274,14 +270,12 @@ enum KeypunkdRequest {
     // Intent flow
     PreviewArtifact { raw_artifact: Vec<u8>, protocol: ProtocolId },
     AuthorizeArtifact { encrypted_payload: Vec<u8>, ephemeral_public_key: [u8; 32] },
-    ExportViewingKey { protocol: ProtocolId, account: u32 },
+    ExportViewingKey { encrypted_password: Vec<u8>, client_public_key: [u8; 32], protocol: ProtocolId, account: u32 },
 
     // Seed management (unchanged)
     GetEncryptionKey,
     GenerateSeed { encrypted_password: Vec<u8>, client_public_key: [u8; 32] },
     RestoreSeed { encrypted_mnemonic: Vec<u8>, encrypted_password: Vec<u8>, client_public_key: [u8; 32] },
-    Unlock { encrypted_password: Vec<u8>, client_public_key: [u8; 32] },
-    Lock,
 }
 
 enum KeypunkdResponse {
@@ -294,8 +288,6 @@ enum KeypunkdResponse {
     EncryptionKey { key: [u8; 32] },
     SeedGenerated { encrypted_mnemonic: Vec<u8> },
     SeedRestored,
-    Unlocked,
-    Locked,
     Error { message: String },
 }
 ```

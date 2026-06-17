@@ -78,26 +78,6 @@ impl Paypunkd {
         )
     }
 
-    async fn unlock(
-        &self,
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
-    ) -> PaypunkdResponse {
-        info!("forwarding Unlock to keypunkd");
-        self.respond(
-            "unlock",
-            usecases::unlock(&self.keypunk_service, encrypted_password, client_public_key).await,
-            |()| PaypunkdResponse::Unlocked,
-        )
-    }
-
-    async fn lock(&self) -> PaypunkdResponse {
-        info!("forwarding Lock to keypunkd");
-        self.respond("lock", usecases::lock(&self.keypunk_service).await, |()| {
-            PaypunkdResponse::Locked
-        })
-    }
-
     async fn submit_intent(&self, intent: paypunk_types::Intent, derivation_path: Vec<u8>) -> PaypunkdResponse {
         info!("handling SubmitIntent");
         self.respond(
@@ -158,6 +138,8 @@ impl Paypunkd {
 
     async fn derive_address(
         &mut self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
         protocol: ProtocolId,
         account: String,
         index: u32,
@@ -175,11 +157,17 @@ impl Paypunkd {
         };
         self.respond(
             "derive_address",
-            usecases::export_viewing_key(&self.keypunk_service, protocol, account_num)
-                .await
-                .and_then(|viewing_key| {
-                    usecases::derive_address(&self.protocols, protocol, &viewing_key, index)
-                }),
+            usecases::export_viewing_key(
+                &self.keypunk_service,
+                encrypted_password,
+                client_public_key,
+                protocol,
+                account_num,
+            )
+            .await
+            .and_then(|viewing_key| {
+                usecases::derive_address(&self.protocols, protocol, &viewing_key, index)
+            }),
             |address| PaypunkdResponse::AddressDerived { address },
         )
     }
@@ -211,11 +199,6 @@ impl Handler<IpcMessage> for Paypunkd {
                 self.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key)
                     .await
             }
-            PaypunkdRequest::Unlock {
-                encrypted_password,
-                client_public_key,
-            } => self.unlock(encrypted_password, client_public_key).await,
-            PaypunkdRequest::Lock => self.lock().await,
             PaypunkdRequest::SubmitIntent { intent, derivation_path } => self.submit_intent(intent, derivation_path).await,
             PaypunkdRequest::ApproveSignature {
                 encrypted_payload,
@@ -226,10 +209,12 @@ impl Handler<IpcMessage> for Paypunkd {
                 self.get_balance(address, asset).await
             }
             PaypunkdRequest::DeriveAddress {
+                encrypted_password,
+                client_public_key,
                 protocol,
                 account,
                 index,
-            } => self.derive_address(protocol, account, index).await,
+            } => self.derive_address(encrypted_password, client_public_key, protocol, account, index).await,
         };
 
         let encoded =

@@ -30,24 +30,16 @@ pub async fn restore_seed(
         .await
 }
 
-pub async fn unlock(
+pub async fn export_viewing_key(
     service: &KeypunkService,
     encrypted_password: Vec<u8>,
     client_public_key: [u8; 32],
-) -> Result<(), String> {
-    service.unlock(encrypted_password, client_public_key).await
-}
-
-pub async fn lock(service: &KeypunkService) -> Result<(), String> {
-    service.lock().await
-}
-
-pub async fn export_viewing_key(
-    service: &KeypunkService,
     protocol: ProtocolId,
     account: u32,
 ) -> Result<Vec<u8>, String> {
-    service.export_viewing_key(protocol, account).await
+    service
+        .export_viewing_key(encrypted_password, client_public_key, protocol, account)
+        .await
 }
 
 /// Submit an intent: build the unsigned artifact via the protocol,

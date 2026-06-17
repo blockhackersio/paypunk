@@ -11,8 +11,9 @@ were considered:
 
 1. **OS-level authentication**: SO_PEERCRED UID/PID checks, parent-PID
    bootstrapping, filesystem permissions on the socket.
-2. **Password-only auth**: The wallet password gates sensitive operations after
-   `Unlock`, but any process can connect and attempt the handshake.
+ 2. **Password-only auth**: The wallet password gates sensitive operations
+    (`AuthorizeArtifact`, `ExportViewingKey`), but any process can connect and
+    attempt the handshake.
 3. **Cryptographic message signing**: Each process holds a long-lived X25519
    keypair in memory. Every IPC message is authenticated using the shared
    secret derived from the two processes' keys.
@@ -63,25 +64,6 @@ accepted.
    password and mnemonic. The per-message HMAC is an additional layer on every
    message, not a replacement for the encryption of sensitive payloads.
 
-### What this means for each process
-
-| Process | Runs as | Key material |
-|---------|---------|-------------|
-| keypunkd | Separate system user (or same user in dev) | Long-lived X25519 keypair in `KeyStore`; shared secret per connected client |
-| paypunkd | User's login UID | Long-lived X25519 keypair in memory; shared secret per connection to keypunkd |
-| paypunk (CLI) | User's login UID | No keys — connects to paypunkd (not keypunkd); paypunkd does not require message-level auth for CLI connections |
-
-### OS user separation
-
-keypunkd runs as a separate system user (e.g., `keypunkd`) for defense-in-depth:
-- `seed.enc` is owned by the keypunkd user, not the wallet user
-- keypunkd's process memory is isolated by the OS
-- A compromise of the wallet user does not directly expose key material
-
-The cryptographic message authentication is independent of user separation —
-it works the same whether keypunkd runs as a different user or the same user as
-paypunkd.
-
 ## Consequences
 
 ### Positive
@@ -109,9 +91,10 @@ paypunkd.
 - **HMAC overhead**: Small CPU cost per message for HMAC computation and
   verification. Negligible for a wallet application.
 - **No key persistence**: If an attacker gains temporary access to paypunkd's
-  memory, they can extract the current keypair. Mitigated by: (a) the keypair
-  is regenerated on restart, (b) the attacker would also need access to
-  keypunkd's socket, (c) the wallet password is still required for `Unlock`.
+   memory, they can extract the current keypair. Mitigated by: (a) the keypair
+   is regenerated on restart, (b) the attacker would also need access to
+   keypunkd's socket, (c) the wallet password is still required for every
+   `AuthorizeArtifact` and `ExportViewingKey` call.
 
 ## Implementation Plan
 
@@ -153,7 +136,7 @@ the parent, not paypunkd) and doesn't work if processes are launched by a
 service manager.
 
 ### Password-only auth
-The wallet password gates sensitive operations after `Unlock`. Rejected as the
+The wallet password gates sensitive operations. Rejected as the
 sole mechanism because it still allows any process to connect and participate
 in the handshake protocol. Message-level auth closes this window entirely.
 

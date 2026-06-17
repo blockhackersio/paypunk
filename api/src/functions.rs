@@ -37,32 +37,22 @@ pub async fn restore_seed(
         .await
 }
 
-/// Unlock the wallet by sending the password to keypunkd.
-pub async fn unlock(
+/// Derive an address for the given protocol, CAIP-10 account, and index.
+pub async fn derive_address(
     service: &paypunkd::services::PaypunkService,
     password: Zeroizing<String>,
-) -> Result<(), String> {
+    protocol: ProtocolId,
+    account: String,
+    index: u32,
+) -> Result<String, String> {
     let client_keypair = Keypair::new();
     let server_pk = service.get_keypunk_encryption_key().await?;
     let encrypted_password = client_keypair.encrypt(password, &server_pk);
     let client_pk = client_keypair.public_key();
 
-    service.unlock(encrypted_password, client_pk).await
-}
-
-/// Lock the wallet, zeroizing the in-memory seed in keypunkd.
-pub async fn lock(service: &paypunkd::services::PaypunkService) -> Result<(), String> {
-    service.lock().await
-}
-
-/// Derive an address for the given protocol, CAIP-10 account, and index.
-pub async fn derive_address(
-    service: &paypunkd::services::PaypunkService,
-    protocol: ProtocolId,
-    account: String,
-    index: u32,
-) -> Result<String, String> {
-    service.derive_address(protocol, account, index).await
+    service
+        .derive_address(encrypted_password, client_pk, protocol, account, index)
+        .await
 }
 
 /// Submit an intent for preview.

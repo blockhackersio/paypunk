@@ -16,13 +16,6 @@ pub enum KeypunkdRequest {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     },
-    /// Unlock the wallet: decrypt the seed and hold it in memory for the session.
-    Unlock {
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
-    },
-    /// Lock the wallet: zero the in-memory seed and end the session.
-    Lock,
     /// Parse an unsigned artifact and return a human-readable summary.
     PreviewArtifact {
         raw_artifact: Vec<u8>,
@@ -37,6 +30,8 @@ pub enum KeypunkdRequest {
     },
     /// Export chain-specific viewing key material for the given path.
     ExportViewingKey {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
         protocol: ProtocolId,
         account: u32,
     },
@@ -51,8 +46,6 @@ pub enum KeypunkdResponse {
         encrypted_mnemonic: Vec<u8>,
     },
     SeedRestored,
-    Unlocked,
-    Locked,
     ArtifactPreview {
         raw_artifact: Vec<u8>,
         parsed_summary: Vec<u8>,

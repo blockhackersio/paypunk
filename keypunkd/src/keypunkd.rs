@@ -2,7 +2,6 @@ use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler};
 use tracing::{debug, info, warn};
-use zeroize::Zeroize;
 use blake2::Digest;
 
 use crate::crypto::Keypair;
@@ -16,30 +15,10 @@ use crate::usecases;
 pub trait Storage: SeedStore + Send + Sync + 'static {}
 impl<T: SeedStore + Send + Sync + 'static> Storage for T {}
 
-/// An unlocked session holding the decrypted seed in memory.
-struct Session {
-    peer_pk: [u8; 32],
-    seed: [u8; 64],
-}
-
-impl Session {
-    fn new(peer_pk: [u8; 32], seed: [u8; 64]) -> Self {
-        Self { peer_pk, seed }
-    }
-}
-
-impl Drop for Session {
-    fn drop(&mut self) {
-        self.seed.zeroize();
-    }
-}
-
 pub struct Keypunkd<S: Storage> {
     keystore: Keypair,
     seed_store: S,
     protocols: ProtocolService,
-    session: Option<Session>,
-    skip_session_auth: bool,
 }
 
 impl<S: Storage> Keypunkd<S> {
@@ -48,61 +27,7 @@ impl<S: Storage> Keypunkd<S> {
             keystore,
             seed_store,
             protocols,
-            session: None,
-            skip_session_auth: false,
         }
-    }
-
-    /// When enabled, all session authentication checks are skipped.
-    /// In-process messages (`sender_public_key` is `None`) are still rejected
-    /// unless this mode is active.
-    pub fn with_skip_session_auth(mut self, skip: bool) -> Self {
-        self.skip_session_auth = skip;
-        self
-    }
-
-    /// Returns the verified sender public key, or bails if the message
-    /// is in-process and session auth is enabled.
-    fn verify_message(&self, msg: &IpcMessage) -> Result<(), String> {
-        if self.skip_session_auth {
-            return Ok(());
-        }
-
-        msg.sender_public_key
-            .ok_or_else(|| "rejecting in-process message: no sender public key".to_string())?;
-
-        Ok(())
-    }
-
-    /// Ensures there is an active unlocked session for the given sender.
-    fn require_session(&self, msg: &IpcMessage) -> Result<&Session, String> {
-        if self.skip_session_auth {
-            return self
-                .session
-                .as_ref()
-                .ok_or_else(|| "no active session — call Unlock first".to_string());
-        }
-        let sender_pk = msg
-            .sender_public_key
-            .ok_or_else(|| "in-process message has no sender key".to_string())?;
-        self.session
-            .as_ref()
-            .filter(|s| s.peer_pk == sender_pk)
-            .ok_or_else(|| "no active session — call Unlock first".to_string())
-    }
-
-    /// Sets the active session from the message's sender public key and seed.
-    fn set_session(&mut self, msg: &IpcMessage, seed: [u8; 64]) {
-        if self.skip_session_auth {
-            self.session = Some(Session::new([0u8; 32], seed));
-        } else if let Some(pk) = msg.sender_public_key {
-            self.session = Some(Session::new(pk, seed));
-        }
-    }
-
-    /// Clears the active session, zeroizing the seed.
-    fn clear_session(&mut self) {
-        self.session = None;
     }
 
     fn respond<T>(
@@ -167,38 +92,6 @@ impl<S: Storage> Keypunkd<S> {
         )
     }
 
-    fn unlock(
-        &mut self,
-        msg: &IpcMessage,
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
-    ) -> KeypunkdResponse {
-        info!("handling Unlock");
-        let client_pk = &client_public_key;
-        match usecases::decrypt_seed(
-            &encrypted_password,
-            client_pk,
-            &self.keystore,
-            &self.seed_store,
-        ) {
-            Ok(seed) => {
-                self.set_session(msg, seed);
-                info!("wallet unlocked");
-                KeypunkdResponse::Unlocked
-            }
-            Err(e) => {
-                warn!(error = %e, "unlock failed");
-                KeypunkdResponse::Error { message: e }
-            }
-        }
-    }
-
-    fn lock(&mut self) -> KeypunkdResponse {
-        info!("handling Lock");
-        self.clear_session();
-        KeypunkdResponse::Locked
-    }
-
     fn preview_artifact(
         &self,
         raw_artifact: Vec<u8>,
@@ -207,12 +100,7 @@ impl<S: Storage> Keypunkd<S> {
         msg: &IpcMessage,
     ) -> KeypunkdResponse {
         info!(?protocol, "handling PreviewArtifact");
-        let session = match self.require_session(msg) {
-            Ok(s) => s,
-            Err(e) => return KeypunkdResponse::Error { message: e },
-        };
 
-        // Parse the artifact into a summary
         let parsed_summary = match usecases::preview_artifact(&self.protocols, protocol, &raw_artifact) {
             Ok(s) => s,
             Err(e) => return KeypunkdResponse::Error { message: e },
@@ -224,7 +112,10 @@ impl<S: Storage> Keypunkd<S> {
         to_sign.extend_from_slice(&parsed_summary);
         to_sign.extend_from_slice(&derivation_path);
         let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_sign);
-        let signature = self.keystore.encrypt_bytes(&hash, &session.peer_pk);
+
+        // Encrypt the attestation to the client's public key so only they can decrypt it
+        let peer_pk = msg.sender_public_key.unwrap_or([0u8; 32]);
+        let signature = self.keystore.encrypt_bytes(&hash, &peer_pk);
 
         KeypunkdResponse::ArtifactPreview {
             raw_artifact,
@@ -239,13 +130,8 @@ impl<S: Storage> Keypunkd<S> {
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
         derivation_path: Vec<u8>,
-        msg: &IpcMessage,
     ) -> KeypunkdResponse {
         info!("handling AuthorizeArtifact");
-        let _session = match self.require_session(msg) {
-            Ok(s) => s,
-            Err(e) => return KeypunkdResponse::Error { message: e },
-        };
 
         // Decrypt the payload: (raw, sig, pw) encrypted with ephemeral key
         let plaintext = match self
@@ -285,7 +171,6 @@ impl<S: Storage> Keypunkd<S> {
         let password_bytes = &plaintext[sig_end..];
 
         // Re-parse the raw artifact to verify it matches
-        // Try each protocol
         let parsed_summary = self.try_parse_artifact(raw_artifact);
 
         // Verify the signature over H(raw, parsed, path)
@@ -296,7 +181,6 @@ impl<S: Storage> Keypunkd<S> {
             to_verify.extend_from_slice(&derivation_path);
             let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
 
-            // Decrypt the signature to get the expected hash
             let decrypted_sig = match self.keystore.decrypt_bytes(sig, &ephemeral_public_key) {
                 Ok(d) => d,
                 Err(_) => {
@@ -374,18 +258,27 @@ impl<S: Storage> Keypunkd<S> {
 
     fn export_viewing_key(
         &self,
-        msg: &IpcMessage,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
         protocol: ProtocolId,
         account: u32,
     ) -> KeypunkdResponse {
         info!(?protocol, account, "handling ExportViewingKey");
-        let session = match self.require_session(msg) {
+
+        // Derive seed from store using the provided password
+        let seed = match usecases::decrypt_seed(
+            &encrypted_password,
+            &client_public_key,
+            &self.keystore,
+            &self.seed_store,
+        ) {
             Ok(s) => s,
             Err(e) => return KeypunkdResponse::Error { message: e },
         };
+
         self.respond(
             "export_viewing_key",
-            usecases::export_viewing_key(&session.seed, &self.protocols, protocol, account),
+            usecases::export_viewing_key(&seed, &self.protocols, protocol, account),
             |key| KeypunkdResponse::ViewingKey { key },
         )
     }
@@ -395,8 +288,6 @@ impl<S: Storage> Actor for Keypunkd<S> {}
 
 impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
     async fn handle(&mut self, msg: IpcMessage, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
-        self.verify_message(&msg)?;
-
         let request: KeypunkdRequest =
             postcard::from_bytes(&msg.payload).map_err(|e| format!("deserialize error: {e}"))?;
 
@@ -413,11 +304,6 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 encrypted_password,
                 client_public_key,
             } => self.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key),
-            KeypunkdRequest::Unlock {
-                encrypted_password,
-                client_public_key,
-            } => self.unlock(&msg, encrypted_password, client_public_key),
-            KeypunkdRequest::Lock => self.lock(),
             KeypunkdRequest::PreviewArtifact {
                 raw_artifact,
                 protocol,
@@ -427,10 +313,13 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 encrypted_payload,
                 ephemeral_public_key,
                 derivation_path,
-            } => self.authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path, &msg),
-            KeypunkdRequest::ExportViewingKey { protocol, account } => {
-                self.export_viewing_key(&msg, protocol, account)
-            }
+            } => self.authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path),
+            KeypunkdRequest::ExportViewingKey {
+                encrypted_password,
+                client_public_key,
+                protocol,
+                account,
+            } => self.export_viewing_key(encrypted_password, client_public_key, protocol, account),
         };
 
         let encoded =

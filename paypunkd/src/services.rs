@@ -67,32 +67,6 @@ impl PaypunkService {
         }
     }
 
-    pub async fn unlock(
-        &self,
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
-    ) -> Result<(), String> {
-        match self
-            .send(PaypunkdRequest::Unlock {
-                encrypted_password,
-                client_public_key,
-            })
-            .await?
-        {
-            PaypunkdResponse::Unlocked => Ok(()),
-            PaypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
-    pub async fn lock(&self) -> Result<(), String> {
-        match self.send(PaypunkdRequest::Lock).await? {
-            PaypunkdResponse::Locked => Ok(()),
-            PaypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
     pub async fn submit_intent(
         &self,
         intent: Intent,
@@ -127,12 +101,16 @@ impl PaypunkService {
 
     pub async fn derive_address(
         &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
         protocol: ProtocolId,
         account: String,
         index: u32,
     ) -> Result<String, String> {
         match self
             .send(PaypunkdRequest::DeriveAddress {
+                encrypted_password,
+                client_public_key,
                 protocol,
                 account,
                 index,

@@ -29,13 +29,6 @@ enum Commands {
         #[arg(short, long)]
         password: String,
     },
-    /// Unlock the wallet with the password
-    Unlock {
-        #[arg(short, long)]
-        password: String,
-    },
-    /// Lock the wallet (zeroize in-memory seed)
-    Lock,
     /// Submit a Zcash transfer intent for preview
     SubmitZcashTransfer {
         #[arg(short, long)]
@@ -115,15 +108,6 @@ async fn async_main(socket_path: String, command: Commands) -> Result<(), Box<dy
             client.restore_seed(mnemonic, password).await?;
             println!("Seed restored successfully");
         }
-        Commands::Unlock { password } => {
-            let password = zeroize::Zeroizing::new(password);
-            client.unlock(password).await?;
-            println!("Wallet unlocked");
-        }
-        Commands::Lock => {
-            client.lock().await?;
-            println!("Wallet locked");
-        }
         Commands::SubmitZcashTransfer {
             to,
             amount,
@@ -160,8 +144,8 @@ async fn async_main(socket_path: String, command: Commands) -> Result<(), Box<dy
             let path = account.to_le_bytes();
             submit_intent_flow(&client, intent, &path).await?;
         }
-        Commands::ApproveSignature { password, account } => {
-            let path = account.to_le_bytes();
+        Commands::ApproveSignature { password: _password, account } => {
+            let _path = account.to_le_bytes();
             println!("Approving signature for account {account}...");
             // In a real app, the preview data would be stored in state between
             // submit and approve. For now this is a placeholder.

@@ -116,17 +116,3 @@ async fn test_generate_seed_empty_password() {
         other => panic!("expected SeedGenerated, got {other:?}"),
     }
 }
-
-#[tokio::test]
-async fn test_rejects_in_process_message() {
-    let keystore = Keypair::new();
-    let store = InMemorySeedStore::new();
-    let protocols = ProtocolService::new();
-    let addr = Keypunkd::new(keystore, store, protocols).start();
-
-    let bytes = postcard::to_allocvec(&KeypunkdRequest::GetEncryptionKey).unwrap();
-    let result = addr.ask(IpcMessage::new(bytes)).await;
-
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("no sender public key"));
-}

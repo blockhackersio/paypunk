@@ -46,27 +46,18 @@ impl Client {
         crate::functions::restore_seed(&self.service, mnemonic, password).await
     }
 
-    /// Unlock the wallet with the given password.
-    pub async fn unlock(&self, password: Zeroizing<String>) -> Result<(), String> {
-        crate::functions::unlock(&self.service, password).await
-    }
-
-    /// Lock the wallet, zeroizing the in-memory seed in keypunkd.
-    pub async fn lock(&self) -> Result<(), String> {
-        crate::functions::lock(&self.service).await
-    }
-
     /// Derive an address for the given protocol, CAIP-10 account, and diversifier index.
     ///
-    /// Fetches the viewing key from keypunkd and derives the address locally
-    /// via the protocol implementation.
+    /// Fetches the viewing key from keypunkd (using the wallet password) and derives
+    /// the address locally via the protocol implementation.
     pub async fn derive_address(
         &self,
+        password: Zeroizing<String>,
         protocol: ProtocolId,
         account: String,
         index: u32,
     ) -> Result<String, String> {
-        crate::functions::derive_address(&self.service, protocol, account, index).await
+        crate::functions::derive_address(&self.service, password, protocol, account, index).await
     }
 
     /// Submit an intent for the two-phase authorization flow.

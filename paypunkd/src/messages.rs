@@ -13,11 +13,6 @@ pub enum PaypunkdRequest {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     },
-    Unlock {
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
-    },
-    Lock,
     SubmitIntent {
         intent: Intent,
         derivation_path: Vec<u8>,
@@ -28,6 +23,8 @@ pub enum PaypunkdRequest {
         derivation_path: Vec<u8>,
     },
     DeriveAddress {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
         protocol: ProtocolId,
         account: String,
         index: u32,
@@ -43,8 +40,6 @@ pub enum PaypunkdResponse {
     KeypunkEncryptionKey { key: [u8; 32] },
     SeedGenerated { encrypted_mnemonic: Vec<u8> },
     SeedRestored,
-    Unlocked,
-    Locked,
     SignablePreview {
         raw_artifact: Vec<u8>,
         parsed_summary: Vec<u8>,
