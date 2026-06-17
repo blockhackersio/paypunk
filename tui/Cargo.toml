@@ -2,8 +2,7 @@
 name = "paypunk-tui"
 version = "0.1.0"
 edition = "2021"
-
-[workspace]
+license.workspace = true
 
 [dependencies]
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }

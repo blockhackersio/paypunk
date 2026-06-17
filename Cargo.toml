@@ -10,6 +10,7 @@ members = [
     "tests",
     "protocols/zcash",
     "protocols/ethereum",
+    "tui",
 ]
 
 [workspace.package]
@@ -92,3 +93,6 @@ async-trait = "0.1"
 futures-util = "0.3"
 prost = "0.14"
 tonic = "0.14"
+
+[patch.crates-io]
+ratatui-widgets = { path = "vendor/ratatui-widgets" }

@@ -1,4 +1,4 @@
-# TUI Dependency Conflict: time-core
+# TUI Dependency Conflict: time-core (RESOLVED)
 
 ## Problem
 
@@ -6,57 +6,50 @@
 
 ```
 ratatui 0.30
-  → ratatui-widgets 0.3.1
+  → ratatui-widgets 0.3.1 (default features → calendar)
     → time ^0.3.47         (resolves to time ≥0.3.47)
       → time-core =0.1.8   (exact pin)
 
 zcash_client_backend 0.22.x
   → time ^0.3.22
-    → time-core =0.1.2     (exact pin)
+    → time-core =0.1.2     (exact pin — also a direct dep!)
 ```
 
-Both `ratatui-widgets` and `zcash_client_backend` pin `time-core` to exact but incompatible versions (`=0.1.8` vs `=0.1.2`). Cargo's resolver cannot select both simultaneously in a single workspace.
+`ratatui-widgets` 0.3.1 pins `time-core` to `=0.1.8` (via `time ^0.3.47`), while `zcash_client_backend` pins it directly to `=0.1.2`. Cargo's resolver cannot select both.
 
-## Approaches Considered
+## Solution: Vendor ratatui-widgets with relaxed time dependency
 
-### 1. Downgrade ratatui to 0.28/0.29 (REJECTED)
+`ratatui-widgets` 0.3.1 has `time` as an **optional** dependency (gated behind the `calendar` feature). The `calendar` feature is enabled via `ratatui`'s `widget-calendar` feature (part of `default`). `ratatui-cheese` enables ratatui's default features, pulling in the chain.
 
-User explicitly forbade changing ratatui from 0.30.
-
-### 2. Upgrade zcash_client_backend (REJECTED)
-
-User explicitly forbade changing zcash_client_backend version.
-
-### 3. `[patch]` time-core to 0.1.2 (WON'T WORK)
+The vendored copy at `vendor/ratatui-widgets` changes the `time` requirement from `0.3.47` to `0.3`, allowing the resolver to select `time 0.3.37` (the latest version compatible with `time-core =0.1.2`).
 
 ```toml
+# workspace Cargo.toml
 [patch.crates-io]
-time-core = "=0.1.2"
+ratatui-widgets = { path = "vendor/ratatui-widgets" }
 ```
 
-Cargo's `[patch]` only applies when the patched version satisfies the original version requirement. Since `time` requires `time-core = "=0.1.8"`, a patch providing 0.1.2 does NOT satisfy `=0.1.8` and will be ignored.
+## Why this works
 
-### 4. `[patch]` time to an older version (WON'T WORK)
+| Crate | time requirement | time-core resolved |
+|---|---|---|
+| ratatui-widgets (vendored) | `^0.3` (optional, calendar) | 0.1.2 (via time 0.3.37) |
+| zcash_client_backend | `^0.3.22` + `time-core =0.1.2` | 0.1.2 |
+| **Resolution** | compatible | **0.1.2** ✓ |
 
-```toml
-[patch.crates-io]
-time = "=0.3.36"
+## Regenerating the vendor
+
+If the vendored copy needs to be refreshed (e.g., for a new `ratatui-widgets` version):
+
+```bash
+# Download the crate
+curl -L "https://static.crates.io/crates/ratatui-widgets/ratatui-widgets-<VERSION>.crate" \
+  -o /tmp/ratatui-widgets.crate
+mkdir -p vendor/ratatui-widgets
+tar -xzf /tmp/ratatui-widgets.crate -C vendor/ --strip-components=1
+
+# Edit the time dependency
+# In vendor/ratatui-widgets/Cargo.toml, change:
+#   [dependencies.time]
+#   version = "0.3.47"  →  version = "0.3"
 ```
-
-`ratatui-widgets` requires `time = "^0.3.47"` (≥0.3.47). Version 0.3.36 does not satisfy this, so the patch is ignored.
-
-### 5. `[patch]` time to a version ≥0.3.47 that uses time-core 0.1.2 (NEEDS VERIFICATION)
-
-If a version of `time` exists that is both ≥0.3.47 AND uses `time-core =0.1.2`, patching to that version would work. This needs checking — the `time-core` bump from 0.1.2 to 0.1.8 likely happened in a specific `time` release, and we need to find the boundary.
-
-### 6. Fork ratatui-widgets (TOO INVASIVE)
-
-Fork `ratatui-widgets`, change its `time` dependency to `^0.3.22`, and use `[patch]` to point to the fork. This is maintenance-heavy.
-
-### 7. Standalone crate (CURRENT SOLUTION)
-
-`tui/` has its own `[workspace]` table, making it an independent crate with its own Cargo.lock. Both the workspace and TUI compile cleanly.
-
-## Recommendation
-
-Investigate approach 5 first: find the latest `time` version that still uses `time-core =0.1.2`. If it's ≥0.3.47, patch `time` in the workspace. Otherwise, keep the standalone approach.
