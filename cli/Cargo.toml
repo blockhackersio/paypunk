@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 paypunk-api.workspace = true
 paypunk-types.workspace = true
+paypunk-tui.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 clap = { workspace = true, features = ["derive"] }
 zeroize.workspace = true

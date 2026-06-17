@@ -3478,6 +3478,7 @@ dependencies = [
  "blake2",
  "clap",
  "paypunk-api",
+ "paypunk-tui",
  "paypunk-types",
  "postcard",
  "tokio",

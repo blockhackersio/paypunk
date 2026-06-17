@@ -12,7 +12,7 @@ struct Cli {
     socket_path: String,
 
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -81,15 +81,29 @@ enum Commands {
         #[arg(short, long, default_value_t = 0)]
         account: u32,
     },
+    /// Launch the terminal user interface
+    Tui,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    let client = paypunk_api::Client::connect(&cli.socket_path).await?;
-
     match cli.command {
+        None | Some(Commands::Tui) => {
+            paypunk_tui::run_tui()?;
+            Ok(())
+        }
+        Some(command) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async_main(cli.socket_path, command))
+        }
+    }
+}
+
+async fn async_main(socket_path: String, command: Commands) -> Result<(), Box<dyn std::error::Error>> {
+    let client = paypunk_api::Client::connect(&socket_path).await?;
+
+    match command {
         Commands::GenerateSeed { password } => {
             let password = zeroize::Zeroizing::new(password);
             let mnemonic = client.generate_seed(password).await?;
@@ -175,6 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 balance.total.0,
             );
         }
+        Commands::Tui => unreachable!(),
     }
 
     Ok(())
