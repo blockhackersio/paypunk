@@ -45,3 +45,7 @@ TUI (ratatui) → api crate → paypunkd (app daemon) → keypunkd (key daemon)
 - The TUI shows the confirmed transaction hash and block explorer URL
 - All existing tests continue to pass
 - The code compiles without warnings
+
+## Step 1 — Done
+
+Added `broadcast()` to `Protocol` trait. EthereumProtocol delegates to `send_raw_transaction`. ZcashProtocol returns an error stub.

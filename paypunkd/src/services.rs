@@ -133,4 +133,19 @@ impl PaypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn broadcast_transaction(
+        &self,
+        protocol: ProtocolId,
+        raw_tx: Vec<u8>,
+    ) -> Result<String, String> {
+        match self
+            .send(PaypunkdRequest::BroadcastTransaction { protocol, raw_tx })
+            .await?
+        {
+            PaypunkdResponse::TransactionBroadcasted { tx_hash } => Ok(tx_hash),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }

@@ -33,6 +33,10 @@ pub enum PaypunkdRequest {
         address: String,
         asset: String,
     },
+    BroadcastTransaction {
+        protocol: ProtocolId,
+        raw_tx: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,5 +53,6 @@ pub enum PaypunkdResponse {
     SignatureApproved { signed_artifact: Vec<u8> },
     Balance { balance: Balance },
     AddressDerived { address: String },
+    TransactionBroadcasted { tx_hash: String },
     Error { message: String },
 }

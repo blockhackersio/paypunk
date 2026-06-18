@@ -171,6 +171,15 @@ impl Paypunkd {
             |address| PaypunkdResponse::AddressDerived { address },
         )
     }
+
+    async fn broadcast_transaction(&self, protocol: ProtocolId, raw_tx: Vec<u8>) -> PaypunkdResponse {
+        info!(?protocol, "broadcasting transaction");
+        self.respond(
+            "broadcast_transaction",
+            usecases::broadcast_transaction(&self.protocols, protocol, &raw_tx),
+            |tx_hash| PaypunkdResponse::TransactionBroadcasted { tx_hash },
+        )
+    }
 }
 
 impl Actor for Paypunkd {}
@@ -215,6 +224,9 @@ impl Handler<IpcMessage> for Paypunkd {
                 account,
                 index,
             } => self.derive_address(encrypted_password, client_public_key, protocol, account, index).await,
+            PaypunkdRequest::BroadcastTransaction { protocol, raw_tx } => {
+                self.broadcast_transaction(protocol, raw_tx).await
+            }
         };
 
         let encoded =
