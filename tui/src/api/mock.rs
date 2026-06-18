@@ -1,22 +1,23 @@
 use super::types::*;
 use super::WalletApi;
-use std::cell::RefCell;
+use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 pub struct MockWalletApi {
     wallet_exists: bool,
-    home_cache: RefCell<Option<HomeData>>,
-    send_cache: RefCell<HashMap<String, SendData>>,
-    receive_cache: RefCell<HashMap<String, ReceiveData>>,
+    home_cache: Mutex<Option<HomeData>>,
+    send_cache: Mutex<HashMap<String, SendData>>,
+    receive_cache: Mutex<HashMap<String, ReceiveData>>,
 }
 
 impl MockWalletApi {
     pub fn new() -> Self {
         Self {
             wallet_exists: false,
-            home_cache: RefCell::new(None),
-            send_cache: RefCell::new(HashMap::new()),
-            receive_cache: RefCell::new(HashMap::new()),
+            home_cache: Mutex::new(None),
+            send_cache: Mutex::new(HashMap::new()),
+            receive_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -25,8 +26,9 @@ impl MockWalletApi {
     }
 }
 
+#[async_trait(?Send)]
 impl WalletApi for MockWalletApi {
-    fn get_setup(&self) -> SetupData {
+    async fn get_setup(&self) -> SetupData {
         SetupData {
             app_version: "1.0.0".to_string(),
             wallet_exists: self.wallet_exists,
@@ -41,15 +43,15 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn submit_setup_create(&self, _input: SetupCreateInput) -> Result<(), ApiError> {
+    async fn submit_setup_create(&self, _input: SetupCreateInput) -> Result<(), ApiError> {
         Ok(())
     }
 
-    fn submit_setup_import(&self, _input: SetupImportInput) -> Result<(), ApiError> {
+    async fn submit_setup_import(&self, _input: SetupImportInput) -> Result<(), ApiError> {
         Ok(())
     }
 
-    fn get_wallets(&self) -> WalletsData {
+    async fn get_wallets(&self) -> WalletsData {
         WalletsData {
             wallets: vec![
                 WalletDerivation {
@@ -80,7 +82,7 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn get_assets(&self, chain_id: &str) -> AssetsData {
+    async fn get_assets(&self, chain_id: &str) -> AssetsData {
         if chain_id.contains("bip122") {
             AssetsData {
                 assets: vec![
@@ -154,7 +156,7 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn get_home(&self) -> HomeData {
+    async fn get_home(&self) -> HomeData {
         HomeData {
             accounts: vec![
                 AccountInfo {
@@ -196,11 +198,11 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn submit_home(&self, _input: HomeInput) -> HomeData {
-        self.get_home()
+    async fn submit_home(&self, _input: HomeInput) -> HomeData {
+        self.get_home().await
     }
 
-    fn get_receive(&self, _chain_id: &str) -> ReceiveData {
+    async fn get_receive(&self, _chain_id: &str) -> ReceiveData {
         ReceiveData {
             address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
             chain_id: "eip155:1".into(),
@@ -209,7 +211,7 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn submit_receive(&self, input: ReceiveInput) -> ReceiveData {
+    async fn submit_receive(&self, input: ReceiveInput) -> ReceiveData {
         if input.selected_chain_id.contains("bip122") {
             ReceiveData {
                 address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
@@ -218,11 +220,11 @@ impl WalletApi for MockWalletApi {
                 qr_payload: "zcash:t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
             }
         } else {
-            self.get_receive("")
+            self.get_receive("").await
         }
     }
 
-    fn get_send(&self, chain_id: &str) -> SendData {
+    async fn get_send(&self, chain_id: &str) -> SendData {
         if chain_id.contains("bip122") {
             SendData {
                 from_address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
@@ -253,7 +255,7 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData {
+    async fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData {
         let fee_est = match &input.fee_selection.tier[..] {
             "slow" => "300000000000000",
             "fast" => "500000000000000",
@@ -270,7 +272,7 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn submit_send_confirm(&self, _input: SendConfirmInput) -> SendResult {
+    async fn submit_send_confirm(&self, _input: SendConfirmInput) -> SendResult {
         let tx_hash: String = "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b".into();
         SendResult {
             tx_hash: tx_hash.clone(),
@@ -279,7 +281,7 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn get_lock(&self) -> LockData {
+    async fn get_lock(&self) -> LockData {
         LockData {
             auth_methods: LockAuthMethods {
                 biometric_available: true,
@@ -289,11 +291,11 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn submit_lock(&self, _input: LockInput) -> Result<(), ApiError> {
+    async fn submit_lock(&self, _input: LockInput) -> Result<(), ApiError> {
         Ok(())
     }
 
-    fn get_settings(&self) -> SettingsData {
+    async fn get_settings(&self) -> SettingsData {
         SettingsData {
             security: SecuritySettings {
                 biometric_enabled: true,
@@ -304,11 +306,11 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    fn submit_settings(&self, _input: SettingsInput) -> Result<(), ApiError> {
+    async fn submit_settings(&self, _input: SettingsInput) -> Result<(), ApiError> {
         Ok(())
     }
 
-    fn submit_reveal_phrase(&self, _input: RevealPhraseInput) -> Result<Vec<String>, ApiError> {
+    async fn submit_reveal_phrase(&self, _input: RevealPhraseInput) -> Result<Vec<String>, ApiError> {
         Ok(vec![
             "ribbon".into(), "velvet".into(), "ocean".into(),
             "puzzle".into(), "harvest".into(), "guitar".into(),
@@ -317,35 +319,50 @@ impl WalletApi for MockWalletApi {
         ])
     }
 
-    fn home_state(&self) -> ApiState<HomeData> {
-        let mut cache = self.home_cache.borrow_mut();
-        let data = cache.get_or_insert_with(|| self.get_home());
-        ApiState::Loaded(data.clone())
+    async fn home_state(&self) -> ApiState<HomeData> {
+        let should_fetch = self.home_cache.lock().unwrap().is_none();
+        if should_fetch {
+            let data = self.get_home().await;
+            *self.home_cache.lock().unwrap() = Some(data);
+        }
+        ApiState::Loaded(self.home_cache.lock().unwrap().as_ref().unwrap().clone())
     }
 
-    fn refresh_home(&self) {
-        *self.home_cache.borrow_mut() = None;
+    async fn refresh_home(&self) {
+        *self.home_cache.lock().unwrap() = None;
     }
 
-    fn receive_state(&self, chain_id: &str) -> ApiState<ReceiveData> {
-        let mut cache = self.receive_cache.borrow_mut();
-        let data = cache.entry(chain_id.to_string())
-            .or_insert_with(|| self.get_receive(chain_id));
-        ApiState::Loaded(data.clone())
+    async fn receive_state(&self, chain_id: &str) -> ApiState<ReceiveData> {
+        let data = {
+            let cache = self.receive_cache.lock().unwrap();
+            cache.get(chain_id).cloned()
+        };
+        if let Some(data) = data {
+            return ApiState::Loaded(data);
+        }
+        let real = self.get_receive(chain_id).await;
+        self.receive_cache.lock().unwrap().insert(chain_id.to_string(), real.clone());
+        ApiState::Loaded(real)
     }
 
-    fn refresh_receive(&self, chain_id: &str) {
-        self.receive_cache.borrow_mut().remove(chain_id);
+    async fn refresh_receive(&self, chain_id: &str) {
+        self.receive_cache.lock().unwrap().remove(chain_id);
     }
 
-    fn send_state(&self, chain_id: &str) -> ApiState<SendData> {
-        let mut cache = self.send_cache.borrow_mut();
-        let data = cache.entry(chain_id.to_string())
-            .or_insert_with(|| self.get_send(chain_id));
-        ApiState::Loaded(data.clone())
+    async fn send_state(&self, chain_id: &str) -> ApiState<SendData> {
+        let data = {
+            let cache = self.send_cache.lock().unwrap();
+            cache.get(chain_id).cloned()
+        };
+        if let Some(data) = data {
+            return ApiState::Loaded(data);
+        }
+        let real = self.get_send(chain_id).await;
+        self.send_cache.lock().unwrap().insert(chain_id.to_string(), real.clone());
+        ApiState::Loaded(real)
     }
 
-    fn refresh_send(&self, chain_id: &str) {
-        self.send_cache.borrow_mut().remove(chain_id);
+    async fn refresh_send(&self, chain_id: &str) {
+        self.send_cache.lock().unwrap().remove(chain_id);
     }
 }

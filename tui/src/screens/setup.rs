@@ -10,6 +10,7 @@ use crate::screens::help::HelpScreen;
 use crate::screens::wallets::WalletsScreen;
 use crate::screens::Screen;
 use crate::ui;
+use async_trait::async_trait;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -94,11 +95,12 @@ impl SetupScreen {
     }
 }
 
+#[async_trait(?Send)]
 impl Screen for SetupScreen {
     fn name(&self) -> &str { "Setup" }
 
-    fn init(&mut self, api: &dyn WalletApi) {
-        self.data = api.get_setup();
+    async fn init(&mut self, api: &dyn WalletApi) {
+        self.data = api.get_setup().await;
         self.choice_list.set_focused(true);
     }
 
@@ -146,7 +148,7 @@ impl Screen for SetupScreen {
         frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer_area.inner(Margin { vertical: 0, horizontal: 1 }));
     }
 
-    fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
         use crossterm::event::KeyCode;
 
         if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
@@ -248,7 +250,7 @@ impl Screen for SetupScreen {
                                         backup_confirmed: true,
                                         password: pw,
                                         biometric_enabled: false,
-                                    });
+                                    }).await;
                                     return Nav::Replace(Box::new(WalletsScreen::new()));
                                 }
                             }
@@ -293,7 +295,7 @@ impl Screen for SetupScreen {
                             method: "mnemonic".into(),
                             secret: phrase,
                             password: pw.into(),
-                        });
+                        }).await;
                         return Nav::Replace(Box::new(WalletsScreen::new()));
                     }
                 }
@@ -304,7 +306,7 @@ impl Screen for SetupScreen {
         Nav::None
     }
 
-    fn handle_paste(&mut self, text: &str, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_paste(&mut self, text: &str, _api: &mut dyn WalletApi) -> Nav {
         match self.step {
             SetupStep::ImportMnemonic => {
                 let words: Vec<&str> = text.split_whitespace().collect();

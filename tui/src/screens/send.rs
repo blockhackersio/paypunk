@@ -6,6 +6,7 @@ use crate::components::Component;
 use crate::screens::help::HelpScreen;
 use crate::screens::Screen;
 use crate::ui;
+use async_trait::async_trait;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Text};
@@ -32,6 +33,7 @@ pub struct SendScreen {
     focus: usize,
     confirm_choice: SelectList,
     copied_feedback: Option<String>,
+    send_data: ApiState<SendData>,
 }
 
 impl SendScreen {
@@ -68,20 +70,25 @@ impl SendScreen {
             focus: 0,
             confirm_choice,
             copied_feedback: None,
+            send_data: ApiState::Loading,
         }
     }
 }
 
+#[async_trait(?Send)]
 impl Screen for SendScreen {
     fn name(&self) -> &str { "Send" }
 
-    fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
-        api.refresh_send(&self.chain_id);
+    async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
+        api.refresh_send(&self.chain_id).await;
+        self.send_data = api.send_state(&self.chain_id).await;
     }
 
-    fn init(&mut self, _api: &dyn WalletApi) {}
+    async fn init(&mut self, api: &dyn WalletApi) {
+        self.send_data = api.send_state(&self.chain_id).await;
+    }
 
-    fn render(&mut self, frame: &mut Frame, api: &dyn WalletApi) {
+    fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
         let theme = ui::theme();
         let area = frame.area();
         let chunks = Layout::vertical([
@@ -103,8 +110,8 @@ impl Screen for SendScreen {
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
         match self.step {
-            SendStep::Form => self.render_form(frame, body, api),
-            SendStep::Review => self.render_review(frame, body, api),
+            SendStep::Form => self.render_form(frame, body),
+            SendStep::Review => self.render_review(frame, body),
             SendStep::ConfirmSend => self.render_confirm_send(frame, body),
             SendStep::Sending => self.render_sending(frame, body),
             SendStep::Confirm => self.render_confirm(frame, body),
@@ -142,7 +149,7 @@ impl Screen for SendScreen {
         frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
     }
 
-    fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
@@ -165,7 +172,7 @@ impl Screen for SendScreen {
                                 token_id: "eth-native".into(),
                                 chain_id: self.chain_id.clone(),
                                 fee_selection: FeeSelection { tier: self.fee_tiers.selected_item().map(|i| i.label().to_string()).unwrap_or_else(|| "medium".into()) },
-                            });
+                            }).await;
                             self.review_data = Some(review);
                             self.step = SendStep::Review;
                         } else if key.code == KeyCode::Esc {
@@ -214,7 +221,7 @@ impl Screen for SendScreen {
                                     value: "face-id-assertion-token".into(),
                                 },
                                 signed_tx: "0x02f8b00182002a8459682f00851b572f4e...".into(),
-                            });
+                            }).await;
                             self.result = Some(result);
                             self.step = SendStep::Confirm;
                         }
@@ -243,7 +250,7 @@ impl Screen for SendScreen {
         Nav::None
     }
 
-    fn handle_paste(&mut self, text: &str, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_paste(&mut self, text: &str, _api: &mut dyn WalletApi) -> Nav {
         match self.step {
             SendStep::Form => match self.focus {
                 0 => self.to_field.handle_paste(text),
@@ -257,13 +264,13 @@ impl Screen for SendScreen {
 }
 
 impl SendScreen {
-    fn render_form(&mut self, frame: &mut Frame, area: Rect, api: &dyn WalletApi) {
+    fn render_form(&mut self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
         let block = theme.titled_block("Transaction Details");
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        match api.send_state(&self.chain_id) {
+        match &self.send_data {
             ApiState::Loading => {
                 let msg = Paragraph::new(Line::from(vec![
                     theme.muted(" Loading..."),
@@ -271,7 +278,7 @@ impl SendScreen {
                 frame.render_widget(msg, inner.inner(Margin { vertical: 3, horizontal: 2 }));
             }
             ApiState::Error(err) => {
-                ui::render_error_banner(frame, area, &err);
+                ui::render_error_banner(frame, area, err);
                 let msg = Paragraph::new(Line::from(vec![
                     theme.error(" Could not load send data. "),
                     theme.muted("Press "),
@@ -351,7 +358,7 @@ impl SendScreen {
         }
     }
 
-    fn render_review(&self, frame: &mut Frame, area: Rect, api: &dyn WalletApi) {
+    fn render_review(&self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
         let block = theme.titled_block("Review Transaction");
         let inner = block.inner(area);
@@ -360,12 +367,12 @@ impl SendScreen {
         if let Some(ref review) = self.review_data {
             let is_ethereum = self.chain_id.contains("eip155");
 
-            let decimals = if let ApiState::Loaded(ref data) = api.send_state(&self.chain_id) {
+            let decimals = if let ApiState::Loaded(ref data) = &self.send_data {
                 data.decimals
             } else {
                 18
             };
-            let from_address = if let ApiState::Loaded(ref data) = api.send_state(&self.chain_id) {
+            let from_address = if let ApiState::Loaded(ref data) = &self.send_data {
                 data.from_address.clone()
             } else {
                 String::new()

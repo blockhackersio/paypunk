@@ -53,3 +53,7 @@ Added `broadcast()` to `Protocol` trait. EthereumProtocol delegates to `send_raw
 ## Step 2 — Done
 
 Added `BroadcastTransaction`/`TransactionBroadcasted` to paypunkd messages. Implemented handler, usecase (finalize + broadcast via protocol), and PaypunkService method.
+
+## Step 3 — Done
+
+Exposed `broadcast_transaction()` in the `paypunk-api` crate via `functions.rs` and `Client`.

@@ -13,3 +13,5 @@ ratatui-cheese = "0.7"
 ratatui-bubbletea-theme = "0.1"
 ratatui-bubbletea-components = "0.1"
 arboard = "3"
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "sync", "rt-multi-thread"] }

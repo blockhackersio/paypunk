@@ -6,6 +6,7 @@ use crate::components::Component;
 use crate::screens::help::HelpScreen;
 use crate::screens::Screen;
 use crate::ui;
+use async_trait::async_trait;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
@@ -61,11 +62,12 @@ impl SettingsScreen {
     }
 }
 
+#[async_trait(?Send)]
 impl Screen for SettingsScreen {
     fn name(&self) -> &str { "Settings" }
 
-    fn init(&mut self, api: &dyn WalletApi) {
-        self.data = Some(api.get_settings());
+    async fn init(&mut self, api: &dyn WalletApi) {
+        self.data = Some(api.get_settings().await);
         if let Some(ref data) = self.data {
             self.auto_lock_field.set_value(&data.security.auto_lock_minutes.to_string());
             self.fiat_field.set_value(&data.fiat_currency);
@@ -108,7 +110,7 @@ impl Screen for SettingsScreen {
         frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
     }
 
-    fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
@@ -142,7 +144,7 @@ impl Screen for SettingsScreen {
                                     let _ = api.submit_settings(SettingsInput {
                                         updated_security: UpdatedSecurity { auto_lock_minutes: lock },
                                         fiat_currency: self.fiat_field.value().into(),
-                                    });
+                                    }).await;
                                 }
                             }
                             KeyCode::Esc => return Nav::Pop,
@@ -160,7 +162,7 @@ impl Screen for SettingsScreen {
                                 match api.submit_reveal_phrase(RevealPhraseInput {
                                     auth_type: "password".into(),
                                     value: self.reveal_field.value().into(),
-                                }) {
+                                }).await {
                                     Ok(phrase) => { self.phrase = Some(phrase); }
                                     Err(e) => self.error_msg = Some(e.0),
                                 }
@@ -179,7 +181,7 @@ impl Screen for SettingsScreen {
         Nav::None
     }
 
-    fn handle_paste(&mut self, text: &str, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_paste(&mut self, text: &str, _api: &mut dyn WalletApi) -> Nav {
         match self.action {
             SettingsAction::Main => match self.focus {
                 0 => self.auto_lock_field.handle_paste(text),

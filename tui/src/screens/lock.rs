@@ -7,6 +7,7 @@ use crate::screens::help::HelpScreen;
 use crate::screens::home::HomeScreen;
 use crate::screens::Screen;
 use crate::ui;
+use async_trait::async_trait;
 use ratatui::layout::{Constraint, Layout, Margin};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
@@ -37,11 +38,12 @@ impl LockScreen {
     }
 }
 
+#[async_trait(?Send)]
 impl Screen for LockScreen {
     fn name(&self) -> &str { "Lock" }
 
-    fn init(&mut self, api: &dyn WalletApi) {
-        self.data = Some(api.get_lock());
+    async fn init(&mut self, api: &dyn WalletApi) {
+        self.data = Some(api.get_lock().await);
     }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
@@ -110,7 +112,7 @@ impl Screen for LockScreen {
         frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
     }
 
-    fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
@@ -126,7 +128,7 @@ impl Screen for LockScreen {
                             if data.auth_methods.biometric_available {
                                 match api.submit_lock(LockInput {
                                     credential: Credential { cred_type: "biometric".into(), value: "face-id-assertion-token".into() },
-                                }) {
+                                }).await {
                                     Ok(_) => return Nav::Replace(Box::new(HomeScreen::new())),
                                     Err(e) => self.error_msg = Some(e.0),
                                 }
@@ -135,7 +137,7 @@ impl Screen for LockScreen {
                     } else if self.focus == 1 {
                         match api.submit_lock(LockInput {
                             credential: Credential { cred_type: "password".into(), value: self.pw_field.value().into() },
-                        }) {
+                        }).await {
                             Ok(_) => return Nav::Replace(Box::new(HomeScreen::new())),
                             Err(e) => self.error_msg = Some(e.0),
                         }

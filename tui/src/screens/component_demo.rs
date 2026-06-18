@@ -10,6 +10,7 @@ use crate::components::Component;
 use crate::screens::help::HelpScreen;
 use crate::screens::Screen;
 use crate::ui;
+use async_trait::async_trait;
 use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Margin};
 use ratatui::style::Style;
@@ -64,12 +65,13 @@ impl ComponentDemoScreen {
     }
 }
 
+#[async_trait(?Send)]
 impl Screen for ComponentDemoScreen {
     fn name(&self) -> &str {
         "ComponentDemo"
     }
 
-    fn init(&mut self, _api: &dyn WalletApi) {
+    async fn init(&mut self, _api: &dyn WalletApi) {
         self.with_active(|d| d.set_focused(true));
     }
 
@@ -133,7 +135,7 @@ impl Screen for ComponentDemoScreen {
         );
     }
 
-    fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
             KeyCode::Left => {
