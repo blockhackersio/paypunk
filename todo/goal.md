@@ -49,3 +49,7 @@ TUI (ratatui) → api crate → paypunkd (app daemon) → keypunkd (key daemon)
 ## Step 1 — Done
 
 Added `broadcast()` to `Protocol` trait. EthereumProtocol delegates to `send_raw_transaction`. ZcashProtocol returns an error stub.
+
+## Step 2 — Done
+
+Added `BroadcastTransaction`/`TransactionBroadcasted` to paypunkd messages. Implemented handler, usecase (finalize + broadcast via protocol), and PaypunkService method.
