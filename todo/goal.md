@@ -74,3 +74,7 @@ Refactored TUI event loop to async on tokio. Spawned blocking task for crossterm
 ## Step 7 — Done
 
 Created `RealWalletApi` in `tui/src/api/real.rs` wrapping `api::Client`. Implemented the two-phase send flow (submit_intent → approve_signature → broadcast). Wired real vs mock selection via `--socket-path`. Updated CLI to pass socket path to TUI.
+
+## Step 8 — Done
+
+Fixed `nonce = 0` → `get_transaction_count()` in Ethereum protocol. Added `test_eth_send_full_flow` integration test covering submit_intent → approve_signature → broadcast.
