@@ -8,6 +8,7 @@ mod ui;
 use crate::api::WalletApi;
 use app::App;
 use api::mock::MockWalletApi;
+use api::real::RealWalletApi;
 use screens::setup::SetupScreen;
 use screens::Screen;
 
@@ -21,9 +22,15 @@ use std::io;
 use tokio::sync::mpsc;
 
 pub async fn run_tui(socket_path: Option<String>) -> io::Result<()> {
-    let api: Box<dyn WalletApi> = if let Some(_path) = socket_path {
-        // Step 7 will replace this with RealWalletApi
-        Box::new(MockWalletApi::new())
+    let api: Box<dyn WalletApi> = if let Some(path) = socket_path {
+        match RealWalletApi::connect(&path).await {
+            Ok(real) => Box::new(real),
+            Err(e) => {
+                eprintln!("Failed to connect to paypunkd at {path}: {e}");
+                eprintln!("Falling back to mock API");
+                Box::new(MockWalletApi::new())
+            }
+        }
     } else {
         Box::new(MockWalletApi::new())
     };

@@ -3604,6 +3604,9 @@ dependencies = [
  "async-trait",
  "clap",
  "crossterm",
+ "paypunk-api",
+ "paypunk-types",
+ "postcard",
  "ratatui",
  "ratatui-bubbletea-components",
  "ratatui-bubbletea-theme",
@@ -3611,6 +3614,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]

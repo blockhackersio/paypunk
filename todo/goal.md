@@ -66,3 +66,7 @@ Made `WalletApi` trait async with `#[async_trait(?Send)]`. Updated `MockWalletAp
 ## Step 5 — Done
 
 Made `Screen` trait async with `#[async_trait]`. Updated all 10 screen implementations and `App` struct for async handle_input/handle_paste.
+
+## Step 6 — Done
+
+Refactored TUI event loop to async on tokio. Spawned blocking task for crossterm events, mpsc channel for async communication. Added `--socket-path` CLI arg to TUI binary.
