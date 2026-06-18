@@ -122,6 +122,10 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             total: paypunk_types::Amount(balance),
         })
     }
+
+    fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
+        self.client.send_raw_transaction(finalized_tx)
+    }
 }
 
 /// Encode an ERC-20 `transfer(address,uint256)` call.
