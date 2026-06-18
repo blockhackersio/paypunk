@@ -130,6 +130,7 @@ impl<S: Storage> Keypunkd<S> {
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
         derivation_path: Vec<u8>,
+        sender_public_key: Option<[u8; 32]>,
     ) -> KeypunkdResponse {
         info!("handling AuthorizeArtifact");
 
@@ -181,7 +182,8 @@ impl<S: Storage> Keypunkd<S> {
             to_verify.extend_from_slice(&derivation_path);
             let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
 
-            let decrypted_sig = match self.keystore.decrypt_bytes(sig, &ephemeral_public_key) {
+            let peer_pk = sender_public_key.unwrap_or([0u8; 32]);
+            let decrypted_sig = match self.keystore.decrypt_bytes(sig, &peer_pk) {
                 Ok(d) => d,
                 Err(_) => {
                     return KeypunkdResponse::Error {
@@ -313,7 +315,7 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 encrypted_payload,
                 ephemeral_public_key,
                 derivation_path,
-            } => self.authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path),
+            } => self.authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path, msg.sender_public_key),
             KeypunkdRequest::ExportViewingKey {
                 encrypted_password,
                 client_public_key,

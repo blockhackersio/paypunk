@@ -45,3 +45,36 @@ TUI (ratatui) → api crate → paypunkd (app daemon) → keypunkd (key daemon)
 - The TUI shows the confirmed transaction hash and block explorer URL
 - All existing tests continue to pass
 - The code compiles without warnings
+
+## Step 1 — Done
+
+Added `broadcast()` to `Protocol` trait. EthereumProtocol delegates to `send_raw_transaction`. ZcashProtocol returns an error stub.
+
+## Step 2 — Done
+
+Added `BroadcastTransaction`/`TransactionBroadcasted` to paypunkd messages. Implemented handler, usecase (finalize + broadcast via protocol), and PaypunkService method.
+
+## Step 3 — Done
+
+Exposed `broadcast_transaction()` in the `paypunk-api` crate via `functions.rs` and `Client`.
+
+## Step 4 — Done
+
+Made `WalletApi` trait async with `#[async_trait(?Send)]`. Updated `MockWalletApi` (RefCell → Mutex). Made `Screen` trait methods async. Added `tokio` + `async-trait` deps to TUI crate. Updated all screen implementations, `App`, and `lib.rs` to use tokio runtime.
+
+
+## Step 5 — Done
+
+Made `Screen` trait async with `#[async_trait]`. Updated all 10 screen implementations and `App` struct for async handle_input/handle_paste.
+
+## Step 6 — Done
+
+Refactored TUI event loop to async on tokio. Spawned blocking task for crossterm events, mpsc channel for async communication. Added `--socket-path` CLI arg to TUI binary.
+
+## Step 7 — Done
+
+Created `RealWalletApi` in `tui/src/api/real.rs` wrapping `api::Client`. Implemented the two-phase send flow (submit_intent → approve_signature → broadcast). Wired real vs mock selection via `--socket-path`. Updated CLI to pass socket path to TUI.
+
+## Step 8 — Done
+
+Fixed `nonce = 0` → `get_transaction_count()` in Ethereum protocol. Added `test_eth_send_full_flow` integration test covering submit_intent → approve_signature → broadcast.

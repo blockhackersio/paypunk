@@ -11,6 +11,7 @@ use crate::screens::receive::ReceiveScreen;
 use crate::screens::send::SendScreen;
 use crate::screens::Screen;
 use crate::ui;
+use async_trait::async_trait;
 use ratatui::layout::{Constraint, Layout, Margin};
 use ratatui::style::Style;
 use ratatui::text::Line;
@@ -42,11 +43,12 @@ impl AssetsScreen {
     }
 }
 
+#[async_trait(?Send)]
 impl Screen for AssetsScreen {
     fn name(&self) -> &str { "Assets" }
 
-    fn init(&mut self, api: &dyn WalletApi) {
-        let data = api.get_assets(&self.chain_id);
+    async fn init(&mut self, api: &dyn WalletApi) {
+        let data = api.get_assets(&self.chain_id).await;
         let items: Vec<Box<dyn Component<AssetAction>>> = data.assets.iter()
             .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
             .collect();
@@ -132,7 +134,7 @@ impl Screen for AssetsScreen {
         frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
     }
 
-    fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),

@@ -83,8 +83,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         None | Some(Commands::Tui) => {
-            paypunk_tui::run_tui()?;
-            Ok(())
+            let rt = tokio::runtime::Runtime::new()?;
+            Ok(rt.block_on(paypunk_tui::run_tui(Some(cli.socket_path)))?)
         }
         Some(command) => {
             let rt = tokio::runtime::Runtime::new()?;

@@ -63,7 +63,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
 
         let amount_u64 = parse_amount(amount)?;
         let chain_id = self.client.get_chain_id()?;
-        let nonce = 0;
+        let nonce = self.client.get_transaction_count(from)?;
         let gas_limit = 21_000u64;
         let gas_price = self.client.get_gas_price()?;
         let priority_fee = 1_000_000_000;
@@ -121,6 +121,10 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             pending: paypunk_types::Amount(0),
             total: paypunk_types::Amount(balance),
         })
+    }
+
+    fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
+        self.client.send_raw_transaction(finalized_tx)
     }
 }
 

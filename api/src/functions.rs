@@ -144,3 +144,12 @@ pub async fn get_balance_legacy(
     };
     get_balance(service, address, asset_str).await
 }
+
+/// Broadcast a finalized, signed transaction to the network.
+pub async fn broadcast_transaction(
+    service: &paypunkd::services::PaypunkService,
+    protocol: ProtocolId,
+    raw_tx: Vec<u8>,
+) -> Result<String, String> {
+    service.broadcast_transaction(protocol, raw_tx).await
+}

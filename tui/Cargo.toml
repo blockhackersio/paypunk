@@ -13,3 +13,10 @@ ratatui-cheese = "0.7"
 ratatui-bubbletea-theme = "0.1"
 ratatui-bubbletea-components = "0.1"
 arboard = "3"
+clap = { workspace = true, features = ["derive"] }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "sync", "rt-multi-thread"] }
+paypunk-api = { path = "../api" }
+paypunk-types = { path = "../types" }
+zeroize = { workspace = true }
+postcard = { workspace = true }

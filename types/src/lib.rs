@@ -76,6 +76,7 @@ pub trait Protocol: Send + Sync {
     fn finalize(&self, signed: &[u8]) -> Result<Vec<u8>, String>;
     fn validate_address(&self, address: &str) -> bool;
     fn get_balance(&self, address: &str, asset: &str) -> Result<Balance, String>;
+    fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String>;
 }
 
 // ── SignerProtocol trait (keypunkd side) ─────────────────────────────────────

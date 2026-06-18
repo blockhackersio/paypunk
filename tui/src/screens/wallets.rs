@@ -8,6 +8,7 @@ use crate::screens::assets::AssetsScreen;
 use crate::screens::help::HelpScreen;
 use crate::screens::Screen;
 use crate::ui;
+use async_trait::async_trait;
 use ratatui::layout::{Constraint, Layout, Margin};
 use ratatui::style::Style;
 use ratatui::text::Line;
@@ -25,11 +26,12 @@ impl WalletsScreen {
     }
 }
 
+#[async_trait(?Send)]
 impl Screen for WalletsScreen {
     fn name(&self) -> &str { "Wallets" }
 
-    fn init(&mut self, api: &dyn WalletApi) {
-        let data = api.get_wallets();
+    async fn init(&mut self, api: &dyn WalletApi) {
+        let data = api.get_wallets().await;
         let items: Vec<Box<dyn Component<WalletAction>>> = data.wallets.iter()
             .map(|w| Box::new(WalletItem::new(w.clone())) as Box<dyn Component<WalletAction>>)
             .collect();
@@ -76,7 +78,7 @@ impl Screen for WalletsScreen {
         frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
     }
 
-    fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),

@@ -7,7 +7,7 @@ use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcMessage;
-use paypunk_types::ProtocolId;
+use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId};
 use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Recipient, Sender};
@@ -314,4 +314,61 @@ async fn test_eth_balance_zero() {
     assert_eq!(balance.spendable.0, 0);
     assert_eq!(balance.total.0, 0);
     assert_eq!(balance.pending.0, 0);
+}
+
+#[tokio::test]
+async fn test_eth_send_full_flow() {
+    let recipient = TestBuilder::new()
+        .with_eth_balance(10_000_000_000_000_000_000) // 10 ETH
+        .build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+
+    let addr = client
+        .derive_address(password.clone(), ProtocolId::Ethereum, "eip155:1:0".to_string(), 0)
+        .await
+        .unwrap();
+
+    let intent = Intent::Ethereum(EthereumIntent::Transfer {
+        to: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045".to_string(),
+        amount: "0.0001".to_string(),
+        from: addr.clone(),
+        asset: "eip155:1/slip44:60".to_string(),
+        data: None,
+    });
+    let path = 0u32.to_le_bytes();
+
+    let (raw_artifact, parsed_summary, signature, _keypunkd_pk) = client
+        .submit_intent(intent, &path)
+        .await
+        .expect("submit_intent should succeed");
+
+    assert!(!raw_artifact.is_empty(), "raw_artifact should not be empty");
+    assert!(!parsed_summary.is_empty(), "parsed_summary should not be empty");
+    assert!(!signature.is_empty(), "signature should not be empty");
+
+    let summary: ArtifactSummary =
+        postcard::from_bytes(&parsed_summary).expect("should deserialize ArtifactSummary");
+    assert_eq!(summary.protocol, ProtocolId::Ethereum);
+    assert_eq!(
+        summary.to,
+        "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+    );
+
+    let signed_artifact = client
+        .approve_signature(&raw_artifact, &signature, password.clone(), &path)
+        .await
+        .expect("approve_signature should succeed");
+
+    assert!(!signed_artifact.is_empty(), "signed_artifact should not be empty");
+
+    let tx_hash = client
+        .broadcast_transaction(ProtocolId::Ethereum, signed_artifact)
+        .await
+        .expect("broadcast should succeed");
+
+    assert!(!tx_hash.is_empty(), "tx_hash should not be empty");
+    assert_eq!(tx_hash, "0xdeadbeef", "should match mock RPC response");
 }

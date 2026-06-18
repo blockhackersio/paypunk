@@ -170,11 +170,13 @@ pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), Str
     todo!("sync_wallet: needs LSP/lightwalletd connection")
 }
 
-pub async fn broadcast_transaction(
-    _protocol: ProtocolId,
-    _raw_tx: Vec<u8>,
+pub fn broadcast_transaction(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    raw_tx: &[u8],
 ) -> Result<String, String> {
-    todo!("broadcast_transaction: needs lightwalletd/RPC client")
+    let finalized = protocols.get(protocol)?.finalize(raw_tx)?;
+    protocols.get(protocol)?.broadcast(&finalized)
 }
 
 pub async fn get_transaction_status(

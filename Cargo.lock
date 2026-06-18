@@ -3601,13 +3601,20 @@ name = "paypunk-tui"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "async-trait",
+ "clap",
  "crossterm",
+ "paypunk-api",
+ "paypunk-types",
+ "postcard",
  "ratatui",
  "ratatui-bubbletea-components",
  "ratatui-bubbletea-theme",
  "ratatui-cheese",
  "serde",
  "serde_json",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]

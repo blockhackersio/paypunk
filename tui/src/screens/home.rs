@@ -11,6 +11,7 @@ use crate::screens::send::SendScreen;
 use crate::screens::settings::SettingsScreen;
 use crate::screens::Screen;
 use crate::ui;
+use async_trait::async_trait;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::Line;
@@ -22,6 +23,7 @@ pub struct HomeScreen {
     list: List<BalanceAction>,
     menu_open: bool,
     menu: SelectList,
+    state: ApiState<HomeData>,
 }
 
 impl HomeScreen {
@@ -30,6 +32,7 @@ impl HomeScreen {
             list: List::new(vec![]),
             menu_open: false,
             menu: SelectList::new([" Send ", " Receive "]),
+            state: ApiState::Loading,
         }
     }
 
@@ -42,25 +45,28 @@ impl HomeScreen {
     }
 }
 
+#[async_trait(?Send)]
 impl Screen for HomeScreen {
     fn name(&self) -> &str { "Home" }
 
-    fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
-        api.refresh_home();
+    async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
+        api.refresh_home().await;
+        self.state = api.home_state().await;
     }
 
-    fn init(&mut self, api: &dyn WalletApi) {
-        if let ApiState::Loaded(ref data) = api.home_state() {
-            self.rebuild_list(data);
+    async fn init(&mut self, api: &dyn WalletApi) {
+        self.state = api.home_state().await;
+        if let ApiState::Loaded(ref data) = self.state {
+            let data = data.clone();
+            self.rebuild_list(&data);
         }
     }
 
-    fn render(&mut self, frame: &mut Frame, api: &dyn WalletApi) {
-        let state = api.home_state();
-
-        if let ApiState::Loaded(ref data) = state {
+    fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
+        if let ApiState::Loaded(ref data) = self.state {
             if self.list.selected().is_none() {
-                self.rebuild_list(data);
+                let data = data.clone();
+                self.rebuild_list(&data);
             }
         }
 
@@ -72,12 +78,12 @@ impl Screen for HomeScreen {
         ]).split(area);
         let header = chunks[0]; let body = chunks[1]; let footer = chunks[2];
 
-        self.render_header(frame, header, &state);
-        self.render_body(frame, body, &state);
+        self.render_header(frame, header);
+        self.render_body(frame, body);
         self.render_footer(frame, footer);
     }
 
-    fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
         use crossterm::event::KeyCode;
 
         if self.menu_open {
@@ -88,7 +94,7 @@ impl Screen for HomeScreen {
                     self.menu_open = false;
                     let sel = self.menu.selected().unwrap_or(0);
                     if let Some(idx) = self.list.selected() {
-                        if let ApiState::Loaded(ref data) = api.home_state() {
+                        if let ApiState::Loaded(ref data) = self.state {
                             if let Some(bal) = data.balances.get(idx) {
                                 return match sel {
                                     0 => Nav::Push(Box::new(SendScreen::new(&bal.chain_id))),
@@ -109,7 +115,7 @@ impl Screen for HomeScreen {
                 let _ = self.list.handle_event(key);
             }
             KeyCode::Enter => {
-                if let ApiState::Loaded(ref data) = api.home_state() {
+                if let ApiState::Loaded(ref data) = self.state {
                     if !data.balances.is_empty() {
                         self.menu_open = true;
                         self.menu.first();
@@ -118,7 +124,7 @@ impl Screen for HomeScreen {
             }
             KeyCode::Char('s') => {
                 if let Some(idx) = self.list.selected() {
-                    if let ApiState::Loaded(ref data) = api.home_state() {
+                    if let ApiState::Loaded(ref data) = self.state {
                         if let Some(bal) = data.balances.get(idx) {
                             return Nav::Push(Box::new(SendScreen::new(&bal.chain_id)));
                         }
@@ -127,7 +133,7 @@ impl Screen for HomeScreen {
             }
             KeyCode::Char('o') => {
                 if let Some(idx) = self.list.selected() {
-                    if let ApiState::Loaded(ref data) = api.home_state() {
+                    if let ApiState::Loaded(ref data) = self.state {
                         if let Some(bal) = data.balances.get(idx) {
                             return Nav::Push(Box::new(ReceiveScreen::new(&bal.chain_id)));
                         }
@@ -135,9 +141,11 @@ impl Screen for HomeScreen {
                 }
             }
             KeyCode::Char('r') => {
-                api.refresh_home();
-                if let ApiState::Loaded(ref data) = api.home_state() {
-                    self.rebuild_list(data);
+                api.refresh_home().await;
+                self.state = api.home_state().await;
+                if let ApiState::Loaded(ref data) = self.state {
+                    let data = data.clone();
+                    self.rebuild_list(&data);
                 }
             }
             KeyCode::Char('t') => return Nav::Push(Box::new(SettingsScreen::new())),
@@ -150,7 +158,7 @@ impl Screen for HomeScreen {
 }
 
 impl HomeScreen {
-    fn render_header(&self, frame: &mut Frame, area: Rect, state: &ApiState<HomeData>) {
+    fn render_header(&self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
         let block = Block::new().style(Style::new().bg(ui::BG));
         frame.render_widget(block, area);
@@ -158,7 +166,7 @@ impl HomeScreen {
         let title = theme.title(" PayPunk Wallet ").centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), area);
 
-        if let ApiState::Loaded(ref data) = state {
+        if let ApiState::Loaded(ref data) = self.state {
             let total = format!("${:.2} {}", data.total_fiat_value, data.fiat_currency);
             let total_line = theme.accent(&total).into_centered_line();
             frame.render_widget(
@@ -168,9 +176,9 @@ impl HomeScreen {
         }
     }
 
-    fn render_body(&mut self, frame: &mut Frame, area: Rect, state: &ApiState<HomeData>) {
+    fn render_body(&mut self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
-        match state {
+        match &self.state {
             ApiState::Loading => {
                 let block = theme.titled_block("Assets");
                 let inner = block.inner(area);

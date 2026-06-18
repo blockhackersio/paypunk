@@ -40,42 +40,42 @@ impl App {
         }
     }
 
-    pub fn handle_input(&mut self, key: crossterm::event::KeyEvent) -> io::Result<()> {
+    pub async fn handle_input(&mut self, key: crossterm::event::KeyEvent) -> io::Result<()> {
         let api: &mut dyn WalletApi = &mut *self.api;
         let nav = if let Some(screen) = self.screen_stack.last_mut() {
-            screen.handle_input(key, api)
+            screen.handle_input(key, api).await
         } else {
             Nav::None
         };
-        self.process_nav(nav);
+        self.process_nav(nav).await;
         Ok(())
     }
 
-    pub fn handle_paste(&mut self, text: &str) {
+    pub async fn handle_paste(&mut self, text: &str) {
         let api: &mut dyn WalletApi = &mut *self.api;
         let nav = if let Some(screen) = self.screen_stack.last_mut() {
-            screen.handle_paste(text, api)
+            screen.handle_paste(text, api).await
         } else {
             Nav::None
         };
-        self.process_nav(nav);
+        self.process_nav(nav).await;
     }
 
-    fn process_nav(&mut self, nav: Nav) {
+    async fn process_nav(&mut self, nav: Nav) {
         match nav {
             Nav::None => {}
             Nav::Push(mut s) => {
-                s.init(&*self.api);
+                s.init(&*self.api).await;
                 self.push_screen(s);
             }
             Nav::Pop => {
                 self.pop_screen();
                 if let Some(screen) = self.screen_stack.last_mut() {
-                    screen.on_reactivate(&mut *self.api);
+                    screen.on_reactivate(&mut *self.api).await;
                 }
             }
             Nav::Replace(mut s) => {
-                s.init(&*self.api);
+                s.init(&*self.api).await;
                 self.screen_stack.pop();
                 self.push_screen(s);
             }

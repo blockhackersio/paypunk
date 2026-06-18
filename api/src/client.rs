@@ -111,4 +111,13 @@ impl Client {
     ) -> Result<Balance, String> {
         crate::functions::get_balance_legacy(&self.service, protocol, account, asset).await
     }
+
+    /// Broadcast a finalized, signed transaction to the network.
+    pub async fn broadcast_transaction(
+        &self,
+        protocol: ProtocolId,
+        raw_tx: Vec<u8>,
+    ) -> Result<String, String> {
+        crate::functions::broadcast_transaction(&self.service, protocol, raw_tx).await
+    }
 }

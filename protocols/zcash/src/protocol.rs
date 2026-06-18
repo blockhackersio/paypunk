@@ -212,6 +212,10 @@ impl Protocol for ZcashProtocol {
     fn get_balance(&self, _address: &str, _asset: &str) -> Result<paypunk_types::Balance, String> {
         Err("get_balance not yet implemented — needs WalletDb + LSP chain scan".to_string())
     }
+
+    fn broadcast(&self, _finalized_tx: &[u8]) -> Result<String, String> {
+        Err("broadcast not yet implemented for Zcash — needs lightwalletd connection".to_string())
+    }
 }
 
 enum KeyRef {

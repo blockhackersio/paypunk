@@ -8,23 +8,36 @@ mod ui;
 use crate::api::WalletApi;
 use app::App;
 use api::mock::MockWalletApi;
+use api::real::RealWalletApi;
 use screens::setup::SetupScreen;
 use screens::Screen;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::event::{EnableBracketedPaste, DisableBracketedPaste};
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 use std::io;
+use tokio::sync::mpsc;
 
-pub fn run_tui() -> io::Result<()> {
-    let api = MockWalletApi::new();
+pub async fn run_tui(socket_path: Option<String>) -> io::Result<()> {
+    let api: Box<dyn WalletApi> = if let Some(path) = socket_path {
+        match RealWalletApi::connect(&path).await {
+            Ok(real) => Box::new(real),
+            Err(e) => {
+                eprintln!("Failed to connect to paypunkd at {path}: {e}");
+                eprintln!("Falling back to mock API");
+                Box::new(MockWalletApi::new())
+            }
+        }
+    } else {
+        Box::new(MockWalletApi::new())
+    };
 
-    let mut app = App::new(Box::new(api));
+    let mut app = App::new(api);
     let mut setup = Box::new(SetupScreen::new());
-    setup.init(&*app.api);
+    setup.init(&*app.api).await;
     app.push_screen(setup);
 
     let prev_hook = std::panic::take_hook();
@@ -37,62 +50,62 @@ pub fn run_tui() -> io::Result<()> {
     terminal.clear()?;
     crossterm::execute!(std::io::stdout(), EnableBracketedPaste)?;
 
-    let res = run_app(&mut terminal, &mut app);
+    let (event_tx, mut event_rx) = mpsc::channel::<Event>(256);
+    let event_tx_clone = event_tx.clone();
 
-    crossterm::execute!(std::io::stdout(), DisableBracketedPaste)?;
-    ratatui::restore();
-    terminal.show_cursor()?;
+    tokio::task::spawn_blocking(move || {
+        loop {
+            if event::poll(std::time::Duration::from_millis(50)).unwrap_or(false) {
+                let evt = event::read().unwrap_or(Event::Resize(0, 0));
+                if event_tx_clone.blocking_send(evt).is_err() {
+                    break;
+                }
+            } else {
+                if event_tx_clone.blocking_send(Event::Resize(0, 0)).is_err() {
+                    break;
+                }
+            }
+        }
+    });
 
-    if let Err(e) = res {
-        eprintln!("Error: {}", e);
-    }
-
-    Ok(())
-}
-
-fn run_app(
-    terminal: &mut ratatui::DefaultTerminal,
-    app: &mut App,
-) -> io::Result<()> {
     while !app.should_quit {
-        terminal.draw(|frame| {
-            render(frame, app);
-        })?;
+        terminal.draw(|frame| render(frame, &mut app))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
-            let evt = event::read()?;
+        if let Some(evt) = event_rx.recv().await {
             match evt {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if key.code == KeyCode::Char('q') && app.screen_stack.len() <= 1 {
                         app.should_quit = true;
-                    } else if key.modifiers.contains(event::KeyModifiers::CONTROL)
+                    } else if key.modifiers.contains(KeyModifiers::CONTROL)
                         && key.code == KeyCode::Char('c')
                     {
                         app.should_quit = true;
                     } else {
-                        app.handle_input(key)?;
+                        app.handle_input(key).await?;
                         if app.screen_stack.is_empty() {
                             app.should_quit = true;
                         }
                     }
                 }
                 Event::Paste(text) => {
-                    app.handle_paste(&text);
+                    app.handle_paste(&text).await;
                 }
-                Event::Resize(_, _) => {
-                    // Terminal resize is handled automatically by ratatui's draw cycle
-                }
+                Event::Resize(_, _) => {}
                 _ => {}
             }
         }
     }
+
+    crossterm::execute!(std::io::stdout(), DisableBracketedPaste)?;
+    ratatui::restore();
+    terminal.show_cursor()?;
+
     Ok(())
 }
 
 fn render(frame: &mut Frame, app: &mut App) {
     let api: &dyn WalletApi = &*app.api;
 
-    // Fill entire terminal with opaque background to prevent transparency
     let bg_block = Block::new().style(Style::new().bg(ui::BG));
     frame.render_widget(bg_block, frame.area());
 
