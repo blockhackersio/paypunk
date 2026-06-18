@@ -17,6 +17,7 @@ struct PendingSend {
 pub struct RealWalletApi {
     client: Client,
     pending: Mutex<Option<PendingSend>>,
+    derivation_index: u32,
 }
 
 impl RealWalletApi {
@@ -25,6 +26,7 @@ impl RealWalletApi {
         Ok(Self {
             client,
             pending: Mutex::new(None),
+            derivation_index: 0,
         })
     }
 
@@ -32,7 +34,12 @@ impl RealWalletApi {
         Self {
             client,
             pending: Mutex::new(None),
+            derivation_index: 0,
         }
+    }
+
+    pub fn set_derivation_index(&mut self, index: u32) {
+        self.derivation_index = index;
     }
 }
 
@@ -155,7 +162,7 @@ impl WalletApi for RealWalletApi {
             data: None,
         });
 
-        let path = 0u32.to_le_bytes();
+        let path = self.derivation_index.to_le_bytes();
 
         match self.client.submit_intent(intent, &path).await {
             Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
@@ -197,8 +204,9 @@ impl WalletApi for RealWalletApi {
         }
     }
 
-    async fn submit_send_confirm(&self, _input: SendConfirmInput) -> SendResult {
+    async fn submit_send_confirm(&self, input: SendConfirmInput) -> SendResult {
         let pending = self.pending.lock().unwrap().take();
+        let password = input.auth_confirmation.value.clone();
         match pending {
             Some(p) => {
                 match self
@@ -206,7 +214,7 @@ impl WalletApi for RealWalletApi {
                     .approve_signature(
                         &p.raw_artifact,
                         &p.keypunkd_signature,
-                        Zeroizing::new("password".to_string()),
+                        Zeroizing::new(password),
                         &p.derivation_path,
                     )
                     .await
