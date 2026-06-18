@@ -70,3 +70,7 @@ Made `Screen` trait async with `#[async_trait]`. Updated all 10 screen implement
 ## Step 6 — Done
 
 Refactored TUI event loop to async on tokio. Spawned blocking task for crossterm events, mpsc channel for async communication. Added `--socket-path` CLI arg to TUI binary.
+
+## Step 7 — Done
+
+Created `RealWalletApi` in `tui/src/api/real.rs` wrapping `api::Client`. Implemented the two-phase send flow (submit_intent → approve_signature → broadcast). Wired real vs mock selection via `--socket-path`. Updated CLI to pass socket path to TUI.

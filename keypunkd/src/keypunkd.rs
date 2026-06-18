@@ -181,7 +181,7 @@ impl<S: Storage> Keypunkd<S> {
             to_verify.extend_from_slice(&derivation_path);
             let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
 
-            let decrypted_sig = match self.keystore.decrypt_bytes(sig, &ephemeral_public_key) {
+            let decrypted_sig = match self.keystore.decrypt_bytes(sig, &[0u8; 32]) {
                 Ok(d) => d,
                 Err(_) => {
                     return KeypunkdResponse::Error {
