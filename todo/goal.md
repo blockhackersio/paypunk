@@ -62,3 +62,7 @@ Exposed `broadcast_transaction()` in the `paypunk-api` crate via `functions.rs` 
 
 Made `WalletApi` trait async with `#[async_trait(?Send)]`. Updated `MockWalletApi` (RefCell → Mutex). Made `Screen` trait methods async. Added `tokio` + `async-trait` deps to TUI crate. Updated all screen implementations, `App`, and `lib.rs` to use tokio runtime.
 
+
+## Step 5 — Done
+
+Made `Screen` trait async with `#[async_trait]`. Updated all 10 screen implementations and `App` struct for async handle_input/handle_paste.

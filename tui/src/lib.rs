@@ -11,19 +11,24 @@ use api::mock::MockWalletApi;
 use screens::setup::SetupScreen;
 use screens::Screen;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::event::{EnableBracketedPaste, DisableBracketedPaste};
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 use std::io;
+use tokio::sync::mpsc;
 
-#[tokio::main]
-pub async fn run_tui() -> io::Result<()> {
-    let api = MockWalletApi::new();
+pub async fn run_tui(socket_path: Option<String>) -> io::Result<()> {
+    let api: Box<dyn WalletApi> = if let Some(_path) = socket_path {
+        // Step 7 will replace this with RealWalletApi
+        Box::new(MockWalletApi::new())
+    } else {
+        Box::new(MockWalletApi::new())
+    };
 
-    let mut app = App::new(Box::new(api));
+    let mut app = App::new(api);
     let mut setup = Box::new(SetupScreen::new());
     setup.init(&*app.api).await;
     app.push_screen(setup);
@@ -38,35 +43,33 @@ pub async fn run_tui() -> io::Result<()> {
     terminal.clear()?;
     crossterm::execute!(std::io::stdout(), EnableBracketedPaste)?;
 
-    let res = run_app(&mut terminal, &mut app).await;
+    let (event_tx, mut event_rx) = mpsc::channel::<Event>(256);
+    let event_tx_clone = event_tx.clone();
 
-    crossterm::execute!(std::io::stdout(), DisableBracketedPaste)?;
-    ratatui::restore();
-    terminal.show_cursor()?;
+    tokio::task::spawn_blocking(move || {
+        loop {
+            if event::poll(std::time::Duration::from_millis(50)).unwrap_or(false) {
+                let evt = event::read().unwrap_or(Event::Resize(0, 0));
+                if event_tx_clone.blocking_send(evt).is_err() {
+                    break;
+                }
+            } else {
+                if event_tx_clone.blocking_send(Event::Resize(0, 0)).is_err() {
+                    break;
+                }
+            }
+        }
+    });
 
-    if let Err(e) = res {
-        eprintln!("Error: {}", e);
-    }
-
-    Ok(())
-}
-
-async fn run_app(
-    terminal: &mut ratatui::DefaultTerminal,
-    app: &mut App,
-) -> io::Result<()> {
     while !app.should_quit {
-        terminal.draw(|frame| {
-            render(frame, app);
-        })?;
+        terminal.draw(|frame| render(frame, &mut app))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
-            let evt = event::read()?;
+        if let Some(evt) = event_rx.recv().await {
             match evt {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if key.code == KeyCode::Char('q') && app.screen_stack.len() <= 1 {
                         app.should_quit = true;
-                    } else if key.modifiers.contains(event::KeyModifiers::CONTROL)
+                    } else if key.modifiers.contains(KeyModifiers::CONTROL)
                         && key.code == KeyCode::Char('c')
                     {
                         app.should_quit = true;
@@ -80,12 +83,16 @@ async fn run_app(
                 Event::Paste(text) => {
                     app.handle_paste(&text).await;
                 }
-                Event::Resize(_, _) => {
-                }
+                Event::Resize(_, _) => {}
                 _ => {}
             }
         }
     }
+
+    crossterm::execute!(std::io::stdout(), DisableBracketedPaste)?;
+    ratatui::restore();
+    terminal.show_cursor()?;
+
     Ok(())
 }
 

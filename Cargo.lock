@@ -3602,6 +3602,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "async-trait",
+ "clap",
  "crossterm",
  "ratatui",
  "ratatui-bubbletea-components",
