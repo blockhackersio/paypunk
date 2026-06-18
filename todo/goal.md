@@ -57,3 +57,8 @@ Added `BroadcastTransaction`/`TransactionBroadcasted` to paypunkd messages. Impl
 ## Step 3 — Done
 
 Exposed `broadcast_transaction()` in the `paypunk-api` crate via `functions.rs` and `Client`.
+
+## Step 4 — Done
+
+Made `WalletApi` trait async with `#[async_trait(?Send)]`. Updated `MockWalletApi` (RefCell → Mutex). Made `Screen` trait methods async. Added `tokio` + `async-trait` deps to TUI crate. Updated all screen implementations, `App`, and `lib.rs` to use tokio runtime.
+
