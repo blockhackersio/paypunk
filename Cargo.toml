@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "config",
     "ipc",
     "types",
     "keypunkd",
@@ -23,6 +24,7 @@ tactix = "1.0"
 
 # Serialization
 serde = "1"
+toml = "0.8"
 postcard = "1"
 
 # Crypto
@@ -70,6 +72,7 @@ clap = "4"
 
 # Error handling
 thiserror = "2"
+dirs = "6"
 
 # Logging / tracing
 tracing = "0.1"
@@ -80,6 +83,7 @@ bytes = "1"
 tempfile = "3"
 
 # Workspace member path deps
+paypunk-config = { path = "config" }
 paypunk-ipc = { path = "ipc" }
 paypunk-types = { path = "types" }
 keypunkd = { path = "keypunkd" }
