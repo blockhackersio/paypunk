@@ -29,7 +29,6 @@ _Avoid_: Transaction intent, message
 
 **Transfer**:
 An outbound payment from the wallet to a recipient's Zcash Address, including an Amount and an optional Memo. Initiated by the user or an agent acting on their behalf via an `Intent::Zcash(ZcashIntent::Transfer)`.
-_Avoid_: Transaction (ambiguous with chain-level tx), sending
 
 **Incoming Payment**:
 Funds received into the wallet detected via LSP chain scanning of the current Address.
