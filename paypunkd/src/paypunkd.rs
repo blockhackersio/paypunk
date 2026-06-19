@@ -258,28 +258,98 @@ impl Paypunkd {
     }
 
     async fn unlock(
-        &self,
-        _encrypted_db_password: Vec<u8>,
-        _ephemeral_public_key: [u8; 32],
-        _encrypted_keypunkd_password: Vec<u8>,
-        _keypunkd_client_pk: [u8; 32],
+        &mut self,
+        encrypted_db_password: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+        encrypted_keypunkd_password: Vec<u8>,
+        keypunkd_client_pk: [u8; 32],
     ) -> PaypunkdResponse {
         info!("handling Unlock");
-        PaypunkdResponse::Error {
-            message: "not implemented".to_string(),
+
+        // 1. Decrypt the DB password using paypunkd's own keypair
+        let decrypted_password = match self
+            .keystore
+            .decrypt(&encrypted_db_password, &ephemeral_public_key)
+        {
+            Ok(pw) => pw,
+            Err(e) => {
+                return PaypunkdResponse::Error {
+                    message: format!("failed to decrypt db password: {e}"),
+                }
+            }
+        };
+
+        // 2. Unlock the database
+        if let Err(e) = self.db.unlock(&decrypted_password) {
+            return PaypunkdResponse::Error {
+                message: format!("failed to unlock database: {e}"),
+            };
+        }
+
+        // 3. Check if accounts exist
+        let accounts = match usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
+            Ok(a) => a,
+            Err(e) => {
+                return PaypunkdResponse::Error {
+                    message: format!("failed to list accounts: {e}"),
+                }
+            }
+        };
+
+        let accounts_count = accounts.len() as u32;
+
+        // 4. If no accounts, bulk-derive from keypunkd
+        if accounts.is_empty() {
+            info!("no accounts found, bulk-deriving from keypunkd");
+            let protocols = self.protocols.protocols();
+            match usecases::bulk_derive_accounts(
+                &self.keypunk_service,
+                &self.db,
+                self.accounts_repo.as_ref(),
+                encrypted_keypunkd_password,
+                keypunkd_client_pk,
+                protocols,
+                30,
+            )
+            .await
+            {
+                Ok(derived) => {
+                    info!(count = derived.len(), "bulk-derived accounts");
+                    PaypunkdResponse::UnlockSuccess {
+                        accounts_count: derived.len() as u32,
+                    }
+                }
+                Err(e) => PaypunkdResponse::Error {
+                    message: format!("failed to bulk-derive accounts: {e}"),
+                },
+            }
+        } else {
+            PaypunkdResponse::UnlockSuccess { accounts_count }
         }
     }
 
     async fn bulk_derive_accounts(
         &self,
-        _encrypted_password: Vec<u8>,
-        _client_public_key: [u8; 32],
-        _count: u32,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        count: u32,
     ) -> PaypunkdResponse {
         info!("handling BulkDeriveAccounts");
-        PaypunkdResponse::Error {
-            message: "not implemented".to_string(),
-        }
+        let protocols = self.protocols.protocols();
+        self.respond(
+            "bulk_derive_accounts",
+            usecases::bulk_derive_accounts(
+                &self.keypunk_service,
+                &self.db,
+                self.accounts_repo.as_ref(),
+                encrypted_password,
+                client_public_key,
+                protocols,
+                count,
+            )
+            .await,
+            |accounts| PaypunkdResponse::AccountsBulkDerived { accounts },
+        )
     }
 }
 

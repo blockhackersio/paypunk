@@ -182,9 +182,62 @@ pub async fn create_account(
             .as_secs(),
     };
 
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.save(&conn, &account)?;
     Ok(account)
+}
+
+/// Bulk-derive accounts for all registered protocols.
+pub async fn bulk_derive_accounts(
+    keypunk_service: &KeypunkService,
+    db: &Database,
+    repo: &dyn AccountsRepository,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+    protocols: Vec<ProtocolId>,
+    count: u32,
+) -> Result<Vec<Account>, String> {
+    let keys = keypunk_service
+        .bulk_export_viewing_keys(encrypted_password, client_public_key, protocols.clone(), 0, count)
+        .await?;
+
+    let mut accounts = Vec::new();
+    for (protocol, account_index, viewing_key) in keys {
+        let id: String = (0..16)
+            .map(|_| {
+                let hex = rand::thread_rng().gen_range(0..16);
+                format!("{hex:x}")
+            })
+            .collect();
+
+        let coin_type = match protocol {
+            ProtocolId::Zcash => 133,
+            ProtocolId::Ethereum => 60,
+            ProtocolId::Bitcoin => 0,
+            ProtocolId::Monero => 128,
+            ProtocolId::Solana => 501,
+        };
+
+        let account = Account {
+            id,
+            protocol,
+            derivation_path: format!("m/44'/{coin_type}'/{account_index}'"),
+            name: format!("{protocol:?} Account {account_index}"),
+            viewing_key,
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        };
+
+        let conn = db.conn.as_ref().ok_or("database is locked")?;
+        let conn = conn.lock().map_err(|e| e.to_string())?;
+        repo.save(&conn, &account)?;
+        accounts.push(account);
+    }
+
+    Ok(accounts)
 }
 
 /// List all accounts from the database.
@@ -192,7 +245,8 @@ pub fn list_accounts(
     db: &Database,
     repo: &dyn AccountsRepository,
 ) -> Result<Vec<Account>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.find_all(&conn)
 }
 
@@ -202,7 +256,8 @@ pub fn get_account(
     repo: &dyn AccountsRepository,
     id: &str,
 ) -> Result<Option<Account>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.find_by_id(&conn, id)
 }
 
