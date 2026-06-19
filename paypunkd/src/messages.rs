@@ -1,4 +1,4 @@
-use paypunk_types::{Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -37,6 +37,16 @@ pub enum PaypunkdRequest {
         protocol: ProtocolId,
         raw_tx: Vec<u8>,
     },
+    CreateAccount {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        protocol: ProtocolId,
+        derivation_path: String,
+        account_index: u32,
+        name: String,
+    },
+    ListAccounts,
+    GetAccount { id: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,5 +64,8 @@ pub enum PaypunkdResponse {
     Balance { balance: Balance },
     AddressDerived { address: String },
     TransactionBroadcasted { tx_hash: String },
+    AccountCreated { account: Account },
+    AccountsList { accounts: Vec<Account> },
+    AccountFound { account: Option<Account> },
     Error { message: String },
 }

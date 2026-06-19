@@ -14,6 +14,11 @@ use tactix::Actor;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+fn default_data_dir() -> PathBuf {
+    let home = std::env::var("HOME").expect("HOME must be set");
+    PathBuf::from(home).join(".local/share/paypunk/")
+}
+
 #[derive(Parser)]
 #[command(name = "keypunkd", about = "Key daemon for Paypunk wallet")]
 struct Args {
@@ -22,8 +27,8 @@ struct Args {
     socket_path: String,
 
     /// Data directory for seed.enc and other state
-    #[arg(short, long, default_value = "/tmp/paypunk/data")]
-    data_dir: PathBuf,
+    #[arg(short, long)]
+    data_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -35,16 +40,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
+    let data_dir = args.data_dir.unwrap_or_else(default_data_dir);
 
     info!(
         socket_path = %args.socket_path,
-        data_dir = %args.data_dir.display(),
+        data_dir = %data_dir.display(),
         "keypunkd starting"
     );
 
     let keystore = Keypair::new();
     let (secret, public) = keystore.keypair();
-    let seed_store = FilesystemSeedStore::new(args.data_dir.join("seed.enc").into_boxed_path());
+    let seed_store = FilesystemSeedStore::new(data_dir.join("seed.enc").into_boxed_path());
 
     let mut protocols = ProtocolService::new();
     protocols.register(ProtocolId::Zcash, Box::new(ZcashProtocol {

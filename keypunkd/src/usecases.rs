@@ -11,6 +11,8 @@ use crate::{
     seed_store::SeedStore,
 };
 
+/// Generate a new BIP39 seed, encrypt it with the user's password, and persist to the seed store.
+/// Returns the encrypted mnemonic for the client to display.
 pub fn generate_seed(
     keystore: &Keypair,
     encrypted_password: &[u8],
@@ -34,6 +36,8 @@ pub fn generate_seed(
     Ok(keystore.encrypt(mnemonic, client_pk))
 }
 
+/// Restore a wallet from an existing BIP39 mnemonic phrase.
+/// Validates the mnemonic, derives the seed, encrypts with password, and persists.
 pub fn restore_seed(
     keystore: &Keypair,
     encrypted_mnemonic: &[u8],

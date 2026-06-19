@@ -8,6 +8,7 @@ use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId};
+use paypunkd::database::Database;
 use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Recipient, Sender};
@@ -70,12 +71,14 @@ impl EthRpcClient for MockRpcClient {
 /// Builder for wiring up the full actor chain in tests.
 struct TestBuilder {
     eth_mock: MockRpcClient,
+    tmp_dir: tempfile::TempDir,
 }
 
 impl TestBuilder {
     fn new() -> Self {
         Self {
             eth_mock: MockRpcClient::new(0, 0),
+            tmp_dir: tempfile::TempDir::new().unwrap(),
         }
     }
 
@@ -111,7 +114,8 @@ impl TestBuilder {
         let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
         let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
 
-        let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols).start();
+        let db = Database::open(self.tmp_dir.path(), "test-password").unwrap();
+        let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols, db).start();
         paypunkd_addr.recipient()
     }
 }
@@ -371,4 +375,88 @@ async fn test_eth_send_full_flow() {
 
     assert!(!tx_hash.is_empty(), "tx_hash should not be empty");
     assert_eq!(tx_hash, "0xdeadbeef", "should match mock RPC response");
+}
+
+#[tokio::test]
+async fn test_create_account() {
+    let recipient = TestBuilder::new().build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+
+    let account = client
+        .create_account(
+            password.clone(),
+            ProtocolId::Zcash,
+            "m/44'/133'/0'".to_string(),
+            0,
+            "My Zcash Wallet".to_string(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(account.protocol, ProtocolId::Zcash);
+    assert_eq!(account.name, "My Zcash Wallet");
+    assert!(!account.viewing_key.is_empty());
+    assert!(!account.id.is_empty());
+}
+
+#[tokio::test]
+async fn test_list_accounts() {
+    let recipient = TestBuilder::new().build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+
+    let acct1 = client
+        .create_account(
+            password.clone(),
+            ProtocolId::Zcash,
+            "m/44'/133'/0'".into(),
+            0,
+            "Zcash 1".into(),
+        )
+        .await
+        .unwrap();
+    let acct2 = client
+        .create_account(
+            password.clone(),
+            ProtocolId::Ethereum,
+            "m/44'/60'/0'".into(),
+            0,
+            "Ethereum 1".into(),
+        )
+        .await
+        .unwrap();
+
+    let accounts = client.list_accounts().await.unwrap();
+    assert_eq!(accounts.len(), 2);
+    assert!(accounts.iter().any(|a| a.id == acct1.id));
+    assert!(accounts.iter().any(|a| a.id == acct2.id));
+}
+
+#[tokio::test]
+async fn test_get_account_by_id() {
+    let recipient = TestBuilder::new().build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+
+    let created = client
+        .create_account(
+            password.clone(),
+            ProtocolId::Zcash,
+            "m/44'/133'/0'".into(),
+            0,
+            "Test Account".into(),
+        )
+        .await
+        .unwrap();
+
+    let found = client.get_account(created.id.clone()).await.unwrap();
+    assert!(found.is_some());
+    assert_eq!(found.unwrap().id, created.id);
 }

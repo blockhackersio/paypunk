@@ -1,5 +1,5 @@
 use keypunkd::crypto::Keypair;
-use paypunk_types::{AssetId, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
 use zeroize::Zeroizing;
 
 /// Generate a new wallet seed.
@@ -152,4 +152,45 @@ pub async fn broadcast_transaction(
     raw_tx: Vec<u8>,
 ) -> Result<String, String> {
     service.broadcast_transaction(protocol, raw_tx).await
+}
+
+/// Create a new account: derive viewing key from keypunkd, persist to DB.
+pub async fn create_account(
+    service: &paypunkd::services::PaypunkService,
+    password: Zeroizing<String>,
+    protocol: ProtocolId,
+    derivation_path: String,
+    account_index: u32,
+    name: String,
+) -> Result<Account, String> {
+    let client_keypair = Keypair::new();
+    let server_pk = service.get_keypunk_encryption_key().await?;
+    let encrypted_password = client_keypair.encrypt(password, &server_pk);
+    let client_pk = client_keypair.public_key();
+
+    service
+        .create_account(
+            encrypted_password,
+            client_pk,
+            protocol,
+            derivation_path,
+            account_index,
+            name,
+        )
+        .await
+}
+
+/// List all accounts from the database.
+pub async fn list_accounts(
+    service: &paypunkd::services::PaypunkService,
+) -> Result<Vec<Account>, String> {
+    service.list_accounts().await
+}
+
+/// Get a single account by ID.
+pub async fn get_account(
+    service: &paypunkd::services::PaypunkService,
+    id: String,
+) -> Result<Option<Account>, String> {
+    service.get_account(id).await
 }

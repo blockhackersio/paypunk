@@ -90,6 +90,18 @@ pub trait SignerProtocol: Send + Sync {
     fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String>;
 }
 
+// ── Account ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Account {
+    pub id: String,
+    pub protocol: ProtocolId,
+    pub derivation_path: String,
+    pub name: String,
+    pub viewing_key: Vec<u8>,
+    pub created_at: u64,
+}
+
 // ── Data model ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -1,14 +1,19 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::{Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use rand::Rng;
 
+use crate::database::{AccountsRepository, Database};
 use crate::protocol_service::ProtocolService;
 
 // ── Keypunkd forwarding ────────────────────────────────────────────────────
 
+/// Forward a GetEncryptionKey request to keypunkd and return its X25519 public key.
 pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8; 32], String> {
     service.get_encryption_key().await
 }
 
+/// Forward a GenerateSeed request to keypunkd with the encrypted password.
+/// Returns the encrypted mnemonic from keypunkd.
 pub async fn generate_seed(
     service: &KeypunkService,
     encrypted_password: Vec<u8>,
@@ -19,6 +24,7 @@ pub async fn generate_seed(
         .await
 }
 
+/// Forward a RestoreSeed request to keypunkd with the encrypted mnemonic and password.
 pub async fn restore_seed(
     service: &KeypunkService,
     encrypted_mnemonic: Vec<u8>,
@@ -30,6 +36,8 @@ pub async fn restore_seed(
         .await
 }
 
+/// Forward an ExportViewingKey request to keypunkd to derive viewing key material
+/// for the given protocol and account index.
 pub async fn export_viewing_key(
     service: &KeypunkService,
     encrypted_password: Vec<u8>,
@@ -108,29 +116,89 @@ pub fn derive_address(
     index: u32,
 ) -> Result<String, String> {
     match protocol {
-        ProtocolId::Zcash => {
-            paypunk_chains_zcash::address::derive_from_fvk(viewing_key, index)
-                .map_err(|e| e.to_string())
-        }
-        ProtocolId::Ethereum => {
-            paypunk_chains_ethereum::address::derive_from_pubkey(viewing_key)
-                .map(|a| a.to_string())
-                .map_err(|e| e.to_string())
-        }
-        _ => Err(format!("unsupported protocol for address derivation: {protocol:?}")),
+        ProtocolId::Zcash => paypunk_chains_zcash::address::derive_from_fvk(viewing_key, index)
+            .map_err(|e| e.to_string()),
+        ProtocolId::Ethereum => paypunk_chains_ethereum::address::derive_from_pubkey(viewing_key)
+            .map(|a| a.to_string())
+            .map_err(|e| e.to_string()),
+        _ => Err(format!(
+            "unsupported protocol for address derivation: {protocol:?}"
+        )),
     }
 }
 
 /// Validate an address using the protocol service.
-pub fn validate_address(
-    protocols: &ProtocolService,
-    protocol: ProtocolId,
-    address: &str,
-) -> bool {
+pub fn validate_address(protocols: &ProtocolService, protocol: ProtocolId, address: &str) -> bool {
     protocols
         .get(protocol)
         .map(|p| p.validate_address(address))
         .unwrap_or(false)
+}
+
+// ── Account operations ──────────────────────────────────────────────────────
+
+/// Create a new account: derive viewing key from keypunkd, persist to DB.
+pub async fn create_account(
+    keypunk_service: &KeypunkService,
+    db: &Database,
+    repo: &dyn AccountsRepository,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+    protocol: ProtocolId,
+    derivation_path: String,
+    account_index: u32,
+    name: String,
+) -> Result<Account, String> {
+    let viewing_key = keypunk_service
+        .export_viewing_key(
+            encrypted_password,
+            client_public_key,
+            protocol,
+            account_index,
+        )
+        .await?;
+
+    let id: String = (0..16)
+        .map(|_| {
+            let hex = rand::thread_rng().gen_range(0..16);
+            format!("{hex:x}")
+        })
+        .collect();
+
+    let account = Account {
+        id,
+        protocol,
+        derivation_path,
+        name,
+        viewing_key,
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    };
+
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    repo.save(&conn, &account)?;
+    Ok(account)
+}
+
+/// List all accounts from the database.
+pub fn list_accounts(
+    db: &Database,
+    repo: &dyn AccountsRepository,
+) -> Result<Vec<Account>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    repo.find_all(&conn)
+}
+
+/// Get a single account by ID.
+pub fn get_account(
+    db: &Database,
+    repo: &dyn AccountsRepository,
+    id: &str,
+) -> Result<Option<Account>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    repo.find_by_id(&conn, id)
 }
 
 // ── Stubs: depend on future work ───────────────────────────────────────────
@@ -145,6 +213,8 @@ pub fn get_balance(
     protocols.get(protocol)?.get_balance(address, asset)
 }
 
+/// Create a transfer for the given protocol and account.
+/// TODO: Requires PCZT pipeline — not yet implemented.
 pub async fn create_transfer(
     _service: &KeypunkService,
     _protocols: &ProtocolService,
@@ -157,6 +227,8 @@ pub async fn create_transfer(
     todo!("create_transfer: PCZT pipeline not yet implemented — needs TransactionProposer")
 }
 
+/// Fetch transaction history for the given protocol and account.
+/// TODO: Requires Page/HistoryEntry types and chain backend — not yet implemented.
 pub async fn get_history(
     _protocol: ProtocolId,
     _account: u32,
@@ -166,10 +238,14 @@ pub async fn get_history(
     todo!("get_history: needs Page/HistoryEntry types")
 }
 
+/// Sync the wallet state with the blockchain for the given protocol and account.
+/// TODO: Requires LSP/lightwalletd connection — not yet implemented.
 pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), String> {
     todo!("sync_wallet: needs LSP/lightwalletd connection")
 }
 
+/// Finalize and broadcast a signed transaction to the network.
+/// Returns the transaction hash.
 pub fn broadcast_transaction(
     protocols: &ProtocolService,
     protocol: ProtocolId,
@@ -179,6 +255,8 @@ pub fn broadcast_transaction(
     protocols.get(protocol)?.broadcast(&finalized)
 }
 
+/// Query the on-chain status of a transaction by its ID.
+/// TODO: Requires lightwalletd/RPC client — not yet implemented.
 pub async fn get_transaction_status(
     _protocol: ProtocolId,
     _txid: String,
@@ -186,10 +264,16 @@ pub async fn get_transaction_status(
     todo!("get_transaction_status: needs lightwalletd/RPC client")
 }
 
-pub async fn get_current_block_height(_protocol: ProtocolId) -> Result<paypunk_types::BlockHeight, String> {
+/// Get the current block height from the blockchain.
+/// TODO: Requires lightwalletd/RPC client — not yet implemented.
+pub async fn get_current_block_height(
+    _protocol: ProtocolId,
+) -> Result<paypunk_types::BlockHeight, String> {
     todo!("get_current_block_height: needs lightwalletd/RPC client")
 }
 
+/// Estimate the fee for a transfer to the given address with the given amount and optional memo.
+/// TODO: Requires TransactionProposer + chain fee estimation — not yet implemented.
 pub async fn estimate_fee(
     _protocol: ProtocolId,
     _to: &str,
