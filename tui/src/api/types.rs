@@ -293,3 +293,10 @@ pub struct RevealPhraseInput {
     pub auth_type: String,
     pub value: String,
 }
+
+// ── Greeting / Unlock ──
+
+#[derive(Debug, Clone)]
+pub struct UnlockData {
+    pub accounts_count: u32,
+}

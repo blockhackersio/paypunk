@@ -1,5 +1,6 @@
 pub mod assets;
 pub mod component_demo;
+pub mod greeting;
 pub mod help;
 pub mod home;
 pub mod lock;

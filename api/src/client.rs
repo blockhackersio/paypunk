@@ -150,4 +150,22 @@ impl Client {
     pub async fn get_account(&self, id: String) -> Result<Option<Account>, String> {
         crate::functions::get_account(&self.service, id).await
     }
+
+    /// Check whether a wallet seed exists on keypunkd.
+    pub async fn check_wallet_exists(&self) -> Result<bool, String> {
+        crate::functions::check_wallet_exists(&self.service).await
+    }
+
+    /// Unlock the wallet by decrypting the DB and deriving initial accounts.
+    pub async fn unlock(
+        &self,
+        password: Zeroizing<String>,
+    ) -> Result<u32, String> {
+        crate::functions::unlock(&self.service, password).await
+    }
+
+    /// Get paypunkd's public encryption key.
+    pub async fn get_paypunkd_encryption_key(&self) -> Result<[u8; 32], String> {
+        self.service.get_paypunkd_encryption_key().await
+    }
 }

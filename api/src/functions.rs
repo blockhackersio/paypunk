@@ -2,6 +2,44 @@ use keypunkd::crypto::Keypair;
 use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
 use zeroize::Zeroizing;
 
+/// Check whether a wallet seed exists on keypunkd.
+pub async fn check_wallet_exists(
+    service: &paypunkd::services::PaypunkService,
+) -> Result<bool, String> {
+    service.has_seed().await
+}
+
+/// Unlock the wallet by decrypting the DB and deriving initial accounts.
+///
+/// 1. Creates ephemeral keypair
+/// 2. Fetches keypunkd's public key from paypunkd
+/// 3. Fetches paypunkd's public encryption key
+/// 4. Encrypts password to paypunkd's key (for DB unlock)
+/// 5. Encrypts password to keypunkd's key (for bulk derivation)
+/// 6. Sends Unlock to paypunkd with both encrypted payloads
+/// 7. Returns accounts count from UnlockSuccess
+pub async fn unlock(
+    service: &paypunkd::services::PaypunkService,
+    password: Zeroizing<String>,
+) -> Result<u32, String> {
+    let client_keypair = Keypair::new();
+    let keypunk_pk = service.get_keypunk_encryption_key().await?;
+    let paypunkd_pk = service.get_paypunkd_encryption_key().await?;
+    let client_pk = client_keypair.public_key();
+
+    let encrypted_keypunkd_password = client_keypair.encrypt(password.clone(), &keypunk_pk);
+    let encrypted_db_password = client_keypair.encrypt(password, &paypunkd_pk);
+
+    service
+        .unlock(
+            encrypted_db_password,
+            client_pk,
+            encrypted_keypunkd_password,
+            client_pk,
+        )
+        .await
+}
+
 /// Generate a new wallet seed.
 pub async fn generate_seed(
     service: &paypunkd::services::PaypunkService,
