@@ -21,18 +21,14 @@ use ratatui::Frame;
 use std::io;
 use tokio::sync::mpsc;
 
-pub async fn run_tui(socket_path: Option<String>) -> io::Result<()> {
-    let api: Box<dyn WalletApi> = if let Some(path) = socket_path {
-        match RealWalletApi::connect(&path).await {
-            Ok(real) => Box::new(real),
-            Err(e) => {
-                eprintln!("Failed to connect to paypunkd at {path}: {e}");
-                eprintln!("Falling back to mock API");
-                Box::new(MockWalletApi::new())
-            }
+pub async fn run_tui(socket_path: &str) -> io::Result<()> {
+    let api: Box<dyn WalletApi> = match RealWalletApi::connect(socket_path).await {
+        Ok(real) => Box::new(real),
+        Err(e) => {
+            eprintln!("Failed to connect to paypunkd at {socket_path}: {e}");
+            eprintln!("Falling back to mock API");
+            Box::new(MockWalletApi::new())
         }
-    } else {
-        Box::new(MockWalletApi::new())
     };
 
     let mut app = App::new(api);

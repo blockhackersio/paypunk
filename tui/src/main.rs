@@ -1,4 +1,5 @@
 use clap::Parser;
+use paypunk_config::ConfigLoader;
 
 #[derive(Parser)]
 #[command(name = "paypunk-tui", about = "Paypunk Terminal UI")]
@@ -10,5 +11,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    paypunk_tui::run_tui(args.socket_path).await
+    let config = ConfigLoader::load_or_default();
+    let socket_path = args.socket_path.unwrap_or(config.paypunkd_socket_path);
+    paypunk_tui::run_tui(&socket_path).await
 }

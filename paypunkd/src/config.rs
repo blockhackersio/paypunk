@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use paypunk_config::PaypunkConfig;
+
 /// Source of configuration values — allows swapping hardcoded defaults
 /// for user-config-file values later without changing consumers.
 pub trait ConfigSource {
@@ -8,13 +10,11 @@ pub trait ConfigSource {
     fn data_dir(&self) -> &Path;
     fn config_dir(&self) -> &Path;
     fn rpc_url(&self) -> &str;
-    fn db_password(&self) -> &str;
 }
 
 /// Hardcoded default configuration.
 ///
-/// All values are compile-time constants. Replace the implementation
-/// of ConfigSource to read from ~/.config/paypunk/config.toml later.
+/// All values are compile-time constants.
 pub struct HardcodedConfig;
 
 impl HardcodedConfig {
@@ -36,10 +36,7 @@ impl ConfigSource for HardcodedConfig {
     }
 
     fn data_dir(&self) -> &Path {
-        // Using a leak to return a static &Path from a runtime-computed value.
-        // This is acceptable for a hardcoded config that is constructed once at startup.
         let path = Self::home_dir().join(".local/share/paypunk/");
-        // Ensure the path string outlives the function
         Box::leak(path.into_boxed_path())
     }
 
@@ -51,9 +48,38 @@ impl ConfigSource for HardcodedConfig {
     fn rpc_url(&self) -> &str {
         "http://127.0.0.1:8545"
     }
+}
 
-    fn db_password(&self) -> &str {
-        "paypunk-default-password"
+/// Wraps a `PaypunkConfig` (from the paypunk-config crate) as a `ConfigSource`.
+pub struct TomlConfig {
+    config: PaypunkConfig,
+}
+
+impl TomlConfig {
+    pub fn new(config: PaypunkConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl ConfigSource for TomlConfig {
+    fn paypunkd_socket_path(&self) -> &str {
+        &self.config.paypunkd_socket_path
+    }
+
+    fn keypunkd_socket_path(&self) -> &str {
+        &self.config.keypunkd_socket_path
+    }
+
+    fn data_dir(&self) -> &Path {
+        Path::new(&self.config.data_dir)
+    }
+
+    fn config_dir(&self) -> &Path {
+        Path::new(&self.config.config_dir)
+    }
+
+    fn rpc_url(&self) -> &str {
+        &self.config.rpc_url
     }
 }
 
@@ -73,5 +99,14 @@ mod tests {
     fn test_config_source_trait() {
         let config: &dyn ConfigSource = &HardcodedConfig;
         assert!(!config.paypunkd_socket_path().is_empty());
+    }
+
+    #[test]
+    fn test_toml_config_wrapper() {
+        let pc = paypunk_config::PaypunkConfig::default();
+        let config = TomlConfig::new(pc);
+        assert!(config.paypunkd_socket_path().contains("paypunkd.sock"));
+        assert!(config.keypunkd_socket_path().contains("keypunkd.sock"));
+        assert!(!config.rpc_url().is_empty());
     }
 }

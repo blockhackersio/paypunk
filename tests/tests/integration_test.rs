@@ -71,14 +71,12 @@ impl EthRpcClient for MockRpcClient {
 /// Builder for wiring up the full actor chain in tests.
 struct TestBuilder {
     eth_mock: MockRpcClient,
-    tmp_dir: tempfile::TempDir,
 }
 
 impl TestBuilder {
     fn new() -> Self {
         Self {
             eth_mock: MockRpcClient::new(0, 0),
-            tmp_dir: tempfile::TempDir::new().unwrap(),
         }
     }
 
@@ -114,7 +112,9 @@ impl TestBuilder {
         let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
         let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
 
-        let db = Database::open(self.tmp_dir.path(), "test-password").unwrap();
+        // Keep the temp dir alive for the lifetime of the actor (leak it).
+        let db_dir = Box::leak(Box::new(tempfile::TempDir::new().unwrap()));
+        let db = Database::open(db_dir.path()).unwrap();
         let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols, db).start();
         paypunkd_addr.recipient()
     }

@@ -8,6 +8,7 @@ name = "paypunk"
 path = "src/main.rs"
 
 [dependencies]
+paypunk-config.workspace = true
 paypunk-api.workspace = true
 paypunk-types.workspace = true
 paypunk-tui.workspace = true

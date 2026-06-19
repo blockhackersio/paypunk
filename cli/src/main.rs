@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use paypunk_types::{EthereumIntent, Intent, ProtocolId, ZcashIntent};
+use paypunk_config::ConfigLoader;
 use blake2::Digest;
 use std::process::{Child, Command};
 use std::path::Path;
@@ -13,8 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
     about = "Zcash wallet for privacy-preserving commerce"
 )]
 struct Cli {
-    #[arg(short, long, default_value = "/tmp/paypunkd.sock")]
-    socket_path: String,
+    #[arg(short, long)]
+    socket_path: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -89,6 +90,8 @@ struct DaemonProcess {
 }
 
 async fn spawn_daemons() -> Result<DaemonProcess, Box<dyn std::error::Error>> {
+    let config = ConfigLoader::load_or_default();
+
     let keypunkd = Command::new("keypunkd")
         .spawn()
         .map_err(|e| format!("Failed to start keypunkd: {e}"))?;
@@ -97,8 +100,8 @@ async fn spawn_daemons() -> Result<DaemonProcess, Box<dyn std::error::Error>> {
         .spawn()
         .map_err(|e| format!("Failed to start paypunkd: {e}"))?;
 
-    wait_for_socket("/tmp/keypunkd.sock", Duration::from_secs(10)).await?;
-    wait_for_socket("/tmp/paypunkd.sock", Duration::from_secs(10)).await?;
+    wait_for_socket(&config.keypunkd_socket_path, Duration::from_secs(10)).await?;
+    wait_for_socket(&config.paypunkd_socket_path, Duration::from_secs(10)).await?;
 
     Ok(DaemonProcess { keypunkd, paypunkd })
 }
@@ -125,6 +128,8 @@ fn kill_daemons(daemons: &mut DaemonProcess) {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let config = ConfigLoader::load_or_default();
+    let socket_path = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
 
     match cli.command {
         None | Some(Commands::Tui) => {
@@ -139,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let mut daemons = spawn_daemons().await?;
 
-                let result = paypunk_tui::run_tui(Some(cli.socket_path)).await;
+                let result = paypunk_tui::run_tui(&socket_path).await;
 
                 kill_daemons(&mut daemons);
                 result.map_err(|e| e.into())
@@ -147,7 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(command) => {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async_main(cli.socket_path, command))
+            rt.block_on(async_main(socket_path, command))
         }
     }
 }
