@@ -2,7 +2,7 @@
 
 ## ⚠️ CRITICAL: STOP AFTER EACH STEP. DO NOT CONTINUE. ⚠️
 
-Do nothing. Read the lowest-numbered step file in `./project/todo/` that has not yet been moved to `./project/done/`. Execute ONLY that step. Then **STOP**.
+Do nothing. Read the lowest-numbered step file in `./project/goals/` that has not yet been moved to `./project/done/`. Execute ONLY that step. Then **STOP**.
 
 ## Execution rules — FOLLOW EXACTLY:
 
