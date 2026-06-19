@@ -190,4 +190,62 @@ impl PaypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn get_paypunkd_encryption_key(&self) -> Result<[u8; 32], String> {
+        match self.send(PaypunkdRequest::GetPaypunkdEncryptionKey).await? {
+            PaypunkdResponse::PaypunkdEncryptionKey { key } => Ok(key),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn has_seed(&self) -> Result<bool, String> {
+        match self.send(PaypunkdRequest::HasSeed).await? {
+            PaypunkdResponse::HasSeed { exists } => Ok(exists),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn unlock(
+        &self,
+        encrypted_db_password: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+        encrypted_keypunkd_password: Vec<u8>,
+        keypunkd_client_pk: [u8; 32],
+    ) -> Result<u32, String> {
+        match self
+            .send(PaypunkdRequest::Unlock {
+                encrypted_db_password,
+                ephemeral_public_key,
+                encrypted_keypunkd_password,
+                keypunkd_client_pk,
+            })
+            .await?
+        {
+            PaypunkdResponse::UnlockSuccess { accounts_count } => Ok(accounts_count),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn bulk_derive_accounts(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        count: u32,
+    ) -> Result<Vec<Account>, String> {
+        match self
+            .send(PaypunkdRequest::BulkDeriveAccounts {
+                encrypted_password,
+                client_public_key,
+                count,
+            })
+            .await?
+        {
+            PaypunkdResponse::AccountsBulkDerived { accounts } => Ok(accounts),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }

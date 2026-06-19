@@ -2,6 +2,7 @@ use paypunk_ipc::IpcMessage;
 use paypunk_types::{caip, ProtocolId};
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
+use keypunkd::crypto::Keypair;
 
 use crate::database::{AccountsRepository, Database};
 use crate::database::repository::SqliteAccountsRepository;
@@ -14,6 +15,7 @@ pub struct Paypunkd {
     protocols: ProtocolService,
     db: Database,
     accounts_repo: Box<dyn AccountsRepository>,
+    keystore: Keypair,
 }
 
 impl Paypunkd {
@@ -21,12 +23,14 @@ impl Paypunkd {
         recipient: Recipient<IpcMessage>,
         protocols: ProtocolService,
         db: Database,
+        keystore: Keypair,
     ) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
             protocols,
             db,
             accounts_repo: Box::new(SqliteAccountsRepository),
+            keystore,
         }
     }
 
@@ -236,6 +240,47 @@ impl Paypunkd {
             |account| PaypunkdResponse::AccountFound { account },
         )
     }
+
+    fn get_paypunkd_encryption_key(&self) -> PaypunkdResponse {
+        info!("handling GetPaypunkdEncryptionKey");
+        PaypunkdResponse::PaypunkdEncryptionKey {
+            key: self.keystore.public_key(),
+        }
+    }
+
+    async fn has_seed(&self) -> PaypunkdResponse {
+        info!("forwarding HasSeed to keypunkd");
+        self.respond(
+            "has_seed",
+            usecases::has_seed(&self.keypunk_service).await,
+            |exists| PaypunkdResponse::HasSeed { exists },
+        )
+    }
+
+    async fn unlock(
+        &self,
+        _encrypted_db_password: Vec<u8>,
+        _ephemeral_public_key: [u8; 32],
+        _encrypted_keypunkd_password: Vec<u8>,
+        _keypunkd_client_pk: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("handling Unlock");
+        PaypunkdResponse::Error {
+            message: "not implemented".to_string(),
+        }
+    }
+
+    async fn bulk_derive_accounts(
+        &self,
+        _encrypted_password: Vec<u8>,
+        _client_public_key: [u8; 32],
+        _count: u32,
+    ) -> PaypunkdResponse {
+        info!("handling BulkDeriveAccounts");
+        PaypunkdResponse::Error {
+            message: "not implemented".to_string(),
+        }
+    }
 }
 
 impl Actor for Paypunkd {}
@@ -303,6 +348,27 @@ impl Handler<IpcMessage> for Paypunkd {
             }
             PaypunkdRequest::ListAccounts => self.list_accounts().await,
             PaypunkdRequest::GetAccount { id } => self.get_account(id).await,
+            PaypunkdRequest::GetPaypunkdEncryptionKey => self.get_paypunkd_encryption_key(),
+            PaypunkdRequest::HasSeed => self.has_seed().await,
+            PaypunkdRequest::Unlock {
+                encrypted_db_password,
+                ephemeral_public_key,
+                encrypted_keypunkd_password,
+                keypunkd_client_pk,
+            } => {
+                self.unlock(
+                    encrypted_db_password,
+                    ephemeral_public_key,
+                    encrypted_keypunkd_password,
+                    keypunkd_client_pk,
+                )
+                .await
+            }
+            PaypunkdRequest::BulkDeriveAccounts {
+                encrypted_password,
+                client_public_key,
+                count,
+            } => self.bulk_derive_accounts(encrypted_password, client_public_key, count).await,
         };
 
         let encoded =

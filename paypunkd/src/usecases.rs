@@ -12,6 +12,11 @@ pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8;
     service.get_encryption_key().await
 }
 
+/// Forward a HasSeed request to keypunkd.
+pub async fn has_seed(service: &KeypunkService) -> Result<bool, String> {
+    service.has_seed().await
+}
+
 /// Forward a GenerateSeed request to keypunkd with the encrypted password.
 /// Returns the encrypted mnemonic from keypunkd.
 pub async fn generate_seed(

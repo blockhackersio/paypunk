@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("failed to open database: {e}"))?;
     info!("database opened");
 
-    let paypunkd = Paypunkd::new(recipient, protocols, db).start();
+    let paypunkd = Paypunkd::new(recipient, protocols, db, keystore).start();
 
     let server = IpcReceiver::bind_with(&socket_path, secret, public).await?;
     info!("paypunkd listening on {}", socket_path);

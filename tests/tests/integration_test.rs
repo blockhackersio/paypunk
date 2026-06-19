@@ -115,7 +115,8 @@ impl TestBuilder {
         // Keep the temp dir alive for the lifetime of the actor (leak it).
         let db_dir = Box::leak(Box::new(tempfile::TempDir::new().unwrap()));
         let db = Database::open(db_dir.path()).unwrap();
-        let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols, db).start();
+        let paypunkd_keystore = Keypair::new();
+        let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols, db, paypunkd_keystore).start();
         paypunkd_addr.recipient()
     }
 }
