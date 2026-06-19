@@ -7,10 +7,13 @@ use crate::protocol_service::ProtocolService;
 
 // ── Keypunkd forwarding ────────────────────────────────────────────────────
 
+/// Forward a GetEncryptionKey request to keypunkd and return its X25519 public key.
 pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8; 32], String> {
     service.get_encryption_key().await
 }
 
+/// Forward a GenerateSeed request to keypunkd with the encrypted password.
+/// Returns the encrypted mnemonic from keypunkd.
 pub async fn generate_seed(
     service: &KeypunkService,
     encrypted_password: Vec<u8>,
@@ -21,6 +24,7 @@ pub async fn generate_seed(
         .await
 }
 
+/// Forward a RestoreSeed request to keypunkd with the encrypted mnemonic and password.
 pub async fn restore_seed(
     service: &KeypunkService,
     encrypted_mnemonic: Vec<u8>,
@@ -32,6 +36,8 @@ pub async fn restore_seed(
         .await
 }
 
+/// Forward an ExportViewingKey request to keypunkd to derive viewing key material
+/// for the given protocol and account index.
 pub async fn export_viewing_key(
     service: &KeypunkService,
     encrypted_password: Vec<u8>,
@@ -207,6 +213,8 @@ pub fn get_balance(
     protocols.get(protocol)?.get_balance(address, asset)
 }
 
+/// Create a transfer for the given protocol and account.
+/// TODO: Requires PCZT pipeline — not yet implemented.
 pub async fn create_transfer(
     _service: &KeypunkService,
     _protocols: &ProtocolService,
@@ -219,6 +227,8 @@ pub async fn create_transfer(
     todo!("create_transfer: PCZT pipeline not yet implemented — needs TransactionProposer")
 }
 
+/// Fetch transaction history for the given protocol and account.
+/// TODO: Requires Page/HistoryEntry types and chain backend — not yet implemented.
 pub async fn get_history(
     _protocol: ProtocolId,
     _account: u32,
@@ -228,10 +238,14 @@ pub async fn get_history(
     todo!("get_history: needs Page/HistoryEntry types")
 }
 
+/// Sync the wallet state with the blockchain for the given protocol and account.
+/// TODO: Requires LSP/lightwalletd connection — not yet implemented.
 pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), String> {
     todo!("sync_wallet: needs LSP/lightwalletd connection")
 }
 
+/// Finalize and broadcast a signed transaction to the network.
+/// Returns the transaction hash.
 pub fn broadcast_transaction(
     protocols: &ProtocolService,
     protocol: ProtocolId,
@@ -241,6 +255,8 @@ pub fn broadcast_transaction(
     protocols.get(protocol)?.broadcast(&finalized)
 }
 
+/// Query the on-chain status of a transaction by its ID.
+/// TODO: Requires lightwalletd/RPC client — not yet implemented.
 pub async fn get_transaction_status(
     _protocol: ProtocolId,
     _txid: String,
@@ -248,12 +264,16 @@ pub async fn get_transaction_status(
     todo!("get_transaction_status: needs lightwalletd/RPC client")
 }
 
+/// Get the current block height from the blockchain.
+/// TODO: Requires lightwalletd/RPC client — not yet implemented.
 pub async fn get_current_block_height(
     _protocol: ProtocolId,
 ) -> Result<paypunk_types::BlockHeight, String> {
     todo!("get_current_block_height: needs lightwalletd/RPC client")
 }
 
+/// Estimate the fee for a transfer to the given address with the given amount and optional memo.
+/// TODO: Requires TransactionProposer + chain fee estimation — not yet implemented.
 pub async fn estimate_fee(
     _protocol: ProtocolId,
     _to: &str,
