@@ -4,6 +4,7 @@ use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::HttpRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::{IpcReceiver, IpcSender};
+use paypunkd::config::{ConfigSource, HardcodedConfig};
 use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Sender};
@@ -13,14 +14,14 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser)]
 #[command(name = "paypunkd", about = "App daemon for Paypunk wallet")]
 struct Args {
-    #[arg(short, long, default_value = "/tmp/paypunkd.sock")]
-    socket_path: String,
+    #[arg(short, long)]
+    socket_path: Option<String>,
 
-    #[arg(short, long, default_value = "/tmp/keypunkd.sock")]
-    keypunkd_socket: String,
+    #[arg(short, long)]
+    keypunkd_socket: Option<String>,
 
-    #[arg(short, long, default_value = "http://127.0.0.1:8545")]
-    rpc_url: String,
+    #[arg(short, long)]
+    rpc_url: Option<String>,
 }
 
 #[tokio::main]
@@ -32,10 +33,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
+    let config = HardcodedConfig;
+
+    let socket_path = args.socket_path.unwrap_or_else(|| config.paypunkd_socket_path().to_string());
+    let keypunkd_socket = args.keypunkd_socket.unwrap_or_else(|| config.keypunkd_socket_path().to_string());
+    let rpc_url = args.rpc_url.unwrap_or_else(|| config.rpc_url().to_string());
 
     info!(
-        socket_path = %args.socket_path,
-        keypunkd_socket = %args.keypunkd_socket,
+        socket_path = %socket_path,
+        keypunkd_socket = %keypunkd_socket,
         "paypunkd starting"
     );
 
@@ -43,13 +49,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (secret, public) = keystore.keypair();
 
     info!("connecting to keypunkd");
-    let keypunkd = IpcSender::connect(&args.keypunkd_socket).await?;
+    let keypunkd = IpcSender::connect(&keypunkd_socket).await?;
     let recipient = keypunkd.recipient();
 
     let zcash = ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
-    let eth_client = HttpRpcClient::new(args.rpc_url.clone());
+    let eth_client = HttpRpcClient::new(rpc_url.clone());
     let ethereum = EthereumProtocol::new(eth_client);
     let mut protocols = ProtocolService::new();
     protocols.register(Box::new(zcash));
@@ -58,8 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let paypunkd = Paypunkd::new(recipient, protocols).start();
 
-    let server = IpcReceiver::bind_with(&args.socket_path, secret, public).await?;
-    info!("paypunkd listening on {}", args.socket_path);
+    let server = IpcReceiver::bind_with(&socket_path, secret, public).await?;
+    info!("paypunkd listening on {}", socket_path);
 
     let serve = tokio::spawn(async move {
         if let Err(e) = server.serve(paypunkd).await {
