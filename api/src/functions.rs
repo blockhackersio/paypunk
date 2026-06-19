@@ -192,24 +192,16 @@ pub async fn broadcast_transaction(
     service.broadcast_transaction(protocol, raw_tx).await
 }
 
-/// Create a new account: derive viewing key from keypunkd, persist to DB.
+/// Create a new account from a pre-derived viewing key (no password needed).
 pub async fn create_account(
     service: &paypunkd::services::PaypunkService,
-    password: Zeroizing<String>,
     protocol: ProtocolId,
     derivation_path: String,
     account_index: u32,
     name: String,
 ) -> Result<Account, String> {
-    let client_keypair = Keypair::new();
-    let server_pk = service.get_keypunk_encryption_key().await?;
-    let encrypted_password = client_keypair.encrypt(password, &server_pk);
-    let client_pk = client_keypair.public_key();
-
     service
         .create_account(
-            encrypted_password,
-            client_pk,
             protocol,
             derivation_path,
             account_index,

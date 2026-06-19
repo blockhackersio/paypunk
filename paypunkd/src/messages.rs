@@ -38,8 +38,6 @@ pub enum PaypunkdRequest {
         raw_tx: Vec<u8>,
     },
     CreateAccount {
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
         protocol: ProtocolId,
         derivation_path: String,
         account_index: u32,

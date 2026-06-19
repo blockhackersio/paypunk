@@ -385,10 +385,10 @@ async fn test_create_account() {
 
     let password = Zeroizing::new("hunter2".to_string());
     client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
 
     let account = client
         .create_account(
-            password.clone(),
             ProtocolId::Zcash,
             "m/44'/133'/0'".to_string(),
             0,
@@ -410,10 +410,10 @@ async fn test_list_accounts() {
 
     let password = Zeroizing::new("hunter2".to_string());
     client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
 
     let acct1 = client
         .create_account(
-            password.clone(),
             ProtocolId::Zcash,
             "m/44'/133'/0'".into(),
             0,
@@ -423,7 +423,6 @@ async fn test_list_accounts() {
         .unwrap();
     let acct2 = client
         .create_account(
-            password.clone(),
             ProtocolId::Ethereum,
             "m/44'/60'/0'".into(),
             0,
@@ -445,10 +444,10 @@ async fn test_get_account_by_id() {
 
     let password = Zeroizing::new("hunter2".to_string());
     client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
 
     let created = client
         .create_account(
-            password.clone(),
             ProtocolId::Zcash,
             "m/44'/133'/0'".into(),
             0,
@@ -460,4 +459,58 @@ async fn test_get_account_by_id() {
     let found = client.get_account(created.id.clone()).await.unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().id, created.id);
+}
+
+#[tokio::test]
+async fn test_create_account_beyond_range_fails() {
+    let recipient = TestBuilder::new().build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    let result = client
+        .create_account(
+            ProtocolId::Zcash,
+            "m/44'/133'/30'".into(),
+            30,
+            "Too Far".into(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("beyond pre-derived range"));
+}
+
+#[tokio::test]
+async fn test_create_account_duplicate_fails() {
+    let recipient = TestBuilder::new().build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    client
+        .create_account(
+            ProtocolId::Zcash,
+            "m/44'/133'/0'".into(),
+            0,
+            "First".into(),
+        )
+        .await
+        .unwrap();
+
+    let result = client
+        .create_account(
+            ProtocolId::Zcash,
+            "m/44'/133'/0'".into(),
+            0,
+            "Duplicate".into(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("account already exists"));
 }

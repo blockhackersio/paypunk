@@ -121,10 +121,10 @@ impl Client {
         crate::functions::broadcast_transaction(&self.service, protocol, raw_tx).await
     }
 
-    /// Create a new account: derive viewing key from keypunkd, persist to DB.
+    /// Create a new account from a pre-derived viewing key (no password needed).
+    /// Accounts must be pre-derived via unlock (indices 0-29).
     pub async fn create_account(
         &self,
-        password: Zeroizing<String>,
         protocol: ProtocolId,
         derivation_path: String,
         account_index: u32,
@@ -132,7 +132,6 @@ impl Client {
     ) -> Result<Account, String> {
         crate::functions::create_account(
             &self.service,
-            password,
             protocol,
             derivation_path,
             account_index,

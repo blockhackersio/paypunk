@@ -151,8 +151,6 @@ impl PaypunkService {
 
     pub async fn create_account(
         &self,
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
         protocol: ProtocolId,
         derivation_path: String,
         account_index: u32,
@@ -160,8 +158,6 @@ impl PaypunkService {
     ) -> Result<Account, String> {
         match self
             .send(PaypunkdRequest::CreateAccount {
-                encrypted_password,
-                client_public_key,
                 protocol,
                 derivation_path,
                 account_index,
