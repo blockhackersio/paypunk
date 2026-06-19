@@ -8,6 +8,7 @@ pub trait ConfigSource {
     fn data_dir(&self) -> &Path;
     fn config_dir(&self) -> &Path;
     fn rpc_url(&self) -> &str;
+    fn db_password(&self) -> &str;
 }
 
 /// Hardcoded default configuration.
@@ -49,6 +50,10 @@ impl ConfigSource for HardcodedConfig {
 
     fn rpc_url(&self) -> &str {
         "http://127.0.0.1:8545"
+    }
+
+    fn db_password(&self) -> &str {
+        "paypunk-default-password"
     }
 }
 

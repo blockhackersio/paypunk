@@ -55,3 +55,26 @@ impl Migrator {
         Ok(())
     }
 }
+
+pub struct AccountsMigration;
+
+impl Migration for AccountsMigration {
+    fn version(&self) -> u32 {
+        2
+    }
+
+    fn up(&self, conn: &Connection) -> Result<(), String> {
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS accounts;
+            CREATE TABLE IF NOT EXISTS accounts (
+                id TEXT PRIMARY KEY,
+                protocol TEXT NOT NULL,
+                derivation_path TEXT NOT NULL,
+                name TEXT NOT NULL,
+                viewing_key BLOB NOT NULL,
+                created_at INTEGER NOT NULL
+            );",
+        )
+        .map_err(|e| e.to_string())
+    }
+}

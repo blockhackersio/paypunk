@@ -3585,6 +3585,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "shardtree",
  "tactix",
+ "tempfile",
  "tokio",
  "zcash_address",
  "zcash_keys",

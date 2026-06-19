@@ -1,6 +1,8 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::{Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use rand::Rng;
 
+use crate::database::{AccountsRepository, Database};
 use crate::protocol_service::ProtocolService;
 
 // ── Keypunkd forwarding ────────────────────────────────────────────────────
@@ -125,6 +127,72 @@ pub fn validate_address(protocols: &ProtocolService, protocol: ProtocolId, addre
         .get(protocol)
         .map(|p| p.validate_address(address))
         .unwrap_or(false)
+}
+
+// ── Account operations ──────────────────────────────────────────────────────
+
+/// Create a new account: derive viewing key from keypunkd, persist to DB.
+pub async fn create_account(
+    keypunk_service: &KeypunkService,
+    db: &Database,
+    repo: &dyn AccountsRepository,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+    protocol: ProtocolId,
+    derivation_path: String,
+    account_index: u32,
+    name: String,
+) -> Result<Account, String> {
+    let viewing_key = keypunk_service
+        .export_viewing_key(
+            encrypted_password,
+            client_public_key,
+            protocol,
+            account_index,
+        )
+        .await?;
+
+    let id: String = (0..16)
+        .map(|_| {
+            let hex = rand::thread_rng().gen_range(0..16);
+            format!("{hex:x}")
+        })
+        .collect();
+
+    let account = Account {
+        id,
+        protocol,
+        derivation_path,
+        name,
+        viewing_key,
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    };
+
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    repo.save(&conn, &account)?;
+    Ok(account)
+}
+
+/// List all accounts from the database.
+pub fn list_accounts(
+    db: &Database,
+    repo: &dyn AccountsRepository,
+) -> Result<Vec<Account>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    repo.find_all(&conn)
+}
+
+/// Get a single account by ID.
+pub fn get_account(
+    db: &Database,
+    repo: &dyn AccountsRepository,
+    id: &str,
+) -> Result<Option<Account>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    repo.find_by_id(&conn, id)
 }
 
 // ── Stubs: depend on future work ───────────────────────────────────────────

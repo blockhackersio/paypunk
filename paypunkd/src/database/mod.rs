@@ -4,4 +4,4 @@ pub mod migration;
 pub mod repository;
 
 pub use db::Database;
-pub use repository::Repository;
+pub use repository::{AccountsRepository, Repository};

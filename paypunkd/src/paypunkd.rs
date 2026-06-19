@@ -3,6 +3,8 @@ use paypunk_types::{caip, ProtocolId};
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
+use crate::database::{AccountsRepository, Database};
+use crate::database::repository::SqliteAccountsRepository;
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
 use crate::protocol_service::ProtocolService;
 use crate::usecases;
@@ -10,13 +12,21 @@ use crate::usecases;
 pub struct Paypunkd {
     keypunk_service: keypunkd::services::KeypunkService,
     protocols: ProtocolService,
+    db: Database,
+    accounts_repo: Box<dyn AccountsRepository>,
 }
 
 impl Paypunkd {
-    pub fn new(recipient: Recipient<IpcMessage>, protocols: ProtocolService) -> Self {
+    pub fn new(
+        recipient: Recipient<IpcMessage>,
+        protocols: ProtocolService,
+        db: Database,
+    ) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
             protocols,
+            db,
+            accounts_repo: Box::new(SqliteAccountsRepository),
         }
     }
 
@@ -180,6 +190,52 @@ impl Paypunkd {
             |tx_hash| PaypunkdResponse::TransactionBroadcasted { tx_hash },
         )
     }
+
+    async fn create_account(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        protocol: ProtocolId,
+        derivation_path: String,
+        account_index: u32,
+        name: String,
+    ) -> PaypunkdResponse {
+        info!(?protocol, account_index, name, "creating account");
+        self.respond(
+            "create_account",
+            usecases::create_account(
+                &self.keypunk_service,
+                &self.db,
+                self.accounts_repo.as_ref(),
+                encrypted_password,
+                client_public_key,
+                protocol,
+                derivation_path,
+                account_index,
+                name,
+            )
+            .await,
+            |account| PaypunkdResponse::AccountCreated { account },
+        )
+    }
+
+    async fn list_accounts(&self) -> PaypunkdResponse {
+        info!("listing accounts");
+        self.respond(
+            "list_accounts",
+            usecases::list_accounts(&self.db, self.accounts_repo.as_ref()),
+            |accounts| PaypunkdResponse::AccountsList { accounts },
+        )
+    }
+
+    async fn get_account(&self, id: String) -> PaypunkdResponse {
+        info!(id, "getting account");
+        self.respond(
+            "get_account",
+            usecases::get_account(&self.db, self.accounts_repo.as_ref(), &id),
+            |account| PaypunkdResponse::AccountFound { account },
+        )
+    }
 }
 
 impl Actor for Paypunkd {}
@@ -227,6 +283,26 @@ impl Handler<IpcMessage> for Paypunkd {
             PaypunkdRequest::BroadcastTransaction { protocol, raw_tx } => {
                 self.broadcast_transaction(protocol, raw_tx).await
             }
+            PaypunkdRequest::CreateAccount {
+                encrypted_password,
+                client_public_key,
+                protocol,
+                derivation_path,
+                account_index,
+                name,
+            } => {
+                self.create_account(
+                    encrypted_password,
+                    client_public_key,
+                    protocol,
+                    derivation_path,
+                    account_index,
+                    name,
+                )
+                .await
+            }
+            PaypunkdRequest::ListAccounts => self.list_accounts().await,
+            PaypunkdRequest::GetAccount { id } => self.get_account(id).await,
         };
 
         let encoded =

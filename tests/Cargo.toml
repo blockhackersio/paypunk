@@ -16,6 +16,7 @@ tactix.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 postcard = { workspace = true, features = ["alloc"] }
 zeroize.workspace = true
+tempfile.workspace = true
 
 # PCZT test dependencies
 pczt = { workspace = true, features = ["orchard", "prover", "signer", "io-finalizer", "spend-finalizer", "tx-extractor", "zcp-builder"] }

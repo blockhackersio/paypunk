@@ -5,6 +5,7 @@ use paypunk_chains_ethereum::rpc::HttpRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_ipc::{IpcReceiver, IpcSender};
 use paypunkd::config::{ConfigSource, HardcodedConfig};
+use paypunkd::database::Database;
 use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
 use tactix::{Actor, Sender};
@@ -22,6 +23,9 @@ struct Args {
 
     #[arg(short, long)]
     rpc_url: Option<String>,
+
+    #[arg(short, long)]
+    data_dir: Option<String>,
 }
 
 #[tokio::main]
@@ -38,10 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket_path = args.socket_path.unwrap_or_else(|| config.paypunkd_socket_path().to_string());
     let keypunkd_socket = args.keypunkd_socket.unwrap_or_else(|| config.keypunkd_socket_path().to_string());
     let rpc_url = args.rpc_url.unwrap_or_else(|| config.rpc_url().to_string());
+    let data_dir = args.data_dir.unwrap_or_else(|| config.data_dir().to_string_lossy().to_string());
 
     info!(
         socket_path = %socket_path,
         keypunkd_socket = %keypunkd_socket,
+        data_dir = %data_dir,
         "paypunkd starting"
     );
 
@@ -62,7 +68,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     protocols.register(Box::new(ethereum));
     info!("registered protocols: Zcash, Ethereum");
 
-    let paypunkd = Paypunkd::new(recipient, protocols).start();
+    let db = Database::open(std::path::Path::new(&data_dir), &config.db_password())
+        .map_err(|e| format!("failed to open database: {e}"))?;
+    info!("database opened");
+
+    let paypunkd = Paypunkd::new(recipient, protocols, db).start();
 
     let server = IpcReceiver::bind_with(&socket_path, secret, public).await?;
     info!("paypunkd listening on {}", socket_path);

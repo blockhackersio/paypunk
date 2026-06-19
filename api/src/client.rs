@@ -1,6 +1,6 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
-use paypunk_types::{AssetId, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -119,5 +119,35 @@ impl Client {
         raw_tx: Vec<u8>,
     ) -> Result<String, String> {
         crate::functions::broadcast_transaction(&self.service, protocol, raw_tx).await
+    }
+
+    /// Create a new account: derive viewing key from keypunkd, persist to DB.
+    pub async fn create_account(
+        &self,
+        password: Zeroizing<String>,
+        protocol: ProtocolId,
+        derivation_path: String,
+        account_index: u32,
+        name: String,
+    ) -> Result<Account, String> {
+        crate::functions::create_account(
+            &self.service,
+            password,
+            protocol,
+            derivation_path,
+            account_index,
+            name,
+        )
+        .await
+    }
+
+    /// List all accounts from the database.
+    pub async fn list_accounts(&self) -> Result<Vec<Account>, String> {
+        crate::functions::list_accounts(&self.service).await
+    }
+
+    /// Get a single account by ID.
+    pub async fn get_account(&self, id: String) -> Result<Option<Account>, String> {
+        crate::functions::get_account(&self.service, id).await
     }
 }

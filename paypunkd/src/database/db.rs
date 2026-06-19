@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use rusqlite::Connection;
 
 use super::encryption::{decrypt_db, encrypt_db};
-use super::migration::{Migrator, Migration};
+use super::migration::{AccountsMigration, Migrator, Migration};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -18,7 +19,7 @@ pub enum DbError {
 }
 
 pub struct Database {
-    pub conn: Connection,
+    pub conn: Mutex<Connection>,
     enc_path: PathBuf,
     temp_path: PathBuf,
     password: String,
@@ -58,7 +59,7 @@ impl Database {
         let conn = Connection::open(&temp_path)?;
 
         let mut db = Database {
-            conn,
+            conn: Mutex::new(conn),
             enc_path,
             temp_path,
             password: password.to_string(),
@@ -69,19 +70,23 @@ impl Database {
         Ok(db)
     }
 
-    fn run_migrations(&mut self) -> Result<(), DbError> {
+    fn run_migrations(&self) -> Result<(), DbError> {
+        let conn = self.conn.lock().map_err(|e| DbError::Migration(e.to_string()))?;
         let mut migrator = Migrator::new();
         migrator.register(Box::new(InitialMigration));
+        migrator.register(Box::new(AccountsMigration));
         migrator
-            .migrate(&self.conn)
+            .migrate(&conn)
             .map_err(DbError::Migration)?;
         Ok(())
     }
 
     pub fn close(self) -> Result<(), DbError> {
-        self.conn
-            .execute_batch("VACUUM;")
-            .map_err(DbError::Sqlite)?;
+        {
+            let conn = self.conn.lock().map_err(|e| DbError::Migration(e.to_string()))?;
+            conn.execute_batch("VACUUM;")
+                .map_err(DbError::Sqlite)?;
+        }
 
         let plaintext = std::fs::read(&self.temp_path)?;
         let encrypted = encrypt_db(&plaintext, &self.password)?;
@@ -124,9 +129,11 @@ mod tests {
         let db = Database::open(dir.path(), "password").unwrap();
         let count: i64 = db
             .conn
+            .lock()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 1);
+        assert_eq!(count, 2);
         db.close().unwrap();
     }
 
@@ -136,7 +143,12 @@ mod tests {
         {
             let db = Database::open(dir.path(), "password").unwrap();
             db.conn
-                .execute("INSERT INTO accounts (name) VALUES (?1)", ["test"])
+                .lock()
+                .unwrap()
+                .execute(
+                    "INSERT INTO accounts (id, protocol, derivation_path, name, viewing_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    rusqlite::params!["test-id", "Zcash", "m/44'/133'/0'", "test", vec![1u8, 2u8, 3u8], 1000u64],
+                )
                 .unwrap();
             db.close().unwrap();
         }
@@ -144,6 +156,8 @@ mod tests {
             let db = Database::open(dir.path(), "password").unwrap();
             let count: i64 = db
                 .conn
+                .lock()
+                .unwrap()
                 .query_row("SELECT COUNT(*) FROM accounts", [], |row| row.get(0))
                 .unwrap();
             assert_eq!(count, 1);

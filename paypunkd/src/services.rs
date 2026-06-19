@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -144,6 +144,48 @@ impl PaypunkService {
             .await?
         {
             PaypunkdResponse::TransactionBroadcasted { tx_hash } => Ok(tx_hash),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn create_account(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        protocol: ProtocolId,
+        derivation_path: String,
+        account_index: u32,
+        name: String,
+    ) -> Result<Account, String> {
+        match self
+            .send(PaypunkdRequest::CreateAccount {
+                encrypted_password,
+                client_public_key,
+                protocol,
+                derivation_path,
+                account_index,
+                name,
+            })
+            .await?
+        {
+            PaypunkdResponse::AccountCreated { account } => Ok(account),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn list_accounts(&self) -> Result<Vec<Account>, String> {
+        match self.send(PaypunkdRequest::ListAccounts).await? {
+            PaypunkdResponse::AccountsList { accounts } => Ok(accounts),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_account(&self, id: String) -> Result<Option<Account>, String> {
+        match self.send(PaypunkdRequest::GetAccount { id }).await? {
+            PaypunkdResponse::AccountFound { account } => Ok(account),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }
