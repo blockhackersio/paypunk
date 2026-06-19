@@ -3628,6 +3628,8 @@ dependencies = [
 name = "paypunkd"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
+ "argon2",
  "clap",
  "keypunkd",
  "paypunk-chains-ethereum",
@@ -3635,8 +3637,11 @@ dependencies = [
  "paypunk-ipc",
  "paypunk-types",
  "postcard",
+ "rand 0.8.6",
+ "rusqlite",
  "serde",
  "tactix",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
