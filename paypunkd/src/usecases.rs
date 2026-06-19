@@ -108,25 +108,19 @@ pub fn derive_address(
     index: u32,
 ) -> Result<String, String> {
     match protocol {
-        ProtocolId::Zcash => {
-            paypunk_chains_zcash::address::derive_from_fvk(viewing_key, index)
-                .map_err(|e| e.to_string())
-        }
-        ProtocolId::Ethereum => {
-            paypunk_chains_ethereum::address::derive_from_pubkey(viewing_key)
-                .map(|a| a.to_string())
-                .map_err(|e| e.to_string())
-        }
-        _ => Err(format!("unsupported protocol for address derivation: {protocol:?}")),
+        ProtocolId::Zcash => paypunk_chains_zcash::address::derive_from_fvk(viewing_key, index)
+            .map_err(|e| e.to_string()),
+        ProtocolId::Ethereum => paypunk_chains_ethereum::address::derive_from_pubkey(viewing_key)
+            .map(|a| a.to_string())
+            .map_err(|e| e.to_string()),
+        _ => Err(format!(
+            "unsupported protocol for address derivation: {protocol:?}"
+        )),
     }
 }
 
 /// Validate an address using the protocol service.
-pub fn validate_address(
-    protocols: &ProtocolService,
-    protocol: ProtocolId,
-    address: &str,
-) -> bool {
+pub fn validate_address(protocols: &ProtocolService, protocol: ProtocolId, address: &str) -> bool {
     protocols
         .get(protocol)
         .map(|p| p.validate_address(address))
@@ -186,7 +180,9 @@ pub async fn get_transaction_status(
     todo!("get_transaction_status: needs lightwalletd/RPC client")
 }
 
-pub async fn get_current_block_height(_protocol: ProtocolId) -> Result<paypunk_types::BlockHeight, String> {
+pub async fn get_current_block_height(
+    _protocol: ProtocolId,
+) -> Result<paypunk_types::BlockHeight, String> {
     todo!("get_current_block_height: needs lightwalletd/RPC client")
 }
 

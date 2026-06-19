@@ -8,5 +8,5 @@ while true; do
     exit 0
   fi
   echo "Steps remaining: $count"
-  opencode run "execute TASK.md" --dangerously-skip-permissions
+  opencode run "execute ./project/ralph.md" --dangerously-skip-permissions
 done
