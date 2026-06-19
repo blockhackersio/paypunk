@@ -19,9 +19,11 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 use std::io;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 
-pub async fn run_tui(socket_path: &str) -> io::Result<()> {
+pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io::Result<()> {
     let api: Box<dyn WalletApi> = match RealWalletApi::connect(socket_path).await {
         Ok(real) => Box::new(real),
         Err(e) => {
@@ -65,6 +67,13 @@ pub async fn run_tui(socket_path: &str) -> io::Result<()> {
     });
 
     while !app.should_quit {
+        if let Some(ref flag) = shutdown {
+            if flag.load(Ordering::SeqCst) {
+                app.should_quit = true;
+                break;
+            }
+        }
+
         terminal.draw(|frame| render(frame, &mut app))?;
 
         if let Some(evt) = event_rx.recv().await {

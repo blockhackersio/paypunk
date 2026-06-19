@@ -82,6 +82,24 @@ enum Commands {
     },
     /// Launch the terminal user interface
     Tui,
+    /// Launch keypunkd (key daemon) as a child process
+    Keypunkd {
+        #[arg(short, long)]
+        socket_path: Option<String>,
+        #[arg(short, long)]
+        data_dir: Option<String>,
+    },
+    /// Launch paypunkd (app daemon) as a child process
+    Paypunkd {
+        #[arg(short, long)]
+        socket_path: Option<String>,
+        #[arg(short, long)]
+        keypunkd_socket: Option<String>,
+        #[arg(short, long)]
+        rpc_url: Option<String>,
+        #[arg(short, long)]
+        data_dir: Option<String>,
+    },
 }
 
 struct DaemonProcess {
@@ -144,10 +162,89 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let mut daemons = spawn_daemons().await?;
 
-                let result = paypunk_tui::run_tui(&socket_path).await;
+                let result = paypunk_tui::run_tui(&socket_path, Some(shutdown)).await;
 
                 kill_daemons(&mut daemons);
                 result.map_err(|e| e.into())
+            })
+        }
+        Some(Commands::Keypunkd { socket_path, data_dir }) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let config = ConfigLoader::load_or_default();
+                let socket = socket_path.unwrap_or(config.keypunkd_socket_path);
+                let dir = data_dir.unwrap_or(config.data_dir);
+
+                let mut child = Command::new("keypunkd")
+                    .arg("--socket-path")
+                    .arg(&socket)
+                    .arg("--data-dir")
+                    .arg(&dir)
+                    .spawn()
+                    .map_err(|e| format!("Failed to start keypunkd: {e}"))?;
+
+                let shutdown = Arc::new(AtomicBool::new(false));
+                let shutdown_clone = shutdown.clone();
+                tokio::spawn(async move {
+                    tokio::signal::ctrl_c().await.ok();
+                    shutdown_clone.store(true, Ordering::SeqCst);
+                });
+
+                while !shutdown.load(Ordering::SeqCst) {
+                    if let Ok(Some(_)) = child.try_wait() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+
+                let _ = child.kill();
+                let _ = child.wait();
+                Ok(())
+            })
+        }
+        Some(Commands::Paypunkd {
+            socket_path,
+            keypunkd_socket,
+            rpc_url,
+            data_dir,
+        }) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let config = ConfigLoader::load_or_default();
+                let socket = socket_path.unwrap_or(config.paypunkd_socket_path);
+                let ks = keypunkd_socket.unwrap_or(config.keypunkd_socket_path);
+                let url = rpc_url.unwrap_or(config.rpc_url);
+                let dir = data_dir.unwrap_or(config.data_dir);
+
+                let mut child = Command::new("paypunkd")
+                    .arg("--socket-path")
+                    .arg(&socket)
+                    .arg("--keypunkd-socket")
+                    .arg(&ks)
+                    .arg("--rpc-url")
+                    .arg(&url)
+                    .arg("--data-dir")
+                    .arg(&dir)
+                    .spawn()
+                    .map_err(|e| format!("Failed to start paypunkd: {e}"))?;
+
+                let shutdown = Arc::new(AtomicBool::new(false));
+                let shutdown_clone = shutdown.clone();
+                tokio::spawn(async move {
+                    tokio::signal::ctrl_c().await.ok();
+                    shutdown_clone.store(true, Ordering::SeqCst);
+                });
+
+                while !shutdown.load(Ordering::SeqCst) {
+                    if let Ok(Some(_)) = child.try_wait() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+
+                let _ = child.kill();
+                let _ = child.wait();
+                Ok(())
             })
         }
         Some(command) => {
@@ -238,6 +335,8 @@ async fn async_main(socket_path: String, command: Commands) -> Result<(), Box<dy
             );
         }
         Commands::Tui => unreachable!(),
+        Commands::Keypunkd { .. } => unreachable!(),
+        Commands::Paypunkd { .. } => unreachable!(),
     }
 
     Ok(())
