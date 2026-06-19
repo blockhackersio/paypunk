@@ -1,8 +1,23 @@
 # Step 04: Add IPC messages for unlock and wallet-existence flow
 
+**Prerequisites**: Step 02 (config wired — needed for `paypunkd/src/main.rs` changes)
+
 ## Goal
 
 Add all new IPC message types and handler stubs needed for the unlock flow: wallet-existence check, encryption key retrieval, bulk viewing key derivation, and database unlock.
+
+## Key files
+
+- `keypunkd/src/messages.rs:5-38` — `KeypunkdRequest` enum
+- `keypunkd/src/messages.rs:40-64` — `KeypunkdResponse` enum
+- `keypunkd/src/keypunkd.rs:18-287` — `Keypunkd<S>` actor + handlers
+- `keypunkd/src/keypunkd.rs:291-332` — `Handler<IpcMessage>` impl (match dispatch)
+- `keypunkd/src/usecases.rs:103-115` — `export_viewing_key()` function
+- `keypunkd/src/services.rs:104-124` — `KeypunkService::export_viewing_key()`
+- `paypunkd/src/messages.rs:4-50` — `PaypunkdRequest` enum
+- `paypunkd/src/messages.rs:52-71` — `PaypunkdResponse` enum
+- `paypunkd/src/paypunkd.rs:12-313` — `Paypunkd` actor + handlers
+- `paypunkd/src/services.rs:7-193` — `PaypunkService` methods
 
 ## Tasks
 
@@ -31,6 +46,8 @@ ViewingKeys { keys: Vec<(ProtocolId, u32, Vec<u8>)> },
 Add handlers:
 - `has_seed()` — checks if `seed_store.read()` returns `Some`
 - `bulk_export_viewing_keys()` — iterates `start_account..start_account+count` for each protocol, calls `export_viewing_key` for each, collects results
+
+Add match arms in `Handler<IpcMessage>::handle()` (around line 298-325) for the two new request variants.
 
 ### 4c. Keypunkd usecases (`keypunkd/src/usecases.rs`)
 
@@ -74,14 +91,16 @@ AccountsBulkDerived { accounts: Vec<Account> },
 Add handler stubs (full implementation in Step 05):
 - `get_paypunkd_encryption_key()` — returns paypunkd's own X25519 public key
 - `has_seed()` — forwards to keypunkd, returns result
-- `unlock()` — stub, returns error "not implemented"
-- `bulk_derive_accounts()` — stub, returns error "not implemented"
+- `unlock()` — stub, returns `PaypunkdResponse::Error { message: "not implemented" }`
+- `bulk_derive_accounts()` — stub, returns `PaypunkdResponse::Error { message: "not implemented" }`
+
+Add match arms in `Handler<IpcMessage>::handle()` (around line 250-306) for the new request variants.
 
 ### 4g. Paypunkd main.rs
 
-- Paypunkd creates its own `Keypair` (already does this in `main.rs`)
+- Paypunkd creates its own `Keypair` (already does this in `paypunkd/src/main.rs:54`)
 - Store the keypair on `Paypunkd` actor so it can decrypt messages
-- Add `paypunkd_public_key` field to `Paypunkd` struct
+- Add `keystore: Keypair` field to `Paypunkd` struct (`paypunkd/src/paypunkd.rs:12`)
 
 ### 4h. Paypunkd services (`paypunkd/src/services.rs`)
 
@@ -90,6 +109,23 @@ Add methods:
 - `has_seed() -> Result<bool, String>`
 - `unlock(...) -> Result<u32, String>`
 - `bulk_derive_accounts(...) -> Result<Vec<Account>, String>`
+
+## Cross-cutting concerns
+
+- All new message variants need `#[derive(Debug, Serialize, Deserialize)]`
+- `Handler<IpcMessage>::handle()` in both actors uses exhaustive match — must add arms for every new variant
+- `Paypunkd::new()` signature changes (adds `keystore` parameter) — update caller in `paypunkd/src/main.rs:75` and `tests/tests/integration_test.rs:118`
+- `keypunkd::messages::KeypunkdRequest` — `HasSeed` is a unit variant, no payload
+- `Vec<(ProtocolId, u32, Vec<u8>)>` must implement `Serialize`/`Deserialize` (it does — all component types do)
+
+## Verification
+
+```bash
+cargo check
+cargo test
+# Verify new messages round-trip through postcard:
+cargo test -p tests -- --nocapture
+```
 
 ## Acceptance Criteria
 

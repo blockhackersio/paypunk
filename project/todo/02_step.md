@@ -1,8 +1,19 @@
 # Step 02: Wire shared config into all binaries
 
+**Prerequisites**: Step 01 (paypunk-config crate exists)
+
 ## Goal
 
 Replace hardcoded socket paths, data dirs, and RPC URLs in `paypunkd`, `keypunkd`, `cli`, and `tui` with values from `paypunk-config`. Remove `db_password()` from `ConfigSource` trait (password no longer lives in config).
+
+## Key files
+
+- `paypunkd/src/config.rs` — `ConfigSource` trait + `HardcodedConfig`
+- `paypunkd/src/main.rs:40-45` — where config is loaded and used
+- `keypunkd/src/main.rs:17-32` — keypunkd's own defaults
+- `cli/src/main.rs:16-18` — CLI socket path default
+- `tui/src/lib.rs:24-36` — TUI socket path handling
+- `paypunkd/src/database/db.rs:29` — `Database::open()` signature
 
 ## Tasks
 
@@ -36,6 +47,23 @@ Replace hardcoded socket paths, data dirs, and RPC URLs in `paypunkd`, `keypunkd
    - `Database::open()` should not require a password parameter
    - The DB file may or may not exist; if it exists, it stays encrypted until `unlock()` is called
    - Add `wallet_exists()` method that checks if the encrypted DB file exists
+
+## Cross-cutting concerns
+
+- `ConfigSource` is used by `Paypunkd` actor and `ProtocolService` — check all consumers
+- `keypunkd/src/main.rs:26` has `#[arg(short, long, default_value = "/tmp/keypunkd.sock")]` — replace with config
+- `cli/src/main.rs:16` has `default_value = "/tmp/paypunkd.sock"` — replace with config
+- After removing `db_password()`, update any callers that reference it
+- `Database::open()` callers in `paypunkd/src/main.rs:71` and `tests/tests/integration_test.rs:117` need updating
+
+## Verification
+
+```bash
+cargo check
+cargo test
+# Verify no hardcoded paths remain:
+rg '/tmp/' --include '*.rs' paypunkd/src keypunkd/src cli/src tui/src
+```
 
 ## Acceptance Criteria
 

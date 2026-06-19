@@ -1,5 +1,7 @@
 # Step 01: Create `paypunk-config` shared configuration crate
 
+**Prerequisites**: None (first step, new crate)
+
 ## Goal
 
 Create a new workspace crate that provides shared configuration loading from a TOML file with environment variable overrides. This eliminates hardcoded socket paths, data directories, and RPC URLs.
@@ -24,6 +26,20 @@ Create a new workspace crate that provides shared configuration loading from a T
    - TOML parsing
    - Env var overrides
    - Missing file falls back to defaults
+
+## Cross-cutting concerns
+
+- All new types need `serde::Serialize` + `serde::Deserialize` derives
+- Use `#[serde(default = "...")]` for config field defaults
+- Env var names should use `PAYPUNK_` prefix consistently
+- `dirs::config_dir()` for platform-appropriate config path
+
+## Verification
+
+```bash
+cargo check -p paypunk-config
+cargo test -p paypunk-config
+```
 
 ## Acceptance Criteria
 
