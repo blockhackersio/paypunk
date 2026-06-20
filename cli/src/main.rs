@@ -3,7 +3,6 @@ use paypunk_types::{EthereumIntent, Intent, ProtocolId, ZcashIntent};
 use paypunk_config::ConfigLoader;
 use blake2::Digest;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Parser)]
 #[command(
@@ -102,23 +101,73 @@ enum Commands {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let config = ConfigLoader::load_or_default();
-    let socket_path = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
+    let socket_path = cli.socket_path.clone().unwrap_or(config.paypunkd_socket_path);
 
     match cli.command {
         None | Some(Commands::Tui) => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async {
-                let shutdown = Arc::new(AtomicBool::new(false));
-                let shutdown_clone = shutdown.clone();
-                tokio::spawn(async move {
-                    tokio::signal::ctrl_c().await.ok();
-                    shutdown_clone.store(true, Ordering::SeqCst);
-                });
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        let config = ConfigLoader::load_or_default();
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("Failed to get current exe path: {e}"))?;
+        let paypunkd_socket = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
+        let keypunkd_socket = config.keypunkd_socket_path.clone();
+        let data_dir = config.data_dir.clone();
+        let rpc_url = config.rpc_url.clone();
 
-                let result = paypunk_tui::run_tui(&socket_path, Some(shutdown)).await;
-                result.map_err(|e| e.into())
-            })
+        let mut keypunkd_child = std::process::Command::new(&exe)
+            .arg("keypunkd")
+            .arg("--socket-path")
+            .arg(&keypunkd_socket)
+            .arg("--data-dir")
+            .arg(&data_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
+
+        let mut paypunkd_child = std::process::Command::new(&exe)
+            .arg("paypunkd")
+            .arg("--socket-path")
+            .arg(&paypunkd_socket)
+            .arg("--keypunkd-socket")
+            .arg(&keypunkd_socket)
+            .arg("--rpc-url")
+            .arg(&rpc_url)
+            .arg("--data-dir")
+            .arg(&data_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
+
+        let wait_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            wait_for_sockets(&[&keypunkd_socket, &paypunkd_socket]),
+        )
+        .await;
+
+        if wait_result.is_err() {
+            let _ = keypunkd_child.kill();
+            let _ = paypunkd_child.kill();
+            let _ = keypunkd_child.wait();
+            let _ = paypunkd_child.wait();
+            return Err("Timed out waiting for daemon sockets to appear".into());
         }
+
+        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shutdown_clone = shutdown.clone();
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            shutdown_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+
+        let tui_result = paypunk_tui::run_tui(&paypunkd_socket, Some(shutdown)).await;
+
+        let _ = keypunkd_child.kill();
+        let _ = paypunkd_child.kill();
+        let _ = keypunkd_child.wait();
+        let _ = paypunkd_child.wait();
+
+        tui_result.map_err(|e| e.into())
+    })
+}
         Some(Commands::Keypunkd { socket_path, data_dir }) => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
@@ -249,6 +298,17 @@ async fn async_main(socket_path: String, command: Commands) -> Result<(), Box<dy
     }
 
     Ok(())
+}
+
+async fn wait_for_sockets(paths: &[&str]) {
+    use std::path::Path;
+    loop {
+        let all_exist = paths.iter().all(|p| Path::new(p).exists());
+        if all_exist {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }
 
 async fn submit_intent_flow(client: &paypunk_api::Client, intent: Intent, derivation_path: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
