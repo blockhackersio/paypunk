@@ -71,14 +71,12 @@ impl EthRpcClient for MockRpcClient {
 /// Builder for wiring up the full actor chain in tests.
 struct TestBuilder {
     eth_mock: MockRpcClient,
-    tmp_dir: tempfile::TempDir,
 }
 
 impl TestBuilder {
     fn new() -> Self {
         Self {
             eth_mock: MockRpcClient::new(0, 0),
-            tmp_dir: tempfile::TempDir::new().unwrap(),
         }
     }
 
@@ -114,8 +112,11 @@ impl TestBuilder {
         let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
         let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
 
-        let db = Database::open(self.tmp_dir.path(), "test-password").unwrap();
-        let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols, db).start();
+        // Keep the temp dir alive for the lifetime of the actor (leak it).
+        let db_dir = Box::leak(Box::new(tempfile::TempDir::new().unwrap()));
+        let db = Database::open(db_dir.path()).unwrap();
+        let paypunkd_keystore = Keypair::new();
+        let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols, db, paypunkd_keystore).start();
         paypunkd_addr.recipient()
     }
 }
@@ -384,10 +385,10 @@ async fn test_create_account() {
 
     let password = Zeroizing::new("hunter2".to_string());
     client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
 
     let account = client
         .create_account(
-            password.clone(),
             ProtocolId::Zcash,
             "m/44'/133'/0'".to_string(),
             0,
@@ -409,10 +410,10 @@ async fn test_list_accounts() {
 
     let password = Zeroizing::new("hunter2".to_string());
     client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
 
     let acct1 = client
         .create_account(
-            password.clone(),
             ProtocolId::Zcash,
             "m/44'/133'/0'".into(),
             0,
@@ -422,7 +423,6 @@ async fn test_list_accounts() {
         .unwrap();
     let acct2 = client
         .create_account(
-            password.clone(),
             ProtocolId::Ethereum,
             "m/44'/60'/0'".into(),
             0,
@@ -444,10 +444,10 @@ async fn test_get_account_by_id() {
 
     let password = Zeroizing::new("hunter2".to_string());
     client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
 
     let created = client
         .create_account(
-            password.clone(),
             ProtocolId::Zcash,
             "m/44'/133'/0'".into(),
             0,
@@ -459,4 +459,58 @@ async fn test_get_account_by_id() {
     let found = client.get_account(created.id.clone()).await.unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().id, created.id);
+}
+
+#[tokio::test]
+async fn test_create_account_beyond_range_fails() {
+    let recipient = TestBuilder::new().build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    let result = client
+        .create_account(
+            ProtocolId::Zcash,
+            "m/44'/133'/30'".into(),
+            30,
+            "Too Far".into(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("beyond pre-derived range"));
+}
+
+#[tokio::test]
+async fn test_create_account_duplicate_fails() {
+    let recipient = TestBuilder::new().build();
+    let client = Client::with_recipient(recipient);
+
+    let password = Zeroizing::new("hunter2".to_string());
+    client.generate_seed(password.clone()).await.unwrap();
+    client.unlock(password).await.unwrap();
+
+    client
+        .create_account(
+            ProtocolId::Zcash,
+            "m/44'/133'/0'".into(),
+            0,
+            "First".into(),
+        )
+        .await
+        .unwrap();
+
+    let result = client
+        .create_account(
+            ProtocolId::Zcash,
+            "m/44'/133'/0'".into(),
+            0,
+            "Duplicate".into(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("account already exists"));
 }

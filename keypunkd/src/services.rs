@@ -122,4 +122,36 @@ impl KeypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn has_seed(&self) -> Result<bool, String> {
+        match self.send(KeypunkdRequest::HasSeed).await? {
+            KeypunkdResponse::HasSeed { exists } => Ok(exists),
+            KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn bulk_export_viewing_keys(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        protocols: Vec<ProtocolId>,
+        start_account: u32,
+        count: u32,
+    ) -> Result<Vec<(ProtocolId, u32, Vec<u8>)>, String> {
+        match self
+            .send(KeypunkdRequest::BulkExportViewingKeys {
+                encrypted_password,
+                client_public_key,
+                protocols,
+                start_account,
+                count,
+            })
+            .await?
+        {
+            KeypunkdResponse::ViewingKeys { keys } => Ok(keys),
+            KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }

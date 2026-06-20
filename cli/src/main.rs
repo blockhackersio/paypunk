@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use paypunk_types::{EthereumIntent, Intent, ProtocolId, ZcashIntent};
+use paypunk_config::ConfigLoader;
 use blake2::Digest;
 use std::process::{Child, Command};
 use std::path::Path;
@@ -13,8 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
     about = "Zcash wallet for privacy-preserving commerce"
 )]
 struct Cli {
-    #[arg(short, long, default_value = "/tmp/paypunkd.sock")]
-    socket_path: String,
+    #[arg(short, long)]
+    socket_path: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -81,6 +82,24 @@ enum Commands {
     },
     /// Launch the terminal user interface
     Tui,
+    /// Launch keypunkd (key daemon) as a child process
+    Keypunkd {
+        #[arg(short, long)]
+        socket_path: Option<String>,
+        #[arg(short, long)]
+        data_dir: Option<String>,
+    },
+    /// Launch paypunkd (app daemon) as a child process
+    Paypunkd {
+        #[arg(short, long)]
+        socket_path: Option<String>,
+        #[arg(short, long)]
+        keypunkd_socket: Option<String>,
+        #[arg(short, long)]
+        rpc_url: Option<String>,
+        #[arg(short, long)]
+        data_dir: Option<String>,
+    },
 }
 
 struct DaemonProcess {
@@ -89,6 +108,8 @@ struct DaemonProcess {
 }
 
 async fn spawn_daemons() -> Result<DaemonProcess, Box<dyn std::error::Error>> {
+    let config = ConfigLoader::load_or_default();
+
     let keypunkd = Command::new("keypunkd")
         .spawn()
         .map_err(|e| format!("Failed to start keypunkd: {e}"))?;
@@ -97,8 +118,8 @@ async fn spawn_daemons() -> Result<DaemonProcess, Box<dyn std::error::Error>> {
         .spawn()
         .map_err(|e| format!("Failed to start paypunkd: {e}"))?;
 
-    wait_for_socket("/tmp/keypunkd.sock", Duration::from_secs(10)).await?;
-    wait_for_socket("/tmp/paypunkd.sock", Duration::from_secs(10)).await?;
+    wait_for_socket(&config.keypunkd_socket_path, Duration::from_secs(10)).await?;
+    wait_for_socket(&config.paypunkd_socket_path, Duration::from_secs(10)).await?;
 
     Ok(DaemonProcess { keypunkd, paypunkd })
 }
@@ -125,6 +146,8 @@ fn kill_daemons(daemons: &mut DaemonProcess) {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let config = ConfigLoader::load_or_default();
+    let socket_path = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
 
     match cli.command {
         None | Some(Commands::Tui) => {
@@ -139,15 +162,94 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let mut daemons = spawn_daemons().await?;
 
-                let result = paypunk_tui::run_tui(Some(cli.socket_path)).await;
+                let result = paypunk_tui::run_tui(&socket_path, Some(shutdown)).await;
 
                 kill_daemons(&mut daemons);
                 result.map_err(|e| e.into())
             })
         }
+        Some(Commands::Keypunkd { socket_path, data_dir }) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let config = ConfigLoader::load_or_default();
+                let socket = socket_path.unwrap_or(config.keypunkd_socket_path);
+                let dir = data_dir.unwrap_or(config.data_dir);
+
+                let mut child = Command::new("keypunkd")
+                    .arg("--socket-path")
+                    .arg(&socket)
+                    .arg("--data-dir")
+                    .arg(&dir)
+                    .spawn()
+                    .map_err(|e| format!("Failed to start keypunkd: {e}"))?;
+
+                let shutdown = Arc::new(AtomicBool::new(false));
+                let shutdown_clone = shutdown.clone();
+                tokio::spawn(async move {
+                    tokio::signal::ctrl_c().await.ok();
+                    shutdown_clone.store(true, Ordering::SeqCst);
+                });
+
+                while !shutdown.load(Ordering::SeqCst) {
+                    if let Ok(Some(_)) = child.try_wait() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+
+                let _ = child.kill();
+                let _ = child.wait();
+                Ok(())
+            })
+        }
+        Some(Commands::Paypunkd {
+            socket_path,
+            keypunkd_socket,
+            rpc_url,
+            data_dir,
+        }) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let config = ConfigLoader::load_or_default();
+                let socket = socket_path.unwrap_or(config.paypunkd_socket_path);
+                let ks = keypunkd_socket.unwrap_or(config.keypunkd_socket_path);
+                let url = rpc_url.unwrap_or(config.rpc_url);
+                let dir = data_dir.unwrap_or(config.data_dir);
+
+                let mut child = Command::new("paypunkd")
+                    .arg("--socket-path")
+                    .arg(&socket)
+                    .arg("--keypunkd-socket")
+                    .arg(&ks)
+                    .arg("--rpc-url")
+                    .arg(&url)
+                    .arg("--data-dir")
+                    .arg(&dir)
+                    .spawn()
+                    .map_err(|e| format!("Failed to start paypunkd: {e}"))?;
+
+                let shutdown = Arc::new(AtomicBool::new(false));
+                let shutdown_clone = shutdown.clone();
+                tokio::spawn(async move {
+                    tokio::signal::ctrl_c().await.ok();
+                    shutdown_clone.store(true, Ordering::SeqCst);
+                });
+
+                while !shutdown.load(Ordering::SeqCst) {
+                    if let Ok(Some(_)) = child.try_wait() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+
+                let _ = child.kill();
+                let _ = child.wait();
+                Ok(())
+            })
+        }
         Some(command) => {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async_main(cli.socket_path, command))
+            rt.block_on(async_main(socket_path, command))
         }
     }
 }
@@ -233,6 +335,8 @@ async fn async_main(socket_path: String, command: Commands) -> Result<(), Box<dy
             );
         }
         Commands::Tui => unreachable!(),
+        Commands::Keypunkd { .. } => unreachable!(),
+        Commands::Paypunkd { .. } => unreachable!(),
     }
 
     Ok(())

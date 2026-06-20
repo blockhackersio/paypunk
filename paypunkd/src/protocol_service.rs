@@ -40,4 +40,8 @@ impl ProtocolService {
             .map(|b| b.as_ref())
             .ok_or_else(|| format!("unsupported protocol: {id:?}"))
     }
+
+    pub fn protocols(&self) -> Vec<ProtocolId> {
+        self.protocols.keys().copied().collect()
+    }
 }

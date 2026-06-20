@@ -121,10 +121,10 @@ impl Client {
         crate::functions::broadcast_transaction(&self.service, protocol, raw_tx).await
     }
 
-    /// Create a new account: derive viewing key from keypunkd, persist to DB.
+    /// Create a new account from a pre-derived viewing key (no password needed).
+    /// Accounts must be pre-derived via unlock (indices 0-29).
     pub async fn create_account(
         &self,
-        password: Zeroizing<String>,
         protocol: ProtocolId,
         derivation_path: String,
         account_index: u32,
@@ -132,7 +132,6 @@ impl Client {
     ) -> Result<Account, String> {
         crate::functions::create_account(
             &self.service,
-            password,
             protocol,
             derivation_path,
             account_index,
@@ -149,5 +148,23 @@ impl Client {
     /// Get a single account by ID.
     pub async fn get_account(&self, id: String) -> Result<Option<Account>, String> {
         crate::functions::get_account(&self.service, id).await
+    }
+
+    /// Check whether a wallet seed exists on keypunkd.
+    pub async fn check_wallet_exists(&self) -> Result<bool, String> {
+        crate::functions::check_wallet_exists(&self.service).await
+    }
+
+    /// Unlock the wallet by decrypting the DB and deriving initial accounts.
+    pub async fn unlock(
+        &self,
+        password: Zeroizing<String>,
+    ) -> Result<u32, String> {
+        crate::functions::unlock(&self.service, password).await
+    }
+
+    /// Get paypunkd's public encryption key.
+    pub async fn get_paypunkd_encryption_key(&self) -> Result<[u8; 32], String> {
+        self.service.get_paypunkd_encryption_key().await
     }
 }

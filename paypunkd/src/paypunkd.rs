@@ -1,7 +1,9 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{caip, ProtocolId};
+use std::collections::HashMap;
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
+use keypunkd::crypto::Keypair;
 
 use crate::database::{AccountsRepository, Database};
 use crate::database::repository::SqliteAccountsRepository;
@@ -14,6 +16,8 @@ pub struct Paypunkd {
     protocols: ProtocolService,
     db: Database,
     accounts_repo: Box<dyn AccountsRepository>,
+    keystore: Keypair,
+    pre_derived_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
 
 impl Paypunkd {
@@ -21,12 +25,15 @@ impl Paypunkd {
         recipient: Recipient<IpcMessage>,
         protocols: ProtocolService,
         db: Database,
+        keystore: Keypair,
     ) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
             protocols,
             db,
             accounts_repo: Box::new(SqliteAccountsRepository),
+            keystore,
+            pre_derived_keys: HashMap::new(),
         }
     }
 
@@ -193,8 +200,6 @@ impl Paypunkd {
 
     async fn create_account(
         &self,
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
         protocol: ProtocolId,
         derivation_path: String,
         account_index: u32,
@@ -204,11 +209,9 @@ impl Paypunkd {
         self.respond(
             "create_account",
             usecases::create_account(
-                &self.keypunk_service,
                 &self.db,
                 self.accounts_repo.as_ref(),
-                encrypted_password,
-                client_public_key,
+                &self.pre_derived_keys,
                 protocol,
                 derivation_path,
                 account_index,
@@ -234,6 +237,125 @@ impl Paypunkd {
             "get_account",
             usecases::get_account(&self.db, self.accounts_repo.as_ref(), &id),
             |account| PaypunkdResponse::AccountFound { account },
+        )
+    }
+
+    fn get_paypunkd_encryption_key(&self) -> PaypunkdResponse {
+        info!("handling GetPaypunkdEncryptionKey");
+        PaypunkdResponse::PaypunkdEncryptionKey {
+            key: self.keystore.public_key(),
+        }
+    }
+
+    async fn has_seed(&self) -> PaypunkdResponse {
+        info!("forwarding HasSeed to keypunkd");
+        self.respond(
+            "has_seed",
+            usecases::has_seed(&self.keypunk_service).await,
+            |exists| PaypunkdResponse::HasSeed { exists },
+        )
+    }
+
+    async fn unlock(
+        &mut self,
+        encrypted_db_password: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+        encrypted_keypunkd_password: Vec<u8>,
+        keypunkd_client_pk: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("handling Unlock");
+
+        // 1. If DB is already unlocked (fresh, no .enc file), skip decryption
+        if self.db.is_locked() {
+            // Decrypt the DB password using paypunkd's own keypair
+            let decrypted_password = match self
+                .keystore
+                .decrypt(&encrypted_db_password, &ephemeral_public_key)
+            {
+                Ok(pw) => pw,
+                Err(e) => {
+                    return PaypunkdResponse::Error {
+                        message: format!("failed to decrypt db password: {e}"),
+                    }
+                }
+            };
+
+            // 2. Unlock the database
+            if let Err(e) = self.db.unlock(&decrypted_password) {
+                return PaypunkdResponse::Error {
+                    message: format!("failed to unlock database: {e}"),
+                };
+            }
+        }
+
+        // 3. Check if accounts exist
+        let accounts = match usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
+            Ok(a) => a,
+            Err(e) => {
+                return PaypunkdResponse::Error {
+                    message: format!("failed to list accounts: {e}"),
+                }
+            }
+        };
+
+        let accounts_count = accounts.len() as u32;
+
+        // 4. If no accounts, bulk-derive from keypunkd and cache viewing keys
+        if accounts.is_empty() {
+            info!("no accounts found, bulk-deriving from keypunkd");
+            let protocols = self.protocols.protocols();
+            let keys = self
+                .keypunk_service
+                .bulk_export_viewing_keys(
+                    encrypted_keypunkd_password,
+                    keypunkd_client_pk,
+                    protocols.clone(),
+                    0,
+                    30,
+                )
+                .await;
+
+            match keys {
+                Ok(derived) => {
+                    for (protocol, account_index, viewing_key) in &derived {
+                        self.pre_derived_keys
+                            .insert((*protocol, *account_index), viewing_key.clone());
+                    }
+                    info!(count = derived.len(), "cached pre-derived viewing keys");
+                    PaypunkdResponse::UnlockSuccess {
+                        accounts_count: derived.len() as u32,
+                    }
+                }
+                Err(e) => PaypunkdResponse::Error {
+                    message: format!("failed to bulk-derive accounts: {e}"),
+                },
+            }
+        } else {
+            PaypunkdResponse::UnlockSuccess { accounts_count }
+        }
+    }
+
+    async fn bulk_derive_accounts(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        count: u32,
+    ) -> PaypunkdResponse {
+        info!("handling BulkDeriveAccounts");
+        let protocols = self.protocols.protocols();
+        self.respond(
+            "bulk_derive_accounts",
+            usecases::bulk_derive_accounts(
+                &self.keypunk_service,
+                &self.db,
+                self.accounts_repo.as_ref(),
+                encrypted_password,
+                client_public_key,
+                protocols,
+                count,
+            )
+            .await,
+            |accounts| PaypunkdResponse::AccountsBulkDerived { accounts },
         )
     }
 }
@@ -284,16 +406,12 @@ impl Handler<IpcMessage> for Paypunkd {
                 self.broadcast_transaction(protocol, raw_tx).await
             }
             PaypunkdRequest::CreateAccount {
-                encrypted_password,
-                client_public_key,
                 protocol,
                 derivation_path,
                 account_index,
                 name,
             } => {
                 self.create_account(
-                    encrypted_password,
-                    client_public_key,
                     protocol,
                     derivation_path,
                     account_index,
@@ -303,6 +421,27 @@ impl Handler<IpcMessage> for Paypunkd {
             }
             PaypunkdRequest::ListAccounts => self.list_accounts().await,
             PaypunkdRequest::GetAccount { id } => self.get_account(id).await,
+            PaypunkdRequest::GetPaypunkdEncryptionKey => self.get_paypunkd_encryption_key(),
+            PaypunkdRequest::HasSeed => self.has_seed().await,
+            PaypunkdRequest::Unlock {
+                encrypted_db_password,
+                ephemeral_public_key,
+                encrypted_keypunkd_password,
+                keypunkd_client_pk,
+            } => {
+                self.unlock(
+                    encrypted_db_password,
+                    ephemeral_public_key,
+                    encrypted_keypunkd_password,
+                    keypunkd_client_pk,
+                )
+                .await
+            }
+            PaypunkdRequest::BulkDeriveAccounts {
+                encrypted_password,
+                client_public_key,
+                count,
+            } => self.bulk_derive_accounts(encrypted_password, client_public_key, count).await,
         };
 
         let encoded =

@@ -38,8 +38,6 @@ pub enum PaypunkdRequest {
         raw_tx: Vec<u8>,
     },
     CreateAccount {
-        encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
         protocol: ProtocolId,
         derivation_path: String,
         account_index: u32,
@@ -47,6 +45,19 @@ pub enum PaypunkdRequest {
     },
     ListAccounts,
     GetAccount { id: String },
+    GetPaypunkdEncryptionKey,
+    HasSeed,
+    Unlock {
+        encrypted_db_password: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+        encrypted_keypunkd_password: Vec<u8>,
+        keypunkd_client_pk: [u8; 32],
+    },
+    BulkDeriveAccounts {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        count: u32,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,5 +78,9 @@ pub enum PaypunkdResponse {
     AccountCreated { account: Account },
     AccountsList { accounts: Vec<Account> },
     AccountFound { account: Option<Account> },
+    PaypunkdEncryptionKey { key: [u8; 32] },
+    HasSeed { exists: bool },
+    UnlockSuccess { accounts_count: u32 },
+    AccountsBulkDerived { accounts: Vec<Account> },
     Error { message: String },
 }

@@ -14,12 +14,11 @@ pub enum DbCryptoError {
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
 const KEY_LEN: usize = 32;
-const DB_SALT: &[u8] = b"paypunk-db-v1";
 
-fn derive_db_key(password: &str) -> [u8; KEY_LEN] {
+fn derive_db_key(password: &str, salt: &[u8]) -> [u8; KEY_LEN] {
     let mut key = [0u8; KEY_LEN];
     Argon2::default()
-        .hash_password_into(password.as_bytes(), DB_SALT, &mut key)
+        .hash_password_into(password.as_bytes(), salt, &mut key)
         .expect("Argon2id key derivation should not fail with valid parameters");
     key
 }
@@ -28,7 +27,7 @@ pub fn encrypt_db(plaintext: &[u8], password: &str) -> Result<Vec<u8>, DbCryptoE
     let mut salt = [0u8; SALT_LEN];
     OsRng.fill_bytes(&mut salt);
 
-    let derived_key = derive_db_key(password);
+    let derived_key = derive_db_key(password, &salt);
     let key = Key::<Aes256Gcm>::from_slice(&derived_key);
     let cipher = Aes256Gcm::new(key);
     let nonce_bytes = Aes256Gcm::generate_nonce(&mut OsRng);
@@ -49,11 +48,11 @@ pub fn decrypt_db(blob: &[u8], password: &str) -> Result<Vec<u8>, DbCryptoError>
     if blob.len() < SALT_LEN + NONCE_LEN {
         return Err(DbCryptoError::DecryptionFailed);
     }
-    let _salt = &blob[..SALT_LEN];
+    let salt = &blob[..SALT_LEN];
     let nonce = &blob[SALT_LEN..SALT_LEN + NONCE_LEN];
     let ciphertext = &blob[SALT_LEN + NONCE_LEN..];
 
-    let derived_key = derive_db_key(password);
+    let derived_key = derive_db_key(password, salt);
     let key = Key::<Aes256Gcm>::from_slice(&derived_key);
     let cipher = Aes256Gcm::new(key);
     let nonce = Nonce::from_slice(nonce);

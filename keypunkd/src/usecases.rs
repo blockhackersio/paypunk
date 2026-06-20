@@ -114,6 +114,24 @@ pub fn export_viewing_key(
     deriver.export_viewing(seed, &path)
 }
 
+/// Bulk-export viewing keys for multiple protocols and account indices.
+pub fn bulk_export_viewing_keys(
+    seed: &[u8; 64],
+    registry: &ProtocolService,
+    protocols: &[ProtocolId],
+    start_account: u32,
+    count: u32,
+) -> Result<Vec<(ProtocolId, u32, Vec<u8>)>, String> {
+    let mut keys = Vec::new();
+    for &protocol in protocols {
+        for account in start_account..start_account + count {
+            let key = export_viewing_key(seed, registry, protocol, account)?;
+            keys.push((protocol, account, key));
+        }
+    }
+    Ok(keys)
+}
+
 /// Parse an unsigned artifact into a serialized ArtifactSummary for user preview.
 pub fn preview_artifact(
     registry: &ProtocolService,

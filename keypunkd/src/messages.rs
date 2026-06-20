@@ -35,6 +35,16 @@ pub enum KeypunkdRequest {
         protocol: ProtocolId,
         account: u32,
     },
+    /// Check if a seed exists in the store.
+    HasSeed,
+    /// Bulk-export viewing keys for multiple protocols and accounts.
+    BulkExportViewingKeys {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        protocols: Vec<ProtocolId>,
+        start_account: u32,
+        count: u32,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,6 +67,12 @@ pub enum KeypunkdResponse {
     },
     ViewingKey {
         key: Vec<u8>,
+    },
+    HasSeed {
+        exists: bool,
+    },
+    ViewingKeys {
+        keys: Vec<(ProtocolId, u32, Vec<u8>)>,
     },
     Error {
         message: String,

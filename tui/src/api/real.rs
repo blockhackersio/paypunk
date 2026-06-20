@@ -57,7 +57,11 @@ impl WalletApi for RealWalletApi {
 
     async fn submit_setup_create(&self, input: SetupCreateInput) -> Result<(), ApiError> {
         self.client
-            .generate_seed(Zeroizing::new(input.password))
+            .generate_seed(Zeroizing::new(input.password.clone()))
+            .await
+            .map_err(|e| ApiError(e))?;
+        self.client
+            .unlock(Zeroizing::new(input.password))
             .await
             .map(|_| ())
             .map_err(|e| ApiError(e))
@@ -295,5 +299,17 @@ impl WalletApi for RealWalletApi {
         _input: RevealPhraseInput,
     ) -> Result<Vec<String>, ApiError> {
         Err(ApiError("reveal phrase not yet supported via real API".into()))
+    }
+
+    async fn check_wallet_exists(&self) -> bool {
+        self.client.check_wallet_exists().await.unwrap_or(false)
+    }
+
+    async fn unlock(&self, password: String) -> Result<UnlockData, ApiError> {
+        self.client
+            .unlock(Zeroizing::new(password))
+            .await
+            .map(|accounts_count| UnlockData { accounts_count })
+            .map_err(|e| ApiError(e))
     }
 }

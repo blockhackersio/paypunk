@@ -1,6 +1,7 @@
 use keypunkd::services::KeypunkService;
 use paypunk_types::{Account, Balance, Intent, ProtocolId};
 use rand::Rng;
+use std::collections::HashMap;
 
 use crate::database::{AccountsRepository, Database};
 use crate::protocol_service::ProtocolService;
@@ -10,6 +11,11 @@ use crate::protocol_service::ProtocolService;
 /// Forward a GetEncryptionKey request to keypunkd and return its X25519 public key.
 pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8; 32], String> {
     service.get_encryption_key().await
+}
+
+/// Forward a HasSeed request to keypunkd.
+pub async fn has_seed(service: &KeypunkService) -> Result<bool, String> {
+    service.has_seed().await
 }
 
 /// Forward a GenerateSeed request to keypunkd with the encrypted password.
@@ -137,26 +143,42 @@ pub fn validate_address(protocols: &ProtocolService, protocol: ProtocolId, addre
 
 // ── Account operations ──────────────────────────────────────────────────────
 
-/// Create a new account: derive viewing key from keypunkd, persist to DB.
+/// Create a new account from a pre-derived viewing key (no keypunkd call).
+/// Accounts must be pre-derived via unlock (indices 0-29).
 pub async fn create_account(
-    keypunk_service: &KeypunkService,
     db: &Database,
     repo: &dyn AccountsRepository,
-    encrypted_password: Vec<u8>,
-    client_public_key: [u8; 32],
+    pre_derived_keys: &HashMap<(ProtocolId, u32), Vec<u8>>,
     protocol: ProtocolId,
     derivation_path: String,
     account_index: u32,
     name: String,
 ) -> Result<Account, String> {
-    let viewing_key = keypunk_service
-        .export_viewing_key(
-            encrypted_password,
-            client_public_key,
-            protocol,
-            account_index,
-        )
-        .await?;
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+
+    let existing = repo.find_by_protocol(&conn, &protocol)?;
+    if existing.iter().any(|a| a.derivation_path == derivation_path) {
+        return Err("account already exists".to_string());
+    }
+    drop(conn);
+
+    if account_index > 29 {
+        return Err(format!(
+            "account index {account_index} is beyond pre-derived range (0-29). \
+             Re-unlock with a higher count to access this account."
+        ));
+    }
+
+    let viewing_key = pre_derived_keys
+        .get(&(protocol, account_index))
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "no pre-derived viewing key found for {protocol:?} account {account_index}. \
+                 Generate seed and unlock first."
+            )
+        })?;
 
     let id: String = (0..16)
         .map(|_| {
@@ -177,9 +199,62 @@ pub async fn create_account(
             .as_secs(),
     };
 
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.save(&conn, &account)?;
     Ok(account)
+}
+
+/// Bulk-derive accounts for all registered protocols.
+pub async fn bulk_derive_accounts(
+    keypunk_service: &KeypunkService,
+    db: &Database,
+    repo: &dyn AccountsRepository,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+    protocols: Vec<ProtocolId>,
+    count: u32,
+) -> Result<Vec<Account>, String> {
+    let keys = keypunk_service
+        .bulk_export_viewing_keys(encrypted_password, client_public_key, protocols.clone(), 0, count)
+        .await?;
+
+    let mut accounts = Vec::new();
+    for (protocol, account_index, viewing_key) in keys {
+        let id: String = (0..16)
+            .map(|_| {
+                let hex = rand::thread_rng().gen_range(0..16);
+                format!("{hex:x}")
+            })
+            .collect();
+
+        let coin_type = match protocol {
+            ProtocolId::Zcash => 133,
+            ProtocolId::Ethereum => 60,
+            ProtocolId::Bitcoin => 0,
+            ProtocolId::Monero => 128,
+            ProtocolId::Solana => 501,
+        };
+
+        let account = Account {
+            id,
+            protocol,
+            derivation_path: format!("m/44'/{coin_type}'/{account_index}'"),
+            name: format!("{protocol:?} Account {account_index}"),
+            viewing_key,
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        };
+
+        let conn = db.conn.as_ref().ok_or("database is locked")?;
+        let conn = conn.lock().map_err(|e| e.to_string())?;
+        repo.save(&conn, &account)?;
+        accounts.push(account);
+    }
+
+    Ok(accounts)
 }
 
 /// List all accounts from the database.
@@ -187,7 +262,8 @@ pub fn list_accounts(
     db: &Database,
     repo: &dyn AccountsRepository,
 ) -> Result<Vec<Account>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.find_all(&conn)
 }
 
@@ -197,7 +273,8 @@ pub fn get_account(
     repo: &dyn AccountsRepository,
     id: &str,
 ) -> Result<Option<Account>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.find_by_id(&conn, id)
 }
 

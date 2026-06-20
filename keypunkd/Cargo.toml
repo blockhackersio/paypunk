@@ -8,6 +8,7 @@ name = "keypunkd"
 path = "src/main.rs"
 
 [dependencies]
+paypunk-config.workspace = true
 paypunk-ipc.workspace = true
 paypunk-types.workspace = true
 paypunk-chains-zcash.workspace = true

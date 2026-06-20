@@ -284,6 +284,39 @@ impl<S: Storage> Keypunkd<S> {
             |key| KeypunkdResponse::ViewingKey { key },
         )
     }
+
+    fn has_seed(&self) -> KeypunkdResponse {
+        info!("handling HasSeed");
+        let exists = self.seed_store.read().ok().flatten().is_some();
+        KeypunkdResponse::HasSeed { exists }
+    }
+
+    fn bulk_export_viewing_keys(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        protocols: Vec<ProtocolId>,
+        start_account: u32,
+        count: u32,
+    ) -> KeypunkdResponse {
+        info!(?protocols, start_account, count, "handling BulkExportViewingKeys");
+
+        let seed = match usecases::decrypt_seed(
+            &encrypted_password,
+            &client_public_key,
+            &self.keystore,
+            &self.seed_store,
+        ) {
+            Ok(s) => s,
+            Err(e) => return KeypunkdResponse::Error { message: e },
+        };
+
+        self.respond(
+            "bulk_export_viewing_keys",
+            usecases::bulk_export_viewing_keys(&seed, &self.protocols, &protocols, start_account, count),
+            |keys| KeypunkdResponse::ViewingKeys { keys },
+        )
+    }
 }
 
 impl<S: Storage> Actor for Keypunkd<S> {}
@@ -322,6 +355,14 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 protocol,
                 account,
             } => self.export_viewing_key(encrypted_password, client_public_key, protocol, account),
+            KeypunkdRequest::HasSeed => self.has_seed(),
+            KeypunkdRequest::BulkExportViewingKeys {
+                encrypted_password,
+                client_public_key,
+                protocols,
+                start_account,
+                count,
+            } => self.bulk_export_viewing_keys(encrypted_password, client_public_key, protocols, start_account, count),
         };
 
         let encoded =

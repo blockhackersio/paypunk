@@ -319,6 +319,14 @@ impl WalletApi for MockWalletApi {
         ])
     }
 
+    async fn check_wallet_exists(&self) -> bool {
+        false
+    }
+
+    async fn unlock(&self, _password: String) -> Result<UnlockData, ApiError> {
+        Ok(UnlockData { accounts_count: 2 })
+    }
+
     async fn home_state(&self) -> ApiState<HomeData> {
         let should_fetch = self.home_cache.lock().unwrap().is_none();
         if should_fetch {

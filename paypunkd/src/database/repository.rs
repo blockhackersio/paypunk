@@ -1,4 +1,5 @@
 use paypunk_types::Account;
+use paypunk_types::ProtocolId;
 use rusqlite::Connection;
 
 pub trait Repository<T> {
@@ -10,6 +11,7 @@ pub trait AccountsRepository: Send + Sync {
     fn save(&self, conn: &Connection, account: &Account) -> Result<(), String>;
     fn find_all(&self, conn: &Connection) -> Result<Vec<Account>, String>;
     fn find_by_id(&self, conn: &Connection, id: &str) -> Result<Option<Account>, String>;
+    fn find_by_protocol(&self, conn: &Connection, protocol: &ProtocolId) -> Result<Vec<Account>, String>;
 }
 
 pub struct SqliteAccountsRepository;
@@ -77,6 +79,31 @@ impl AccountsRepository for SqliteAccountsRepository {
             Some(Err(e)) => Err(format!("failed to read account row: {e}")),
             None => Ok(None),
         }
+    }
+
+    fn find_by_protocol(&self, conn: &Connection, protocol: &ProtocolId) -> Result<Vec<Account>, String> {
+        let protocol_str = format!("{protocol:?}");
+        let mut stmt = conn
+            .prepare("SELECT id, protocol, derivation_path, name, viewing_key, created_at FROM accounts WHERE protocol = ?1")
+            .map_err(|e| format!("failed to prepare query: {e}"))?;
+        let rows = stmt
+            .query_map(rusqlite::params![protocol_str], |row| {
+                let protocol_str: String = row.get(1)?;
+                Ok(Account {
+                    id: row.get(0)?,
+                    protocol: parse_protocol(&protocol_str),
+                    derivation_path: row.get(2)?,
+                    name: row.get(3)?,
+                    viewing_key: row.get(4)?,
+                    created_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| format!("failed to query accounts by protocol: {e}"))?;
+        let mut accounts = Vec::new();
+        for row in rows {
+            accounts.push(row.map_err(|e| format!("failed to read account row: {e}"))?);
+        }
+        Ok(accounts)
     }
 }
 
