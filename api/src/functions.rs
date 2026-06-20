@@ -1,6 +1,15 @@
 use keypunkd::crypto::Keypair;
 use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
 use zeroize::Zeroizing;
+use argon2::Argon2;
+
+fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
+    let mut hash = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(password.as_bytes(), domain, &mut hash)
+        .expect("Argon2id key derivation should not fail with valid parameters");
+    Zeroizing::new(hex::encode(hash))
+}
 
 /// Check whether a wallet seed exists on keypunkd.
 pub async fn check_wallet_exists(
@@ -27,8 +36,10 @@ pub async fn unlock(
     let paypunkd_pk = service.get_paypunkd_encryption_key().await?;
     let client_pk = client_keypair.public_key();
 
-    let encrypted_keypunkd_password = client_keypair.encrypt(password.clone(), &keypunk_pk);
-    let encrypted_db_password = client_keypair.encrypt(password, &paypunkd_pk);
+    let encrypted_keypunkd_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &keypunk_pk);
+    let encrypted_db_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"paypunkd-db-key"), &paypunkd_pk);
 
     service
         .unlock(
@@ -47,7 +58,8 @@ pub async fn generate_seed(
 ) -> Result<Zeroizing<String>, String> {
     let client_keypair = Keypair::new();
     let server_pk = service.get_keypunk_encryption_key().await?;
-    let encrypted_password = client_keypair.encrypt(password, &server_pk);
+    let encrypted_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
     let client_pk = client_keypair.public_key();
 
     let encrypted_mnemonic = service.generate_seed(encrypted_password, client_pk).await?;
@@ -67,7 +79,8 @@ pub async fn restore_seed(
     let client_keypair = Keypair::new();
     let server_pk = service.get_keypunk_encryption_key().await?;
     let encrypted_mnemonic = client_keypair.encrypt(mnemonic, &server_pk);
-    let encrypted_password = client_keypair.encrypt(password, &server_pk);
+    let encrypted_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
     let client_pk = client_keypair.public_key();
 
     service
@@ -85,7 +98,8 @@ pub async fn derive_address(
 ) -> Result<String, String> {
     let client_keypair = Keypair::new();
     let server_pk = service.get_keypunk_encryption_key().await?;
-    let encrypted_password = client_keypair.encrypt(password, &server_pk);
+    let encrypted_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
     let client_pk = client_keypair.public_key();
 
     service
@@ -135,13 +149,14 @@ pub async fn approve_signature(
     let server_pk = service.get_keypunk_encryption_key().await?;
     let client_pk = client_keypair.public_key();
 
-    // Encode payload: raw_len(4) + raw + sig_len(4) + sig + pw
+    let hashed_password = hash_for_domain(&password, b"keypunkd-seed-key");
+    // Encode payload: raw_len(4) + raw + sig_len(4) + sig + hashed_pw
     let mut payload = Vec::new();
     payload.extend_from_slice(&(raw_artifact.len() as u32).to_le_bytes());
     payload.extend_from_slice(raw_artifact);
     payload.extend_from_slice(&(keypunkd_signature.len() as u32).to_le_bytes());
     payload.extend_from_slice(keypunkd_signature);
-    payload.extend_from_slice(password.as_bytes());
+    payload.extend_from_slice(hashed_password.as_bytes());
 
     let encrypted_payload = client_keypair.encrypt_bytes(&payload, &server_pk);
 
@@ -223,4 +238,37 @@ pub async fn get_account(
     id: String,
 ) -> Result<Option<Account>, String> {
     service.get_account(id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_for_domain_returns_hex_string() {
+        let hash = hash_for_domain("mypassword", b"test-domain");
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_hash_for_domain_deterministic() {
+        let a = hash_for_domain("password", b"test-domain-long");
+        let b = hash_for_domain("password", b"test-domain-long");
+        assert_eq!(*a, *b);
+    }
+
+    #[test]
+    fn test_hash_for_domain_different_domains() {
+        let a = hash_for_domain("password", b"domain-a-long-1");
+        let b = hash_for_domain("password", b"domain-b-long-2");
+        assert_ne!(*a, *b);
+    }
+
+    #[test]
+    fn test_hash_for_domain_different_passwords() {
+        let a = hash_for_domain("password-one", b"test-domain-long");
+        let b = hash_for_domain("password-two", b"test-domain-long");
+        assert_ne!(*a, *b);
+    }
 }

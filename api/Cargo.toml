@@ -10,3 +10,5 @@ keypunkd.workspace = true
 paypunk-ipc.workspace = true
 tactix.workspace = true
 zeroize.workspace = true
+argon2.workspace = true
+hex.workspace = true
