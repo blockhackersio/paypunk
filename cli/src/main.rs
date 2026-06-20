@@ -2,8 +2,6 @@ use clap::{Parser, Subcommand};
 use paypunk_types::{EthereumIntent, Intent, ProtocolId, ZcashIntent};
 use paypunk_config::ConfigLoader;
 use blake2::Digest;
-use std::process::Command;
-use std::time::Duration;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -128,31 +126,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let socket = socket_path.unwrap_or(config.keypunkd_socket_path);
                 let dir = data_dir.unwrap_or(config.data_dir);
 
-                let mut child = Command::new("keypunkd")
-                    .arg("--socket-path")
-                    .arg(&socket)
-                    .arg("--data-dir")
-                    .arg(&dir)
-                    .spawn()
-                    .map_err(|e| format!("Failed to start keypunkd: {e}"))?;
-
-                let shutdown = Arc::new(AtomicBool::new(false));
-                let shutdown_clone = shutdown.clone();
-                tokio::spawn(async move {
-                    tokio::signal::ctrl_c().await.ok();
-                    shutdown_clone.store(true, Ordering::SeqCst);
-                });
-
-                while !shutdown.load(Ordering::SeqCst) {
-                    if let Ok(Some(_)) = child.try_wait() {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-
-                let _ = child.kill();
-                let _ = child.wait();
-                Ok(())
+                keypunkd::run::run(keypunkd::run::Config {
+                    socket_path: socket,
+                    data_dir: dir,
+                })
+                .await
             })
         }
         Some(Commands::Paypunkd {
@@ -169,35 +147,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let url = rpc_url.unwrap_or(config.rpc_url);
                 let dir = data_dir.unwrap_or(config.data_dir);
 
-                let mut child = Command::new("paypunkd")
-                    .arg("--socket-path")
-                    .arg(&socket)
-                    .arg("--keypunkd-socket")
-                    .arg(&ks)
-                    .arg("--rpc-url")
-                    .arg(&url)
-                    .arg("--data-dir")
-                    .arg(&dir)
-                    .spawn()
-                    .map_err(|e| format!("Failed to start paypunkd: {e}"))?;
-
-                let shutdown = Arc::new(AtomicBool::new(false));
-                let shutdown_clone = shutdown.clone();
-                tokio::spawn(async move {
-                    tokio::signal::ctrl_c().await.ok();
-                    shutdown_clone.store(true, Ordering::SeqCst);
-                });
-
-                while !shutdown.load(Ordering::SeqCst) {
-                    if let Ok(Some(_)) = child.try_wait() {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-
-                let _ = child.kill();
-                let _ = child.wait();
-                Ok(())
+                paypunkd::run::run(paypunkd::run::Config {
+                    socket_path: socket,
+                    keypunkd_socket: ks,
+                    rpc_url: url,
+                    data_dir: dir,
+                })
+                .await
             })
         }
         Some(command) => {
