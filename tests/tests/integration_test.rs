@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use keypunkd::crypto::Keypair;
 use keypunkd::protocol::ProtocolService as KeypunkdProtocolService;
 use keypunkd::seed_store::InMemorySeedStore;
@@ -29,26 +30,27 @@ impl MockRpcClient {
     }
 }
 
+#[async_trait]
 impl EthRpcClient for MockRpcClient {
-    fn get_balance(&self, _address: &str, asset: &paypunk_types::AssetId) -> Result<u64, String> {
+    async fn get_balance(&self, _address: &str, asset: &paypunk_types::AssetId) -> Result<u64, String> {
         match asset {
             paypunk_types::AssetId::Native => Ok(self.eth_balance),
             paypunk_types::AssetId::Token(_) => Ok(self.erc20_balance),
         }
     }
-    fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
+    async fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
         Ok(0)
     }
-    fn get_chain_id(&self) -> Result<u64, String> {
+    async fn get_chain_id(&self) -> Result<u64, String> {
         Ok(1)
     }
-    fn send_raw_transaction(&self, _raw_tx: &[u8]) -> Result<String, String> {
+    async fn send_raw_transaction(&self, _raw_tx: &[u8]) -> Result<String, String> {
         Ok("0xdeadbeef".to_string())
     }
-    fn get_gas_price(&self) -> Result<u128, String> {
+    async fn get_gas_price(&self) -> Result<u128, String> {
         Ok(20_000_000_000)
     }
-    fn estimate_gas(
+    async fn estimate_gas(
         &self,
         _from: &str,
         _to: &str,
@@ -57,10 +59,10 @@ impl EthRpcClient for MockRpcClient {
     ) -> Result<u64, String> {
         Ok(21_000)
     }
-    fn get_block_number(&self) -> Result<u64, String> {
+    async fn get_block_number(&self) -> Result<u64, String> {
         Ok(19_000_000)
     }
-    fn get_transaction_receipt(
+    async fn get_transaction_receipt(
         &self,
         _tx_hash: &str,
     ) -> Result<Option<paypunk_chains_ethereum::rpc::TxReceipt>, String> {

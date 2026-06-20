@@ -2,8 +2,7 @@ use clap::{Parser, Subcommand};
 use paypunk_types::{EthereumIntent, Intent, ProtocolId, ZcashIntent};
 use paypunk_config::ConfigLoader;
 use blake2::Digest;
-use std::process::{Child, Command};
-use std::path::Path;
+use std::process::Command;
 use std::time::Duration;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -102,48 +101,6 @@ enum Commands {
     },
 }
 
-struct DaemonProcess {
-    keypunkd: Child,
-    paypunkd: Child,
-}
-
-async fn spawn_daemons() -> Result<DaemonProcess, Box<dyn std::error::Error>> {
-    let config = ConfigLoader::load_or_default();
-
-    let keypunkd = Command::new("keypunkd")
-        .spawn()
-        .map_err(|e| format!("Failed to start keypunkd: {e}"))?;
-
-    let paypunkd = Command::new("paypunkd")
-        .spawn()
-        .map_err(|e| format!("Failed to start paypunkd: {e}"))?;
-
-    wait_for_socket(&config.keypunkd_socket_path, Duration::from_secs(10)).await?;
-    wait_for_socket(&config.paypunkd_socket_path, Duration::from_secs(10)).await?;
-
-    Ok(DaemonProcess { keypunkd, paypunkd })
-}
-
-async fn wait_for_socket(path: &str, timeout: Duration) -> Result<(), String> {
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if Path::new(path).exists() {
-            if let Ok(_stream) = tokio::net::UnixStream::connect(path).await {
-                return Ok(());
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(format!("socket {path} did not become ready within timeout"))
-}
-
-fn kill_daemons(daemons: &mut DaemonProcess) {
-    let _ = daemons.keypunkd.kill();
-    let _ = daemons.paypunkd.kill();
-    let _ = daemons.keypunkd.wait();
-    let _ = daemons.paypunkd.wait();
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let config = ConfigLoader::load_or_default();
@@ -160,11 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     shutdown_clone.store(true, Ordering::SeqCst);
                 });
 
-                let mut daemons = spawn_daemons().await?;
-
                 let result = paypunk_tui::run_tui(&socket_path, Some(shutdown)).await;
-
-                kill_daemons(&mut daemons);
                 result.map_err(|e| e.into())
             })
         }

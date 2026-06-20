@@ -10,6 +10,7 @@ wallet = ["dep:zcash_client_backend", "dep:zcash_client_sqlite", "dep:tactix", "
 [dependencies]
 paypunk-types.workspace = true
 orchard.workspace = true
+async-trait.workspace = true
 zcash_address.workspace = true
 zcash_protocol.workspace = true
 zcash_primitives = { workspace = true, features = ["transparent-inputs"] }

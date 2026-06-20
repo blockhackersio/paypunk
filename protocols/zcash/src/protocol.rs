@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use async_trait::async_trait;
 use paypunk_types::{
     ArtifactSummary, ChainId, Intent, Protocol, ProtocolId, SignerProtocol,
     ZcashIntent,
@@ -32,8 +33,9 @@ impl ZcashProtocol {
     }
 }
 
+#[async_trait]
 impl SignerProtocol for ZcashProtocol {
-    fn chain(&self) -> ChainId {
+    async fn chain(&self) -> ChainId {
         self.chain_id()
     }
 
@@ -154,12 +156,13 @@ impl ZcashProtocol {
     }
 }
 
+#[async_trait]
 impl Protocol for ZcashProtocol {
     fn protocol_id(&self) -> ProtocolId {
         ProtocolId::Zcash
     }
 
-    fn build(&self, intent: &Intent) -> Result<Vec<u8>, String> {
+    async fn build(&self, intent: &Intent) -> Result<Vec<u8>, String> {
         match intent {
             Intent::Zcash(ZcashIntent::Transfer {
                 to,
@@ -209,11 +212,11 @@ impl Protocol for ZcashProtocol {
         Ok(raw_tx)
     }
 
-    fn get_balance(&self, _address: &str, _asset: &str) -> Result<paypunk_types::Balance, String> {
+    async fn get_balance(&self, _address: &str, _asset: &str) -> Result<paypunk_types::Balance, String> {
         Err("get_balance not yet implemented — needs WalletDb + LSP chain scan".to_string())
     }
 
-    fn broadcast(&self, _finalized_tx: &[u8]) -> Result<String, String> {
+    async fn broadcast(&self, _finalized_tx: &[u8]) -> Result<String, String> {
         Err("broadcast not yet implemented for Zcash — needs lightwalletd connection".to_string())
     }
 }

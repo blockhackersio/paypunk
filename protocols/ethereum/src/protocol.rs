@@ -1,5 +1,6 @@
 use alloy_consensus::{SignableTransaction, TxEip1559};
 use alloy_primitives::{Address, Signature, TxKind, U256};
+use async_trait::async_trait;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use paypunk_types::{
@@ -28,12 +29,13 @@ impl<T: EthRpcClient> EthereumProtocol<T> {
     }
 }
 
+#[async_trait]
 impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
     fn protocol_id(&self) -> ProtocolId {
         ProtocolId::Ethereum
     }
 
-    fn build(&self, intent: &Intent) -> Result<Vec<u8>, String> {
+    async fn build(&self, intent: &Intent) -> Result<Vec<u8>, String> {
         let (to, amount, data, from) = match intent {
             Intent::Ethereum(EthereumIntent::Transfer {
                 to,
@@ -62,10 +64,10 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             .map_err(|e| format!("invalid address: {e}"))?;
 
         let amount_u64 = parse_amount(amount)?;
-        let chain_id = self.client.get_chain_id()?;
-        let nonce = self.client.get_transaction_count(from)?;
+        let chain_id = self.client.get_chain_id().await?;
+        let nonce = self.client.get_transaction_count(from).await?;
         let gas_limit = 21_000u64;
-        let gas_price = self.client.get_gas_price()?;
+        let gas_price = self.client.get_gas_price().await?;
         let priority_fee = 1_000_000_000;
 
         let input = data
@@ -103,7 +105,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
         Ok(out)
     }
 
-    fn get_balance(&self, address: &str, asset: &str) -> Result<paypunk_types::Balance, String> {
+    async fn get_balance(&self, address: &str, asset: &str) -> Result<paypunk_types::Balance, String> {
         // Parse CAIP-10 address to get the raw address
         let account = caip::AccountId::parse(address)
             .map_err(|e| format!("invalid CAIP-10 address: {e}"))?;
@@ -115,7 +117,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
 
         let balance = self
             .client
-            .get_balance(&account.account_address, &asset_id)?;
+            .get_balance(&account.account_address, &asset_id).await?;
         Ok(paypunk_types::Balance {
             spendable: paypunk_types::Amount(balance),
             pending: paypunk_types::Amount(0),
@@ -123,8 +125,8 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
         })
     }
 
-    fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
-        self.client.send_raw_transaction(finalized_tx)
+    async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
+        self.client.send_raw_transaction(finalized_tx).await
     }
 }
 
@@ -165,9 +167,10 @@ fn parse_amount(amount: &str) -> Result<u64, String> {
     }
 }
 
+#[async_trait]
 impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
-    fn chain(&self) -> ChainId {
-        let chain_id = self.client.get_chain_id().unwrap_or(1);
+    async fn chain(&self) -> ChainId {
+        let chain_id = self.client.get_chain_id().await.unwrap_or(1);
         ChainId {
             namespace: "eip155".to_string(),
             reference: chain_id.to_string(),
@@ -295,32 +298,33 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl EthRpcClient for MockRpcClient {
-        fn get_balance(&self, _address: &str, asset: &paypunk_types::AssetId) -> Result<u64, String> {
+        async fn get_balance(&self, _address: &str, asset: &paypunk_types::AssetId) -> Result<u64, String> {
             match asset {
                 paypunk_types::AssetId::Native => Ok(self.eth_balance),
                 paypunk_types::AssetId::Token(_) => Ok(self.erc20_balance),
             }
         }
-        fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
+        async fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
             Ok(0)
         }
-        fn get_chain_id(&self) -> Result<u64, String> {
+        async fn get_chain_id(&self) -> Result<u64, String> {
             Ok(1)
         }
-        fn send_raw_transaction(&self, _raw_tx: &[u8]) -> Result<String, String> {
+        async fn send_raw_transaction(&self, _raw_tx: &[u8]) -> Result<String, String> {
             Ok("0xdeadbeef".to_string())
         }
-        fn get_gas_price(&self) -> Result<u128, String> {
+        async fn get_gas_price(&self) -> Result<u128, String> {
             Ok(20_000_000_000)
         }
-        fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
+        async fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
             Ok(21_000)
         }
-        fn get_block_number(&self) -> Result<u64, String> {
+        async fn get_block_number(&self) -> Result<u64, String> {
             Ok(19_000_000)
         }
-        fn get_transaction_receipt(&self, _tx_hash: &str) -> Result<Option<crate::rpc::TxReceipt>, String> {
+        async fn get_transaction_receipt(&self, _tx_hash: &str) -> Result<Option<crate::rpc::TxReceipt>, String> {
             Ok(None)
         }
     }
@@ -330,16 +334,16 @@ mod tests {
         mnemonic.to_seed("")
     }
 
-    #[test]
-    fn test_chain_id() {
+    #[tokio::test]
+    async fn test_chain_id() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
-        let chain = protocol.chain();
+        let chain = protocol.chain().await;
         assert_eq!(chain.namespace, "eip155");
         assert_eq!(chain.reference, "1");
     }
 
-    #[test]
-    fn test_parse_artifact() {
+    #[tokio::test]
+    async fn test_parse_artifact() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
         let _seed = seed_from_mnemonic();
 
@@ -352,14 +356,14 @@ mod tests {
             data: None,
         });
 
-        let unsigned = protocol.build(&intent).unwrap();
+        let unsigned = protocol.build(&intent).await.unwrap();
         let parsed = protocol.parse_artifact(&unsigned).unwrap();
         let summary: ArtifactSummary = postcard::from_bytes(&parsed).unwrap();
         assert_eq!(summary.protocol, ProtocolId::Ethereum);
     }
 
-    #[test]
-    fn test_create_and_sign_transaction() {
+    #[tokio::test]
+    async fn test_create_and_sign_transaction() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
         let seed = seed_from_mnemonic();
 
@@ -371,7 +375,7 @@ mod tests {
             data: None,
         });
 
-        let unsigned = protocol.build(&intent).unwrap();
+        let unsigned = protocol.build(&intent).await.unwrap();
         assert!(!unsigned.is_empty());
 
         let path = 0u32.to_le_bytes();
@@ -389,23 +393,23 @@ mod tests {
         assert!(!protocol.validate_address("invalid"));
     }
 
-    #[test]
-    fn test_get_native_balance() {
+    #[tokio::test]
+    async fn test_get_native_balance() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(10_000_000_000_000_000_000, 0));
         let address = "eip155:1:0x9858effd232b4033e47d90003d41ec34ecaeda94";
         let asset = "eip155:1/slip44:60";
-        let balance = protocol.get_balance(address, asset).unwrap();
+        let balance = protocol.get_balance(address, asset).await.unwrap();
         assert_eq!(balance.spendable.0, 10_000_000_000_000_000_000);
         assert_eq!(balance.total.0, 10_000_000_000_000_000_000);
         assert_eq!(balance.pending.0, 0);
     }
 
-    #[test]
-    fn test_get_erc20_balance() {
+    #[tokio::test]
+    async fn test_get_erc20_balance() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 5_000_000_000_000_000_000));
         let address = "eip155:1:0x9858effd232b4033e47d90003d41ec34ecaeda94";
         let asset = "eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
-        let balance = protocol.get_balance(address, asset).unwrap();
+        let balance = protocol.get_balance(address, asset).await.unwrap();
         assert_eq!(balance.spendable.0, 5_000_000_000_000_000_000);
         assert_eq!(balance.total.0, 5_000_000_000_000_000_000);
         assert_eq!(balance.pending.0, 0);

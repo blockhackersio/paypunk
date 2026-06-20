@@ -14,6 +14,7 @@ keypunkd.workspace = true
 paypunk-ipc.workspace = true
 tactix.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
+async-trait.workspace = true
 postcard = { workspace = true, features = ["alloc"] }
 zeroize.workspace = true
 tempfile.workspace = true

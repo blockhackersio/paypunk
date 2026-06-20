@@ -70,21 +70,23 @@ pub struct ArtifactSummary {
 
 /// Non-signer protocol operations: build unsigned artifacts, finalize signed
 /// artifacts, validate addresses, and query balances.
+#[async_trait::async_trait]
 pub trait Protocol: Send + Sync {
     fn protocol_id(&self) -> ProtocolId;
-    fn build(&self, intent: &Intent) -> Result<Vec<u8>, String>;
+    async fn build(&self, intent: &Intent) -> Result<Vec<u8>, String>;
     fn finalize(&self, signed: &[u8]) -> Result<Vec<u8>, String>;
     fn validate_address(&self, address: &str) -> bool;
-    fn get_balance(&self, address: &str, asset: &str) -> Result<Balance, String>;
-    fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String>;
+    async fn get_balance(&self, address: &str, asset: &str) -> Result<Balance, String>;
+    async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String>;
 }
 
 // ── SignerProtocol trait (keypunkd side) ─────────────────────────────────────
 
 /// Signer-side protocol operations: export viewing keys, parse unsigned
 /// artifacts for user preview, and sign artifacts.
+#[async_trait::async_trait]
 pub trait SignerProtocol: Send + Sync {
-    fn chain(&self) -> ChainId;
+    async fn chain(&self) -> ChainId;
     fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String>;
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String>;
     fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String>;

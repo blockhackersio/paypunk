@@ -81,6 +81,7 @@ tracing-subscriber = "0.3"
 # Other
 bytes = "1"
 tempfile = "3"
+async-trait = "0.1"
 
 # Workspace member path deps
 paypunk-config = { path = "config" }
@@ -94,7 +95,6 @@ paypunk-chains-zcash = { path = "protocols/zcash" }
 paypunk-chains-ethereum = { path = "protocols/ethereum" }
 
 # Dev-only
-async-trait = "0.1"
 futures-util = "0.3"
 prost = "0.14"
 tonic = "0.14"

@@ -72,7 +72,7 @@ pub async fn submit_intent(
 
     // Build the unsigned artifact
     let protocol = protocols.get(protocol_id)?;
-    let raw_artifact = protocol.build(intent)?;
+    let raw_artifact = protocol.build(intent).await?;
 
     // Forward to keypunkd for parsing and preview
     let preview = keypunk_service
@@ -281,13 +281,13 @@ pub fn get_account(
 // ── Stubs: depend on future work ───────────────────────────────────────────
 
 /// Query the spendable, pending, and total balance for the given address and asset.
-pub fn get_balance(
+pub async fn get_balance(
     protocols: &ProtocolService,
     protocol: ProtocolId,
     address: &str,
     asset: &str,
 ) -> Result<Balance, String> {
-    protocols.get(protocol)?.get_balance(address, asset)
+    protocols.get(protocol)?.get_balance(address, asset).await
 }
 
 /// Create a transfer for the given protocol and account.
@@ -323,13 +323,13 @@ pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), Str
 
 /// Finalize and broadcast a signed transaction to the network.
 /// Returns the transaction hash.
-pub fn broadcast_transaction(
+pub async fn broadcast_transaction(
     protocols: &ProtocolService,
     protocol: ProtocolId,
     raw_tx: &[u8],
 ) -> Result<String, String> {
     let finalized = protocols.get(protocol)?.finalize(raw_tx)?;
-    protocols.get(protocol)?.broadcast(&finalized)
+    protocols.get(protocol)?.broadcast(&finalized).await
 }
 
 /// Query the on-chain status of a transaction by its ID.

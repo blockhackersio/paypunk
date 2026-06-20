@@ -148,7 +148,7 @@ impl Paypunkd {
         };
         self.respond(
             "get_balance",
-            usecases::get_balance(&self.protocols, protocol, &address, &asset),
+            usecases::get_balance(&self.protocols, protocol, &address, &asset).await,
             |balance| PaypunkdResponse::Balance { balance },
         )
     }
@@ -193,7 +193,7 @@ impl Paypunkd {
         info!(?protocol, "broadcasting transaction");
         self.respond(
             "broadcast_transaction",
-            usecases::broadcast_transaction(&self.protocols, protocol, &raw_tx),
+            usecases::broadcast_transaction(&self.protocols, protocol, &raw_tx).await,
             |tx_hash| PaypunkdResponse::TransactionBroadcasted { tx_hash },
         )
     }
