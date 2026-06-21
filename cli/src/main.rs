@@ -216,104 +216,97 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .await
         }
-        Some(command) => async_main(socket_path, command).await,
-    }
-}
+        Some(command) => {
+            let client = Client::connect(&socket_path).await?;
 
-async fn async_main(
-    socket_path: String,
-    command: Commands,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::connect(&socket_path).await?;
-
-    match command {
-        Commands::GenerateSeed { password } => {
-            let password = Zeroizing::new(password);
-            let mnemonic = client.generate_seed(password).await?;
-            println!("{}", *mnemonic);
-        }
-        Commands::RestoreSeed { mnemonic, password } => {
-            let mnemonic = Zeroizing::new(mnemonic);
-            let password = Zeroizing::new(password);
-            client.restore_seed(mnemonic, password).await?;
-            println!("Seed restored successfully");
-        }
-        Commands::SubmitZcashTransfer {
-            to,
-            amount,
-            from,
-            asset,
-            memo,
-            account,
-        } => {
-            let intent = Intent::Zcash(ZcashIntent::Transfer {
-                to,
-                amount,
-                from,
-                asset,
-                memo,
-            });
-            let path = account.to_le_bytes();
-            submit_intent_flow(&client, intent, &path).await?;
-        }
-        Commands::SubmitEthTransfer {
-            to,
-            amount,
-            from,
-            asset,
-            data,
-            account,
-        } => {
-            let intent = Intent::Ethereum(EthereumIntent::Transfer {
-                to,
-                amount,
-                from,
-                asset,
-                data,
-            });
-            let path = account.to_le_bytes();
-            submit_intent_flow(&client, intent, &path).await?;
-        }
-        Commands::ApproveSignature {
-            password: _password,
-            account,
-        } => {
-            let _path = account.to_le_bytes();
-            println!("Approving signature for account {account}...");
-            // In a real app, the preview data would be stored in state between
-            // submit and approve. For now this is a placeholder.
-            println!("ApproveSignature must be used interactively after SubmitIntent");
-            println!("Re-run with a Submit* command first");
-        }
-        Commands::GetBalance { protocol, account } => {
-            let protocol_id = match protocol.to_lowercase().as_str() {
-                "zcash" => ProtocolId::Zcash,
-                "bitcoin" => ProtocolId::Bitcoin,
-                "ethereum" => ProtocolId::Ethereum,
-                "monero" => ProtocolId::Monero,
-                "solana" => ProtocolId::Solana,
-                _ => {
-                    eprintln!("Unknown protocol: {protocol}");
-                    exit(1);
+            match command {
+                Commands::GenerateSeed { password } => {
+                    let password = Zeroizing::new(password);
+                    let mnemonic = client.generate_seed(password).await?;
+                    println!("{}", *mnemonic);
                 }
-            };
-            let asset = AssetId::Native;
-            let balance = client
-                .get_balance_legacy(protocol_id, account, asset)
-                .await?;
-            println!(
-                "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",
-                balance.spendable.0,
-                balance.pending.0,
-                balance.total.0,
-            );
-        }
-        Commands::Tui => unreachable!(),
-        Commands::Keypunkd { .. } => unreachable!(),
-        Commands::Paypunkd { .. } => unreachable!(),
-    }
+                Commands::RestoreSeed { mnemonic, password } => {
+                    let mnemonic = Zeroizing::new(mnemonic);
+                    let password = Zeroizing::new(password);
+                    client.restore_seed(mnemonic, password).await?;
+                    println!("Seed restored successfully");
+                }
+                Commands::SubmitZcashTransfer {
+                    to,
+                    amount,
+                    from,
+                    asset,
+                    memo,
+                    account,
+                } => {
+                    let intent = Intent::Zcash(ZcashIntent::Transfer {
+                        to,
+                        amount,
+                        from,
+                        asset,
+                        memo,
+                    });
+                    let path = account.to_le_bytes();
+                    submit_intent_flow(&client, intent, &path).await?;
+                }
+                Commands::SubmitEthTransfer {
+                    to,
+                    amount,
+                    from,
+                    asset,
+                    data,
+                    account,
+                } => {
+                    let intent = Intent::Ethereum(EthereumIntent::Transfer {
+                        to,
+                        amount,
+                        from,
+                        asset,
+                        data,
+                    });
+                    let path = account.to_le_bytes();
+                    submit_intent_flow(&client, intent, &path).await?;
+                }
+                Commands::ApproveSignature {
+                    password: _password,
+                    account,
+                } => {
+                    let _path = account.to_le_bytes();
+                    println!("Approving signature for account {account}...");
+                    println!("ApproveSignature must be used interactively after SubmitIntent");
+                    println!("Re-run with a Submit* command first");
+                }
+                Commands::GetBalance { protocol, account } => {
+                    let protocol_id = match protocol.to_lowercase().as_str() {
+                        "zcash" => ProtocolId::Zcash,
+                        "bitcoin" => ProtocolId::Bitcoin,
+                        "ethereum" => ProtocolId::Ethereum,
+                        "monero" => ProtocolId::Monero,
+                        "solana" => ProtocolId::Solana,
+                        _ => {
+                            eprintln!("Unknown protocol: {protocol}");
+                            exit(1);
+                        }
+                    };
+                    let asset = AssetId::Native;
+                    let balance = client
+                        .get_balance_legacy(protocol_id, account, asset)
+                        .await?;
+                    println!(
+                        "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",
+                        balance.spendable.0,
+                        balance.pending.0,
+                        balance.total.0,
+                    );
+                }
+                Commands::Tui => unreachable!(),
+                Commands::Keypunkd { .. } => unreachable!(),
+                Commands::Paypunkd { .. } => unreachable!(),
+            }
 
-    Ok(())
+            Ok(())
+        }
+    }
 }
 
 async fn wait_for_sockets(paths: &[&str]) {
@@ -327,7 +320,7 @@ async fn wait_for_sockets(paths: &[&str]) {
 }
 
 async fn submit_intent_flow(
-    client: &paypunk_api::Client,
+    client: &Client,
     intent: Intent,
     derivation_path: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
