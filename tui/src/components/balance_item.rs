@@ -19,7 +19,10 @@ pub struct BalanceItem {
 
 impl BalanceItem {
     pub fn new(balance: BalanceInfo) -> Self {
-        Self { balance, focused: false }
+        Self {
+            balance,
+            focused: false,
+        }
     }
 }
 
@@ -33,8 +36,15 @@ impl Component<BalanceAction> for BalanceItem {
         } else {
             format!("{:.4}", human)
         };
-        let chain_name = if self.balance.chain_id.contains("eip155") { "Ethereum" } else { "Zcash" };
-        let desc = format!("{}  ${:.2} ({})", formatted, self.balance.fiat_value, chain_name);
+        let chain_name = if self.balance.chain_id.contains("eip155") {
+            "Ethereum"
+        } else {
+            "Zcash"
+        };
+        let desc = format!(
+            "{}  ${:.2} ({})",
+            formatted, self.balance.fiat_value, chain_name
+        );
 
         let name_style = if self.focused {
             Style::new().fg(ui::palette().foreground).bold()

@@ -32,7 +32,11 @@ impl MockRpcClient {
 
 #[async_trait]
 impl EthRpcClient for MockRpcClient {
-    async fn get_balance(&self, _address: &str, asset: &paypunk_types::AssetId) -> Result<u64, String> {
+    async fn get_balance(
+        &self,
+        _address: &str,
+        asset: &paypunk_types::AssetId,
+    ) -> Result<u64, String> {
         match asset {
             paypunk_types::AssetId::Native => Ok(self.eth_balance),
             paypunk_types::AssetId::Token(_) => Ok(self.erc20_balance),
@@ -118,7 +122,13 @@ impl TestBuilder {
         let db_dir = Box::leak(Box::new(tempfile::TempDir::new().unwrap()));
         let db = Database::open(db_dir.path()).unwrap();
         let paypunkd_keystore = Keypair::new();
-        let paypunkd_addr = Paypunkd::new(keypunkd_recipient, paypunkd_protocols, db, paypunkd_keystore).start();
+        let paypunkd_addr = Paypunkd::new(
+            keypunkd_recipient,
+            paypunkd_protocols,
+            db,
+            paypunkd_keystore,
+        )
+        .start();
         paypunkd_addr.recipient()
     }
 }
@@ -216,7 +226,12 @@ async fn test_derive_address() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let address = client
-        .derive_address(password.clone(), ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Zcash,
+            "zcash:mainnet:0".to_string(),
+            0,
+        )
         .await
         .unwrap();
     assert!(address.starts_with("u1"), "got: {address}");
@@ -232,15 +247,30 @@ async fn test_derive_different_indexes() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr0 = client
-        .derive_address(password.clone(), ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Zcash,
+            "zcash:mainnet:0".to_string(),
+            0,
+        )
         .await
         .unwrap();
     let addr1 = client
-        .derive_address(password.clone(), ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 1)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Zcash,
+            "zcash:mainnet:0".to_string(),
+            1,
+        )
         .await
         .unwrap();
     let addr2 = client
-        .derive_address(password.clone(), ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 2)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Zcash,
+            "zcash:mainnet:0".to_string(),
+            2,
+        )
         .await
         .unwrap();
 
@@ -258,13 +288,23 @@ async fn test_derive_address_is_deterministic() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr_a = client
-        .derive_address(password.clone(), ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Zcash,
+            "zcash:mainnet:0".to_string(),
+            0,
+        )
         .await
         .unwrap();
 
     // Second call with same seed + index should produce same address
     let addr_b = client
-        .derive_address(password.clone(), ProtocolId::Zcash, "zcash:mainnet:0".to_string(), 0)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Zcash,
+            "zcash:mainnet:0".to_string(),
+            0,
+        )
         .await
         .unwrap();
 
@@ -286,7 +326,12 @@ async fn test_eth_balance_via_mock_rpc() {
 
     // Derive the address first
     let addr = client
-        .derive_address(password.clone(), ProtocolId::Ethereum, "eip155:1:0".to_string(), 0)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Ethereum,
+            "eip155:1:0".to_string(),
+            0,
+        )
         .await
         .unwrap();
 
@@ -309,7 +354,12 @@ async fn test_eth_balance_zero() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr = client
-        .derive_address(password.clone(), ProtocolId::Ethereum, "eip155:1:0".to_string(), 0)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Ethereum,
+            "eip155:1:0".to_string(),
+            0,
+        )
         .await
         .unwrap();
 
@@ -334,7 +384,12 @@ async fn test_eth_send_full_flow() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr = client
-        .derive_address(password.clone(), ProtocolId::Ethereum, "eip155:1:0".to_string(), 0)
+        .derive_address(
+            password.clone(),
+            ProtocolId::Ethereum,
+            "eip155:1:0".to_string(),
+            0,
+        )
         .await
         .unwrap();
 
@@ -353,23 +408,26 @@ async fn test_eth_send_full_flow() {
         .expect("submit_intent should succeed");
 
     assert!(!raw_artifact.is_empty(), "raw_artifact should not be empty");
-    assert!(!parsed_summary.is_empty(), "parsed_summary should not be empty");
+    assert!(
+        !parsed_summary.is_empty(),
+        "parsed_summary should not be empty"
+    );
     assert!(!signature.is_empty(), "signature should not be empty");
 
     let summary: ArtifactSummary =
         postcard::from_bytes(&parsed_summary).expect("should deserialize ArtifactSummary");
     assert_eq!(summary.protocol, ProtocolId::Ethereum);
-    assert_eq!(
-        summary.to,
-        "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
-    );
+    assert_eq!(summary.to, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
 
     let signed_artifact = client
         .approve_signature(&raw_artifact, &signature, password.clone(), &path)
         .await
         .expect("approve_signature should succeed");
 
-    assert!(!signed_artifact.is_empty(), "signed_artifact should not be empty");
+    assert!(
+        !signed_artifact.is_empty(),
+        "signed_artifact should not be empty"
+    );
 
     let tx_hash = client
         .broadcast_transaction(ProtocolId::Ethereum, signed_artifact)
@@ -495,12 +553,7 @@ async fn test_create_account_duplicate_fails() {
     client.unlock(password).await.unwrap();
 
     client
-        .create_account(
-            ProtocolId::Zcash,
-            "m/44'/133'/0'".into(),
-            0,
-            "First".into(),
-        )
+        .create_account(ProtocolId::Zcash, "m/44'/133'/0'".into(), 0, "First".into())
         .await
         .unwrap();
 

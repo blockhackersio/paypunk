@@ -61,34 +61,52 @@ impl SetupScreen {
             choice_list: List::new(choice_items),
             verify_fields: [
                 TextField::new(TextFieldConfig {
-                    label: "Word #4".into(), placeholder: "".into(),
-                    password_mode: false, initial_value: String::new(), feedback: None,
+                    label: "Word #4".into(),
+                    placeholder: "".into(),
+                    password_mode: false,
+                    initial_value: String::new(),
+                    feedback: None,
                 }),
                 TextField::new(TextFieldConfig {
-                    label: "Word #8".into(), placeholder: "".into(),
-                    password_mode: false, initial_value: String::new(), feedback: None,
+                    label: "Word #8".into(),
+                    placeholder: "".into(),
+                    password_mode: false,
+                    initial_value: String::new(),
+                    feedback: None,
                 }),
                 TextField::new(TextFieldConfig {
-                    label: "Word #12".into(), placeholder: "".into(),
-                    password_mode: false, initial_value: String::new(), feedback: None,
+                    label: "Word #12".into(),
+                    placeholder: "".into(),
+                    password_mode: false,
+                    initial_value: String::new(),
+                    feedback: None,
                 }),
             ],
             verify_focus: 0,
             password_field: TextField::new(TextFieldConfig {
-                label: "Password".into(), placeholder: "".into(),
-                password_mode: true, initial_value: String::new(), feedback: None,
+                label: "Password".into(),
+                placeholder: "".into(),
+                password_mode: true,
+                initial_value: String::new(),
+                feedback: None,
             }),
             confirm_field: TextField::new(TextFieldConfig {
-                label: "Confirm Password".into(), placeholder: "".into(),
-                password_mode: true, initial_value: String::new(), feedback: None,
+                label: "Confirm Password".into(),
+                placeholder: "".into(),
+                password_mode: true,
+                initial_value: String::new(),
+                feedback: None,
             }),
             pw_focus: 0,
             pw_error: None,
             import_states: (0..12).map(|_| InputState::new()).collect(),
             import_focus: 0,
             import_pw_field: TextField::new(TextFieldConfig {
-                label: "New Password".into(), placeholder: "".into(),
-                password_mode: true, initial_value: String::new(), feedback: None,
+                label: "New Password".into(),
+                placeholder: "".into(),
+                password_mode: true,
+                initial_value: String::new(),
+                feedback: None,
             }),
             error_msg: None,
         }
@@ -97,7 +115,9 @@ impl SetupScreen {
 
 #[async_trait(?Send)]
 impl Screen for SetupScreen {
-    fn name(&self) -> &str { "Setup" }
+    fn name(&self) -> &str {
+        "Setup"
+    }
 
     async fn init(&mut self, api: &dyn WalletApi) {
         self.data = api.get_setup().await;
@@ -111,7 +131,8 @@ impl Screen for SetupScreen {
             Constraint::Length(4),
             Constraint::Min(5),
             Constraint::Length(3),
-        ]).split(area);
+        ])
+        .split(area);
         let title_area = chunks[0];
         let content_area = chunks[1];
         let footer_area = chunks[2];
@@ -122,9 +143,14 @@ impl Screen for SetupScreen {
             .title_style(Style::new().fg(ui::palette().primary));
         frame.render_widget(title_block, title_area);
 
-        let title_sub = Paragraph::new(Line::from("Setup").centered())
-            .style(theme.text);
-        frame.render_widget(title_sub, title_area.inner(Margin { vertical: 2, horizontal: 0 }));
+        let title_sub = Paragraph::new(Line::from("Setup").centered()).style(theme.text);
+        frame.render_widget(
+            title_sub,
+            title_area.inner(Margin {
+                vertical: 2,
+                horizontal: 0,
+            }),
+        );
 
         match self.step {
             SetupStep::Choice => self.render_choice(frame, content_area),
@@ -145,15 +171,30 @@ impl Screen for SetupScreen {
         ]);
         let footer_block = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(footer_block, footer_area);
-        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer_area.inner(Margin { vertical: 0, horizontal: 1 }));
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer_area.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
 
-        if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+        if key
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL)
+        {
             match key.code {
-                KeyCode::Char('a') => return Nav::Replace(Box::new(AssetsScreen::new("eip155:1", "Account #1"))),
+                KeyCode::Char('a') => {
+                    return Nav::Replace(Box::new(AssetsScreen::new("eip155:1", "Account #1")))
+                }
                 KeyCode::Char('d') => return Nav::Replace(Box::new(ComponentDemoScreen::new())),
                 _ => {}
             }
@@ -165,7 +206,9 @@ impl Screen for SetupScreen {
         }
         match self.step {
             SetupStep::Choice => match key.code {
-                KeyCode::Up | KeyCode::Down => { let _ = self.choice_list.handle_event(key); }
+                KeyCode::Up | KeyCode::Down => {
+                    let _ = self.choice_list.handle_event(key);
+                }
                 KeyCode::Enter => {
                     if self.choice_list.selected() == Some(0) {
                         self.step = SetupStep::ShowMnemonic;
@@ -176,27 +219,50 @@ impl Screen for SetupScreen {
                 _ => {}
             },
             SetupStep::ShowMnemonic => match key.code {
-                KeyCode::Enter => { self.step = SetupStep::VerifyMnemonic; }
-                KeyCode::Esc => { self.step = SetupStep::Choice; }
+                KeyCode::Enter => {
+                    self.step = SetupStep::VerifyMnemonic;
+                }
+                KeyCode::Esc => {
+                    self.step = SetupStep::Choice;
+                }
                 _ => {}
             },
             SetupStep::VerifyMnemonic => match key.code {
                 KeyCode::Tab | KeyCode::Down => {
                     self.verify_focus = (self.verify_focus + 1).min(2);
                 }
-                KeyCode::Up => { self.verify_focus = self.verify_focus.saturating_sub(1); }
+                KeyCode::Up => {
+                    self.verify_focus = self.verify_focus.saturating_sub(1);
+                }
                 _ => {
                     let _ = self.verify_fields[self.verify_focus].handle_event(key);
                     match key.code {
                         KeyCode::Enter => {
                             let verify_words = vec![
-                                WordVerification { index: 3, word: self.verify_fields[0].value().into() },
-                                WordVerification { index: 7, word: self.verify_fields[1].value().into() },
-                                WordVerification { index: 11, word: self.verify_fields[2].value().into() },
+                                WordVerification {
+                                    index: 3,
+                                    word: self.verify_fields[0].value().into(),
+                                },
+                                WordVerification {
+                                    index: 7,
+                                    word: self.verify_fields[1].value().into(),
+                                },
+                                WordVerification {
+                                    index: 11,
+                                    word: self.verify_fields[2].value().into(),
+                                },
                             ];
                             let correct = verify_words.iter().enumerate().all(|(i, vw)| {
-                                let expected_idx = match i { 0 => 3, 1 => 7, _ => 11 };
-                                self.data.new_mnemonic.get(expected_idx).map(|w| w == &vw.word).unwrap_or(false)
+                                let expected_idx = match i {
+                                    0 => 3,
+                                    1 => 7,
+                                    _ => 11,
+                                };
+                                self.data
+                                    .new_mnemonic
+                                    .get(expected_idx)
+                                    .map(|w| w == &vw.word)
+                                    .unwrap_or(false)
                             });
                             if correct {
                                 self.step = SetupStep::SetPassword;
@@ -206,7 +272,9 @@ impl Screen for SetupScreen {
                                 self.error_msg = Some("Words don't match. Try again.".into());
                             }
                         }
-                        KeyCode::Esc => { self.step = SetupStep::ShowMnemonic; }
+                        KeyCode::Esc => {
+                            self.step = SetupStep::ShowMnemonic;
+                        }
                         _ => {}
                     }
                 }
@@ -224,13 +292,16 @@ impl Screen for SetupScreen {
                             self.pw_focus = 0;
                         }
                     }
-                    KeyCode::Up => { self.pw_focus = 0; }
+                    KeyCode::Up => {
+                        self.pw_focus = 0;
+                    }
                     _ => {
                         if self.pw_focus == 0 {
                             let _ = self.password_field.handle_event(key);
                             let new_len = self.password_field.value().len();
                             if new_len > 0 && new_len < 4 {
-                                self.pw_error = Some("Password must be at least 4 characters.".into());
+                                self.pw_error =
+                                    Some("Password must be at least 4 characters.".into());
                             } else {
                                 self.pw_error = None;
                             }
@@ -241,30 +312,49 @@ impl Screen for SetupScreen {
                             KeyCode::Enter => {
                                 let pw = self.password_field.value().to_string();
                                 if pw.len() < 4 {
-                                    self.pw_error = Some("Password must be at least 4 characters.".into());
+                                    self.pw_error =
+                                        Some("Password must be at least 4 characters.".into());
                                 } else if pw != self.confirm_field.value() {
                                     self.pw_error = Some("Passwords don't match.".into());
                                 } else {
-                                    let _ = api.submit_setup_create(SetupCreateInput {
-                                        verification_words: vec![],
-                                        backup_confirmed: true,
-                                        password: pw,
-                                        biometric_enabled: false,
-                                    }).await;
+                                    let _ = api
+                                        .submit_setup_create(SetupCreateInput {
+                                            verification_words: vec![],
+                                            backup_confirmed: true,
+                                            password: pw,
+                                            biometric_enabled: false,
+                                        })
+                                        .await;
                                     return Nav::Replace(Box::new(WalletsScreen::new()));
                                 }
                             }
-                            KeyCode::Esc => { self.step = SetupStep::VerifyMnemonic; }
+                            KeyCode::Esc => {
+                                self.step = SetupStep::VerifyMnemonic;
+                            }
                             _ => {}
                         }
                     }
                 }
             }
             SetupStep::ImportMnemonic => match key.code {
-                KeyCode::Up => { if self.import_focus >= 3 { self.import_focus -= 3; } }
-                KeyCode::Down => { if self.import_focus + 3 < 12 { self.import_focus += 3; } }
-                KeyCode::Left => { self.import_focus = self.import_focus.saturating_sub(1); }
-                KeyCode::Right | KeyCode::Tab => { if self.import_focus < 11 { self.import_focus += 1; } }
+                KeyCode::Up => {
+                    if self.import_focus >= 3 {
+                        self.import_focus -= 3;
+                    }
+                }
+                KeyCode::Down => {
+                    if self.import_focus + 3 < 12 {
+                        self.import_focus += 3;
+                    }
+                }
+                KeyCode::Left => {
+                    self.import_focus = self.import_focus.saturating_sub(1);
+                }
+                KeyCode::Right | KeyCode::Tab => {
+                    if self.import_focus < 11 {
+                        self.import_focus += 1;
+                    }
+                }
                 KeyCode::Char(c) => {
                     if self.import_focus < 12 {
                         self.import_states[self.import_focus].insert_char(c);
@@ -280,7 +370,9 @@ impl Screen for SetupScreen {
                     }
                 }
                 KeyCode::Enter => {
-                    let phrase = self.import_states.iter()
+                    let phrase = self
+                        .import_states
+                        .iter()
                         .map(|s| s.value().trim())
                         .filter(|w| !w.is_empty())
                         .collect::<Vec<_>>()
@@ -291,15 +383,19 @@ impl Screen for SetupScreen {
                     } else if pw.len() < 4 {
                         self.error_msg = Some("Password must be at least 4 characters.".into());
                     } else {
-                        let _ = api.submit_setup_import(SetupImportInput {
-                            method: "mnemonic".into(),
-                            secret: phrase,
-                            password: pw.into(),
-                        }).await;
+                        let _ = api
+                            .submit_setup_import(SetupImportInput {
+                                method: "mnemonic".into(),
+                                secret: phrase,
+                                password: pw.into(),
+                            })
+                            .await;
                         return Nav::Replace(Box::new(WalletsScreen::new()));
                     }
                 }
-                KeyCode::Esc => { self.step = SetupStep::Choice; }
+                KeyCode::Esc => {
+                    self.step = SetupStep::Choice;
+                }
                 _ => {}
             },
         }
@@ -342,14 +438,26 @@ impl SetupScreen {
         frame.render_widget(fieldset, area);
 
         self.choice_list.set_focused(true);
-        self.choice_list.render(frame, inner.inner(Margin { vertical: 1, horizontal: 2 }));
+        self.choice_list.render(
+            frame,
+            inner.inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
 
         let help = Paragraph::new(Line::from("Choose an option to continue"))
             .style(Style::new().fg(ui::palette().muted))
             .centered();
-        let help_area = Layout::vertical([Constraint::Length(4), Constraint::Min(0)])
-            .split(inner)[0];
-        frame.render_widget(help, help_area.inner(Margin { vertical: 5, horizontal: 0 }));
+        let help_area =
+            Layout::vertical([Constraint::Length(4), Constraint::Min(0)]).split(inner)[0];
+        frame.render_widget(
+            help,
+            help_area.inner(Margin {
+                vertical: 5,
+                horizontal: 0,
+            }),
+        );
     }
 
     fn render_show_mnemonic(&self, frame: &mut Frame, area: Rect) {
@@ -362,18 +470,34 @@ impl SetupScreen {
             Constraint::Length(3),
             Constraint::Min(6),
             Constraint::Length(2),
-        ]).split(inner);
+        ])
+        .split(inner);
 
         let warning = Paragraph::new(Line::from(vec![
             theme.warning("⚠ "),
             theme.warning("Write this down. Never share it with anyone."),
-        ])).style(Style::new().bg(ui::BG));
-        frame.render_widget(warning, chunks[0].inner(Margin { vertical: 1, horizontal: 2 }));
+        ]))
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            warning,
+            chunks[0].inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
 
-        let grid_area = chunks[1].inner(Margin { vertical: 0, horizontal: 2 });
+        let grid_area = chunks[1].inner(Margin {
+            vertical: 0,
+            horizontal: 2,
+        });
         let cols = Layout::horizontal([
-            Constraint::Ratio(1, 3), Constraint::Length(2), Constraint::Ratio(1, 3), Constraint::Length(2), Constraint::Ratio(1, 3),
-        ]).split(grid_area);
+            Constraint::Ratio(1, 3),
+            Constraint::Length(2),
+            Constraint::Ratio(1, 3),
+            Constraint::Length(2),
+            Constraint::Ratio(1, 3),
+        ])
+        .split(grid_area);
 
         let row_heights: Vec<Constraint> = (0..4)
             .flat_map(|_| [Constraint::Length(3), Constraint::Length(1)])
@@ -385,17 +509,31 @@ impl SetupScreen {
             let row_areas = rows.split(col_area);
             for row in 0..4 {
                 let idx = row * 3 + col;
-                if idx >= self.data.new_mnemonic.len() { continue; }
+                if idx >= self.data.new_mnemonic.len() {
+                    continue;
+                }
                 let cell = row_areas[row * 2];
                 let word = &self.data.new_mnemonic[idx];
                 let display = if word.is_empty() { "______" } else { word };
                 let cell_bg = Block::new().style(Style::new().bg(ui::SURFACE));
                 frame.render_widget(cell_bg, cell);
                 let label = Paragraph::new(Line::from(vec![
-                    Span::styled(format!("{:2}.", idx + 1), Style::new().fg(ui::palette().muted)),
-                    Span::styled(format!(" {}", display), Style::new().fg(ui::palette().foreground).bg(ui::SURFACE)),
+                    Span::styled(
+                        format!("{:2}.", idx + 1),
+                        Style::new().fg(ui::palette().muted),
+                    ),
+                    Span::styled(
+                        format!(" {}", display),
+                        Style::new().fg(ui::palette().foreground).bg(ui::SURFACE),
+                    ),
                 ]));
-                frame.render_widget(label, cell.inner(Margin { vertical: 1, horizontal: 1 }));
+                frame.render_widget(
+                    label,
+                    cell.inner(Margin {
+                        vertical: 1,
+                        horizontal: 1,
+                    }),
+                );
             }
         }
 
@@ -403,7 +541,9 @@ impl SetupScreen {
             theme.muted(" Press "),
             theme.accent("ENTER"),
             theme.muted(" after saving your phrase "),
-        ])).centered().style(Style::new().bg(ui::BG));
+        ]))
+        .centered()
+        .style(Style::new().bg(ui::BG));
         frame.render_widget(continue_btn, chunks[2]);
     }
 
@@ -413,21 +553,40 @@ impl SetupScreen {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let instruction = Paragraph::new(Line::from(vec![theme.span(
-            "Enter the requested words to confirm you saved them:",
-        )])).style(Style::new().bg(ui::BG));
-        frame.render_widget(instruction, inner.inner(Margin { vertical: 1, horizontal: 2 }));
+        let instruction = Paragraph::new(Line::from(vec![
+            theme.span("Enter the requested words to confirm you saved them:")
+        ]))
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            instruction,
+            inner.inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
 
         for (i, field) in self.verify_fields.iter_mut().enumerate() {
             field.set_focused(i == self.verify_focus);
             let y_offset = 3 + i * 3;
-            field.render(frame, inner.inner(Margin { vertical: y_offset as u16, horizontal: 2 }));
+            field.render(
+                frame,
+                inner.inner(Margin {
+                    vertical: y_offset as u16,
+                    horizontal: 2,
+                }),
+            );
         }
 
         if let Some(ref err) = self.error_msg {
-            let err_para = Paragraph::new(Line::from(vec![theme.error(err)]))
-                .style(Style::new().bg(ui::BG));
-            frame.render_widget(err_para, inner.inner(Margin { vertical: 12, horizontal: 4 }));
+            let err_para =
+                Paragraph::new(Line::from(vec![theme.error(err)])).style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                err_para,
+                inner.inner(Margin {
+                    vertical: 12,
+                    horizontal: 4,
+                }),
+            );
         }
     }
 
@@ -437,13 +596,26 @@ impl SetupScreen {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let instruction = Paragraph::new(Line::from(vec![theme.span(
-            "Create a password to protect your wallet:",
-        )])).style(Style::new().bg(ui::BG));
-        frame.render_widget(instruction, inner.inner(Margin { vertical: 1, horizontal: 2 }));
+        let instruction = Paragraph::new(Line::from(vec![
+            theme.span("Create a password to protect your wallet:")
+        ]))
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            instruction,
+            inner.inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
 
         self.password_field.set_focused(self.pw_focus == 0);
-        self.password_field.render(frame, inner.inner(Margin { vertical: 3, horizontal: 2 }));
+        self.password_field.render(
+            frame,
+            inner.inner(Margin {
+                vertical: 3,
+                horizontal: 2,
+            }),
+        );
 
         let pw = self.password_field.value();
         let pw_valid = pw.len() >= 4;
@@ -452,20 +624,39 @@ impl SetupScreen {
         let mut extra_y = 5;
 
         if let Some(ref err) = self.pw_error {
-            let err_para = Paragraph::new(Line::from(vec![theme.error(err)]))
-                .style(Style::new().bg(ui::BG));
-            frame.render_widget(err_para, inner.inner(Margin { vertical: extra_y, horizontal: 4 }));
+            let err_para =
+                Paragraph::new(Line::from(vec![theme.error(err)])).style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                err_para,
+                inner.inner(Margin {
+                    vertical: extra_y,
+                    horizontal: 4,
+                }),
+            );
             extra_y += 1;
         }
 
         if show_confirm {
             self.confirm_field.set_focused(self.pw_focus == 1);
-            self.confirm_field.render(frame, inner.inner(Margin { vertical: extra_y, horizontal: 2 }));
+            self.confirm_field.render(
+                frame,
+                inner.inner(Margin {
+                    vertical: extra_y,
+                    horizontal: 2,
+                }),
+            );
         } else if !pw.is_empty() {
-            let hint = Paragraph::new(Line::from(vec![theme.muted(
-                "Type at least 4 characters to unlock confirmation",
-            )])).style(Style::new().bg(ui::BG));
-            frame.render_widget(hint, inner.inner(Margin { vertical: extra_y, horizontal: 4 }));
+            let hint = Paragraph::new(Line::from(vec![
+                theme.muted("Type at least 4 characters to unlock confirmation")
+            ]))
+            .style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                hint,
+                inner.inner(Margin {
+                    vertical: extra_y,
+                    horizontal: 4,
+                }),
+            );
         }
     }
 
@@ -480,17 +671,33 @@ impl SetupScreen {
             Constraint::Min(6),
             Constraint::Length(2),
             Constraint::Length(2),
-        ]).split(inner);
+        ])
+        .split(inner);
 
-        let label = Paragraph::new(Line::from(vec![theme.span(
-            "Enter your 12-word recovery phrase:",
-        )])).style(Style::new().bg(ui::BG));
-        frame.render_widget(label, chunks[0].inner(Margin { vertical: 0, horizontal: 2 }));
+        let label = Paragraph::new(Line::from(vec![
+            theme.span("Enter your 12-word recovery phrase:")
+        ]))
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            label,
+            chunks[0].inner(Margin {
+                vertical: 0,
+                horizontal: 2,
+            }),
+        );
 
-        let grid_area = chunks[1].inner(Margin { vertical: 0, horizontal: 2 });
+        let grid_area = chunks[1].inner(Margin {
+            vertical: 0,
+            horizontal: 2,
+        });
         let cols = Layout::horizontal([
-            Constraint::Ratio(1, 3), Constraint::Length(2), Constraint::Ratio(1, 3), Constraint::Length(2), Constraint::Ratio(1, 3),
-        ]).split(grid_area);
+            Constraint::Ratio(1, 3),
+            Constraint::Length(2),
+            Constraint::Ratio(1, 3),
+            Constraint::Length(2),
+            Constraint::Ratio(1, 3),
+        ])
+        .split(grid_area);
 
         let row_heights: Vec<Constraint> = (0..4)
             .flat_map(|_| [Constraint::Length(3), Constraint::Length(1)])
@@ -502,37 +709,77 @@ impl SetupScreen {
             let row_areas = rows.split(col_area);
             for row in 0..4 {
                 let idx = row * 3 + col;
-                if idx >= 12 { continue; }
+                if idx >= 12 {
+                    continue;
+                }
                 let cell = row_areas[row * 2];
                 let is_focused = idx == self.import_focus;
                 let val = self.import_states[idx].value();
                 let masked: String = val.chars().map(|_| '•').collect();
-                let display = if val.is_empty() { "______".to_string() } else { masked };
-                let cell_style = if is_focused { ui::selected_style() } else { Style::new().fg(ui::palette().foreground).bg(ui::SURFACE) };
+                let display = if val.is_empty() {
+                    "______".to_string()
+                } else {
+                    masked
+                };
+                let cell_style = if is_focused {
+                    ui::selected_style()
+                } else {
+                    Style::new().fg(ui::palette().foreground).bg(ui::SURFACE)
+                };
                 let cell_bg = Block::new().style(Style::new().bg(ui::SURFACE));
                 frame.render_widget(cell_bg, cell);
                 let label = Paragraph::new(Line::from(vec![
-                    Span::styled(format!("{:2}.", idx + 1), Style::new().fg(ui::palette().muted)),
+                    Span::styled(
+                        format!("{:2}.", idx + 1),
+                        Style::new().fg(ui::palette().muted),
+                    ),
                     Span::styled(format!(" {}", display), cell_style),
                 ]));
-                frame.render_widget(label, cell.inner(Margin { vertical: 1, horizontal: 1 }));
+                frame.render_widget(
+                    label,
+                    cell.inner(Margin {
+                        vertical: 1,
+                        horizontal: 1,
+                    }),
+                );
             }
         }
 
         let pw_input = Input::new("New Password").password_mode(true);
         let mut pw_state = InputState::new();
         pw_state.set_value(self.import_pw_field.value().to_string());
-        frame.render_stateful_widget(pw_input, chunks[2].inner(Margin { vertical: 0, horizontal: 2 }), &mut pw_state);
+        frame.render_stateful_widget(
+            pw_input,
+            chunks[2].inner(Margin {
+                vertical: 0,
+                horizontal: 2,
+            }),
+            &mut pw_state,
+        );
 
         if let Some(ref err) = self.error_msg {
-            let err_para = Paragraph::new(Line::from(vec![theme.error(err)]))
-                .style(Style::new().bg(ui::BG));
-            frame.render_widget(err_para, chunks[2].inner(Margin { vertical: 1, horizontal: 2 }));
+            let err_para =
+                Paragraph::new(Line::from(vec![theme.error(err)])).style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                err_para,
+                chunks[2].inner(Margin {
+                    vertical: 1,
+                    horizontal: 2,
+                }),
+            );
         }
 
         let hint = Paragraph::new(Line::from(vec![theme.muted(
             "Paste a 12-word phrase to fill all fields, or type each word individually",
-        )])).centered().style(Style::new().bg(ui::BG));
-        frame.render_widget(hint, chunks[3].inner(Margin { vertical: 0, horizontal: 2 }));
+        )]))
+        .centered()
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            hint,
+            chunks[3].inner(Margin {
+                vertical: 0,
+                horizontal: 2,
+            }),
+        );
     }
 }

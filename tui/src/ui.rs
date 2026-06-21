@@ -57,14 +57,14 @@ pub fn render_error_banner(frame: &mut Frame, area: Rect, message: &str) {
         height: 1,
     };
     let theme = theme();
-    let line = Line::from(vec![
-        theme.error(" ✗ "),
-        theme.span(message.to_string()),
-    ]);
+    let line = Line::from(vec![theme.error(" ✗ "), theme.span(message.to_string())]);
     let block = Block::new().style(Style::new().bg(Color::Indexed(52)));
     frame.render_widget(block, banner_area);
     frame.render_widget(
         Paragraph::new(line).style(Style::new().bg(Color::Indexed(52))),
-        banner_area.inner(Margin { vertical: 0, horizontal: 2 }),
+        banner_area.inner(Margin {
+            vertical: 0,
+            horizontal: 2,
+        }),
     );
 }

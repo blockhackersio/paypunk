@@ -19,7 +19,10 @@ pub struct WalletItem {
 
 impl WalletItem {
     pub fn new(wallet: WalletDerivation) -> Self {
-        Self { wallet, focused: false }
+        Self {
+            wallet,
+            focused: false,
+        }
     }
 }
 
@@ -43,7 +46,11 @@ impl Component<WalletAction> for WalletItem {
         };
 
         let short_addr = if self.wallet.address.len() > 20 {
-            format!("{}...{}", &self.wallet.address[..10], &self.wallet.address[self.wallet.address.len()-8..])
+            format!(
+                "{}...{}",
+                &self.wallet.address[..10],
+                &self.wallet.address[self.wallet.address.len() - 8..]
+            )
         } else {
             self.wallet.address.clone()
         };

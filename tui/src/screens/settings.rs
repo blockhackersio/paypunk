@@ -64,12 +64,15 @@ impl SettingsScreen {
 
 #[async_trait(?Send)]
 impl Screen for SettingsScreen {
-    fn name(&self) -> &str { "Settings" }
+    fn name(&self) -> &str {
+        "Settings"
+    }
 
     async fn init(&mut self, api: &dyn WalletApi) {
         self.data = Some(api.get_settings().await);
         if let Some(ref data) = self.data {
-            self.auto_lock_field.set_value(&data.security.auto_lock_minutes.to_string());
+            self.auto_lock_field
+                .set_value(&data.security.auto_lock_minutes.to_string());
             self.fiat_field.set_value(&data.fiat_currency);
         }
     }
@@ -81,8 +84,11 @@ impl Screen for SettingsScreen {
             Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Length(3),
-        ]).split(area);
-        let header = chunks[0]; let body = chunks[1]; let footer = chunks[2];
+        ])
+        .split(area);
+        let header = chunks[0];
+        let body = chunks[1];
+        let footer = chunks[2];
 
         let title = theme.title(" Settings ").centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
@@ -99,18 +105,26 @@ impl Screen for SettingsScreen {
                 ("Esc", "Back"),
                 ("?", "Help"),
             ]),
-            SettingsAction::RevealPhrase => theme.help_line([
-                ("Enter", "Auth"),
-                ("Esc", "Cancel"),
-                ("?", "Help"),
-            ]),
+            SettingsAction::RevealPhrase => {
+                theme.help_line([("Enter", "Auth"), ("Esc", "Cancel"), ("?", "Help")])
+            }
         };
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
-        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
@@ -141,10 +155,14 @@ impl Screen for SettingsScreen {
                                     self.focus = 0;
                                 } else if self.focus == 3 {
                                     let lock = self.auto_lock_field.value().parse().unwrap_or(5);
-                                    let _ = api.submit_settings(SettingsInput {
-                                        updated_security: UpdatedSecurity { auto_lock_minutes: lock },
-                                        fiat_currency: self.fiat_field.value().into(),
-                                    }).await;
+                                    let _ = api
+                                        .submit_settings(SettingsInput {
+                                            updated_security: UpdatedSecurity {
+                                                auto_lock_minutes: lock,
+                                            },
+                                            fiat_currency: self.fiat_field.value().into(),
+                                        })
+                                        .await;
                                 }
                             }
                             KeyCode::Esc => return Nav::Pop,
@@ -159,11 +177,16 @@ impl Screen for SettingsScreen {
                     if handled.is_none() {
                         match key.code {
                             KeyCode::Enter => {
-                                match api.submit_reveal_phrase(RevealPhraseInput {
-                                    auth_type: "password".into(),
-                                    value: self.reveal_field.value().into(),
-                                }).await {
-                                    Ok(phrase) => { self.phrase = Some(phrase); }
+                                match api
+                                    .submit_reveal_phrase(RevealPhraseInput {
+                                        auth_type: "password".into(),
+                                        value: self.reveal_field.value().into(),
+                                    })
+                                    .await
+                                {
+                                    Ok(phrase) => {
+                                        self.phrase = Some(phrase);
+                                    }
                                     Err(e) => self.error_msg = Some(e.0),
                                 }
                             }
@@ -204,34 +227,61 @@ impl SettingsScreen {
         frame.render_widget(block, area);
 
         self.auto_lock_field.set_focused(self.focus == 0);
-        self.auto_lock_field.render(frame, inner.inner(Margin { vertical: 0, horizontal: 2 }));
+        self.auto_lock_field.render(
+            frame,
+            inner.inner(Margin {
+                vertical: 0,
+                horizontal: 2,
+            }),
+        );
 
         self.fiat_field.set_focused(self.focus == 1);
-        self.fiat_field.render(frame, inner.inner(Margin { vertical: 3, horizontal: 2 }));
+        self.fiat_field.render(
+            frame,
+            inner.inner(Margin {
+                vertical: 3,
+                horizontal: 2,
+            }),
+        );
 
         let mut lines = vec![
             Line::from(""),
-            Line::from(vec![
-                if self.focus == 2 { theme.accent("▸ Reveal Recovery Phrase") } else { theme.muted("▸ Reveal Recovery Phrase") },
-            ]),
+            Line::from(vec![if self.focus == 2 {
+                theme.accent("▸ Reveal Recovery Phrase")
+            } else {
+                theme.muted("▸ Reveal Recovery Phrase")
+            }]),
             Line::from(""),
-            Line::from(vec![
-                if self.focus == 3 { theme.accent("▸ Save Settings") } else { theme.muted("▸ Save Settings") },
-            ]),
+            Line::from(vec![if self.focus == 3 {
+                theme.accent("▸ Save Settings")
+            } else {
+                theme.muted("▸ Save Settings")
+            }]),
         ];
 
         if let Some(ref data) = self.data {
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                theme.muted(format!("Version: {}", data.app_version)),
+                theme.muted(format!("Version: {}", data.app_version))
             ]));
-            lines.push(Line::from(vec![
-                theme.muted(format!("Biometric: {}", if data.security.biometric_enabled { "Enabled" } else { "Disabled" })),
-            ]));
+            lines.push(Line::from(vec![theme.muted(format!(
+                "Biometric: {}",
+                if data.security.biometric_enabled {
+                    "Enabled"
+                } else {
+                    "Disabled"
+                }
+            ))]));
         }
 
         let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
-        frame.render_widget(para, inner.inner(Margin { vertical: 6, horizontal: 2 }));
+        frame.render_widget(
+            para,
+            inner.inner(Margin {
+                vertical: 6,
+                horizontal: 2,
+            }),
+        );
     }
 
     fn render_reveal(&mut self, frame: &mut Frame, area: Rect) {
@@ -242,14 +292,30 @@ impl SettingsScreen {
             frame.render_widget(block, area);
 
             let warning = Paragraph::new(Line::from(vec![
-                theme.warning("⚠ Never share your recovery phrase"),
-            ])).centered().style(Style::new().bg(ui::BG));
-            frame.render_widget(warning, inner.inner(Margin { vertical: 0, horizontal: 0 }));
+                theme.warning("⚠ Never share your recovery phrase")
+            ]))
+            .centered()
+            .style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                warning,
+                inner.inner(Margin {
+                    vertical: 0,
+                    horizontal: 0,
+                }),
+            );
 
-            let grid_area = inner.inner(Margin { vertical: 2, horizontal: 4 });
+            let grid_area = inner.inner(Margin {
+                vertical: 2,
+                horizontal: 4,
+            });
             let cols = Layout::horizontal([
-                Constraint::Ratio(1, 3), Constraint::Length(2), Constraint::Ratio(1, 3), Constraint::Length(2), Constraint::Ratio(1, 3),
-            ]).split(grid_area);
+                Constraint::Ratio(1, 3),
+                Constraint::Length(2),
+                Constraint::Ratio(1, 3),
+                Constraint::Length(2),
+                Constraint::Ratio(1, 3),
+            ])
+            .split(grid_area);
 
             let row_heights: Vec<Constraint> = (0..4)
                 .flat_map(|_| [Constraint::Length(3), Constraint::Length(1)])
@@ -261,16 +327,30 @@ impl SettingsScreen {
                 let row_areas = rows.split(col_area);
                 for row in 0..4 {
                     let idx = row * 3 + col;
-                    if idx >= phrase.len() { continue; }
+                    if idx >= phrase.len() {
+                        continue;
+                    }
                     let cell = row_areas[row * 2];
                     let word = &phrase[idx];
                     let cell_bg = Block::new().style(Style::new().bg(ui::SURFACE));
                     frame.render_widget(cell_bg, cell);
                     let label = Paragraph::new(Line::from(vec![
-                        Span::styled(format!("{:2}.", idx + 1), Style::new().fg(ui::palette().muted)),
-                        Span::styled(format!(" {}  ", word), Style::new().fg(ui::palette().primary).bold()),
+                        Span::styled(
+                            format!("{:2}.", idx + 1),
+                            Style::new().fg(ui::palette().muted),
+                        ),
+                        Span::styled(
+                            format!(" {}  ", word),
+                            Style::new().fg(ui::palette().primary).bold(),
+                        ),
                     ]));
-                    frame.render_widget(label, cell.inner(Margin { vertical: 1, horizontal: 1 }));
+                    frame.render_widget(
+                        label,
+                        cell.inner(Margin {
+                            vertical: 1,
+                            horizontal: 1,
+                        }),
+                    );
                 }
             }
         } else {
@@ -279,12 +359,24 @@ impl SettingsScreen {
             frame.render_widget(block, area);
 
             self.reveal_field.set_focused(true);
-            self.reveal_field.render(frame, inner.inner(Margin { vertical: 2, horizontal: 4 }));
+            self.reveal_field.render(
+                frame,
+                inner.inner(Margin {
+                    vertical: 2,
+                    horizontal: 4,
+                }),
+            );
 
             if let Some(ref err) = self.error_msg {
                 let err_para = Paragraph::new(Line::from(vec![theme.error(err)]))
                     .style(Style::new().bg(ui::BG));
-                frame.render_widget(err_para, inner.inner(Margin { vertical: 5, horizontal: 4 }));
+                frame.render_widget(
+                    err_para,
+                    inner.inner(Margin {
+                        vertical: 5,
+                        horizontal: 4,
+                    }),
+                );
             }
         }
     }

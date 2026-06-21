@@ -89,8 +89,7 @@ pub fn decrypt_seed(
         .ok_or_else(|| "no seed found — wallet not initialized".to_string())?;
 
     debug!("decrypting seed");
-    key::decrypt_seed(&encrypted, &*password)
-        .map_err(|e| format!("seed decryption failed: {e}"))
+    key::decrypt_seed(&encrypted, &*password).map_err(|e| format!("seed decryption failed: {e}"))
 }
 
 /// Validate a BIP39 mnemonic phrase.

@@ -116,22 +116,15 @@ impl Handler<IpcMessage> for IpcSender {
         frame.extend_from_slice(&msg.payload);
         frame.extend_from_slice(&mac);
 
-        self.transport
-            .write_frame(&frame)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "failed to write IPC frame");
-                e.to_string()
-            })?;
+        self.transport.write_frame(&frame).await.map_err(|e| {
+            error!(error = %e, "failed to write IPC frame");
+            e.to_string()
+        })?;
 
-        let raw = self
-            .transport
-            .read_frame()
-            .await
-            .map_err(|e| {
-                error!(error = %e, "failed to read IPC response");
-                e.to_string()
-            })?;
+        let raw = self.transport.read_frame().await.map_err(|e| {
+            error!(error = %e, "failed to read IPC response");
+            e.to_string()
+        })?;
 
         if raw.is_empty() {
             error!("empty IPC response");

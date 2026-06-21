@@ -94,11 +94,7 @@ impl Client {
     }
 
     /// Query the balance for the given address and asset (CAIP-10 and CAIP-19).
-    pub async fn get_balance(
-        &self,
-        address: String,
-        asset: String,
-    ) -> Result<Balance, String> {
+    pub async fn get_balance(&self, address: String, asset: String) -> Result<Balance, String> {
         crate::functions::get_balance(&self.service, address, asset).await
     }
 
@@ -156,10 +152,7 @@ impl Client {
     }
 
     /// Unlock the wallet by decrypting the DB and deriving initial accounts.
-    pub async fn unlock(
-        &self,
-        password: Zeroizing<String>,
-    ) -> Result<u32, String> {
+    pub async fn unlock(&self, password: Zeroizing<String>) -> Result<u32, String> {
         crate::functions::unlock(&self.service, password).await
     }
 

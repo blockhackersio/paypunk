@@ -22,8 +22,7 @@ pub enum DeriveError {
 pub fn derive_address(seed: &[u8; 64], account: u32, index: u32) -> Result<String, DeriveError> {
     let account_id =
         zip32::AccountId::try_from(account).map_err(|_| DeriveError::InvalidAccount(account))?;
-    let sk =
-        SpendingKey::from_zip32_seed(seed, 133, account_id).map_err(DeriveError::Zip32)?;
+    let sk = SpendingKey::from_zip32_seed(seed, 133, account_id).map_err(DeriveError::Zip32)?;
     let fvk = FullViewingKey::from(&sk);
     address_from_fvk(&fvk, index)
 }
@@ -37,7 +36,9 @@ pub fn derive_address_at_index(seed: &[u8; 64], index: u32) -> Result<String, De
 /// Derive a unified address from serialized FullViewingKey bytes and a
 /// diversifier index. No seed or private key material needed.
 pub fn derive_from_fvk(fvk_bytes: &[u8], index: u32) -> Result<String, DeriveError> {
-    let bytes: [u8; 96] = fvk_bytes.try_into().map_err(|_| DeriveError::InvalidViewKey)?;
+    let bytes: [u8; 96] = fvk_bytes
+        .try_into()
+        .map_err(|_| DeriveError::InvalidViewKey)?;
     let fvk = FullViewingKey::from_bytes(&bytes).ok_or(DeriveError::InvalidViewKey)?;
     address_from_fvk(&fvk, index)
 }

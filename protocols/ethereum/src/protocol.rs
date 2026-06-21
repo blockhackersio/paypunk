@@ -1,13 +1,13 @@
 use alloy_consensus::{SignableTransaction, TxEip1559};
 use alloy_primitives::{Address, Signature, TxKind, U256};
 use async_trait::async_trait;
+use hex;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use paypunk_types::{
     caip, ArtifactSummary, ChainId, EthereumIntent, Intent, Protocol, ProtocolId, SignerProtocol,
 };
 use std::str::FromStr;
-use hex;
 
 use crate::address;
 use crate::rpc::EthRpcClient;
@@ -50,7 +50,12 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
                 from,
                 asset: _,
                 data,
-            }) => (to.as_str(), amount.as_str(), Some(data.as_str()), from.as_str()),
+            }) => (
+                to.as_str(),
+                amount.as_str(),
+                Some(data.as_str()),
+                from.as_str(),
+            ),
             _ => return Err("unexpected intent variant for Ethereum protocol".to_string()),
         };
 
@@ -59,9 +64,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             return Err(format!("invalid from address: {from}"));
         }
 
-        let to_addr: Address = to
-            .parse()
-            .map_err(|e| format!("invalid address: {e}"))?;
+        let to_addr: Address = to.parse().map_err(|e| format!("invalid address: {e}"))?;
 
         let amount_u64 = parse_amount(amount)?;
         let chain_id = self.client.get_chain_id().await?;
@@ -105,19 +108,24 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
         Ok(out)
     }
 
-    async fn get_balance(&self, address: &str, asset: &str) -> Result<paypunk_types::Balance, String> {
+    async fn get_balance(
+        &self,
+        address: &str,
+        asset: &str,
+    ) -> Result<paypunk_types::Balance, String> {
         // Parse CAIP-10 address to get the raw address
-        let account = caip::AccountId::parse(address)
-            .map_err(|e| format!("invalid CAIP-10 address: {e}"))?;
+        let account =
+            caip::AccountId::parse(address).map_err(|e| format!("invalid CAIP-10 address: {e}"))?;
 
         // Parse CAIP-19 asset to determine native vs token
-        let parsed = caip::AssetId::parse(asset)
-            .map_err(|e| format!("invalid CAIP-19 asset: {e}"))?;
+        let parsed =
+            caip::AssetId::parse(asset).map_err(|e| format!("invalid CAIP-19 asset: {e}"))?;
         let asset_id = parsed.to_asset_enum("60");
 
         let balance = self
             .client
-            .get_balance(&account.account_address, &asset_id).await?;
+            .get_balance(&account.account_address, &asset_id)
+            .await?;
         Ok(paypunk_types::Balance {
             spendable: paypunk_types::Amount(balance),
             pending: paypunk_types::Amount(0),
@@ -150,7 +158,9 @@ fn parse_amount(amount: &str) -> Result<u64, String> {
     let parts: Vec<&str> = amount.split('.').collect();
     match parts.len() {
         1 => {
-            let v: u64 = parts[0].parse().map_err(|e| format!("invalid amount: {e}"))?;
+            let v: u64 = parts[0]
+                .parse()
+                .map_err(|e| format!("invalid amount: {e}"))?;
             Ok(v * 1_000_000_000_000_000_000) // Convert to wei
         }
         2 => {
@@ -183,12 +193,16 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
         }
         let account = u32::from_le_bytes(path[..4].try_into().unwrap());
         let secret_key = derive_ethereum_key(seed, account, 0);
-        Ok(secret_key.verifying_key().to_encoded_point(false).as_bytes().to_vec())
+        Ok(secret_key
+            .verifying_key()
+            .to_encoded_point(false)
+            .as_bytes()
+            .to_vec())
     }
 
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String> {
-        let tx: TxEip1559 = alloy_rlp::decode_exact(artifact)
-            .map_err(|e| format!("RLP decode failed: {e}"))?;
+        let tx: TxEip1559 =
+            alloy_rlp::decode_exact(artifact).map_err(|e| format!("RLP decode failed: {e}"))?;
 
         let to = match tx.to {
             TxKind::Call(addr) => addr.to_string(),
@@ -300,7 +314,11 @@ mod tests {
 
     #[async_trait]
     impl EthRpcClient for MockRpcClient {
-        async fn get_balance(&self, _address: &str, asset: &paypunk_types::AssetId) -> Result<u64, String> {
+        async fn get_balance(
+            &self,
+            _address: &str,
+            asset: &paypunk_types::AssetId,
+        ) -> Result<u64, String> {
             match asset {
                 paypunk_types::AssetId::Native => Ok(self.eth_balance),
                 paypunk_types::AssetId::Token(_) => Ok(self.erc20_balance),
@@ -318,13 +336,22 @@ mod tests {
         async fn get_gas_price(&self) -> Result<u128, String> {
             Ok(20_000_000_000)
         }
-        async fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
+        async fn estimate_gas(
+            &self,
+            _from: &str,
+            _to: &str,
+            _value: &str,
+            _data: &str,
+        ) -> Result<u64, String> {
             Ok(21_000)
         }
         async fn get_block_number(&self) -> Result<u64, String> {
             Ok(19_000_000)
         }
-        async fn get_transaction_receipt(&self, _tx_hash: &str) -> Result<Option<crate::rpc::TxReceipt>, String> {
+        async fn get_transaction_receipt(
+            &self,
+            _tx_hash: &str,
+        ) -> Result<Option<crate::rpc::TxReceipt>, String> {
             Ok(None)
         }
     }

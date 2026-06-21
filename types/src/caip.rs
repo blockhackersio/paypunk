@@ -80,7 +80,11 @@ impl AccountId {
     }
 
     pub fn to_caip_string(&self) -> String {
-        format!("{}:{}", self.chain_id.to_caip_string(), self.account_address)
+        format!(
+            "{}:{}",
+            self.chain_id.to_caip_string(),
+            self.account_address
+        )
     }
 
     /// Parse the `account_address` portion as a BIP44 account number (`u32`).
@@ -198,13 +202,16 @@ mod tests {
         let id = AccountId::parse("eip155:1:0xab16a96d359ec26a11e2c2b3d8f8b8942d5bfcdb").unwrap();
         assert_eq!(id.chain_id.namespace, "eip155");
         assert_eq!(id.chain_id.reference, "1");
-        assert_eq!(id.account_address, "0xab16a96d359ec26a11e2c2b3d8f8b8942d5bfcdb");
+        assert_eq!(
+            id.account_address,
+            "0xab16a96d359ec26a11e2c2b3d8f8b8942d5bfcdb"
+        );
     }
 
     #[test]
     fn test_caip19_erc20() {
-        let id = AssetId::parse("eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")
-            .unwrap();
+        let id =
+            AssetId::parse("eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48").unwrap();
         assert_eq!(id.chain_id.namespace, "eip155");
         assert_eq!(id.chain_id.reference, "1");
         assert_eq!(id.asset_namespace, "erc20");
@@ -255,11 +262,14 @@ mod tests {
 
     #[test]
     fn test_to_asset_enum_token() {
-        let asset = AssetId::parse("eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48").unwrap();
+        let asset =
+            AssetId::parse("eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48").unwrap();
         let result = asset.to_asset_enum("60");
         assert_eq!(
             result,
-            crate::AssetId::Token("eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".into())
+            crate::AssetId::Token(
+                "eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".into()
+            )
         );
     }
 }

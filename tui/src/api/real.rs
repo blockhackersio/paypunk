@@ -150,7 +150,11 @@ impl WalletApi for RealWalletApi {
                     gas_limit_estimate: "21000".into(),
                 })
             } else {
-                FeeData::Zec(FeeRates { slow: 0, medium: 0, fast: 0 })
+                FeeData::Zec(FeeRates {
+                    slow: 0,
+                    medium: 0,
+                    fast: 0,
+                })
             },
             nonce: if is_eth { Some(0) } else { None },
             utxos: None,
@@ -196,15 +200,13 @@ impl WalletApi for RealWalletApi {
                     }
                 }
             }
-            Err(e) => {
-                SendReviewData {
-                    to_address: format!("Error: {e}"),
-                    amount: String::new(),
-                    fee_estimate: String::new(),
-                    total_amount: String::new(),
-                    chain_id: input.chain_id,
-                }
-            }
+            Err(e) => SendReviewData {
+                to_address: format!("Error: {e}"),
+                amount: String::new(),
+                fee_estimate: String::new(),
+                total_amount: String::new(),
+                chain_id: input.chain_id,
+            },
         }
     }
 
@@ -232,10 +234,7 @@ impl WalletApi for RealWalletApi {
                             Ok(tx_hash) => SendResult {
                                 tx_hash: tx_hash.clone(),
                                 status: "broadcasted".into(),
-                                block_explorer_url: format!(
-                                    "https://etherscan.io/tx/{}",
-                                    tx_hash
-                                ),
+                                block_explorer_url: format!("https://etherscan.io/tx/{}", tx_hash),
                             },
                             Err(e) => SendResult {
                                 tx_hash: String::new(),
@@ -298,7 +297,9 @@ impl WalletApi for RealWalletApi {
         &self,
         _input: RevealPhraseInput,
     ) -> Result<Vec<String>, ApiError> {
-        Err(ApiError("reveal phrase not yet supported via real API".into()))
+        Err(ApiError(
+            "reveal phrase not yet supported via real API".into(),
+        ))
     }
 
     async fn check_wallet_exists(&self) -> bool {

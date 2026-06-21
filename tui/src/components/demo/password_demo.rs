@@ -45,9 +45,9 @@ impl Component<Nav> for PasswordDemo {
         self.password_field.set_focused(true);
         self.password_field.render(frame, chunks[0]);
 
-        let hint = Paragraph::new(Line::from(vec![theme.muted(
-            "Characters are masked. Press Enter to validate.",
-        )]))
+        let hint = Paragraph::new(Line::from(vec![
+            theme.muted("Characters are masked. Press Enter to validate.")
+        ]))
         .style(Style::new().bg(ui::BG));
         frame.render_widget(hint, chunks[1]);
 
@@ -67,9 +67,8 @@ impl Component<Nav> for PasswordDemo {
             match action {
                 TextFieldAction::Changed(v) => {
                     if v.len() >= 8 {
-                        self.password_field.set_feedback(Some(Feedback::Success(
-                            "Strong password".into(),
-                        )));
+                        self.password_field
+                            .set_feedback(Some(Feedback::Success("Strong password".into())));
                     } else if !v.is_empty() {
                         self.password_field.set_feedback(Some(Feedback::Warning(
                             "At least 8 characters needed".into(),

@@ -19,10 +19,7 @@ pub struct HardcodedConfig;
 
 impl HardcodedConfig {
     fn home_dir() -> PathBuf {
-        PathBuf::from(
-            std::env::var("HOME")
-                .expect("HOME environment variable must be set"),
-        )
+        PathBuf::from(std::env::var("HOME").expect("HOME environment variable must be set"))
     }
 }
 

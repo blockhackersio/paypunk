@@ -2,12 +2,11 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use paypunk_types::{
-    ArtifactSummary, ChainId, Intent, Protocol, ProtocolId, SignerProtocol,
-    ZcashIntent,
+    ArtifactSummary, ChainId, Intent, Protocol, ProtocolId, SignerProtocol, ZcashIntent,
 };
 use pczt::roles::{
-    signer::Signer, spend_finalizer::SpendFinalizer,
-    tx_extractor::TransactionExtractor, verifier::Verifier,
+    signer::Signer, spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
+    verifier::Verifier,
 };
 use zcash_keys::keys::UnifiedSpendingKey;
 use zip32::fingerprint::SeedFingerprint;
@@ -44,8 +43,8 @@ impl SignerProtocol for ZcashProtocol {
             return Err("path must be at least 4 bytes (account)".to_string());
         }
         let account = u32::from_le_bytes(path[..4].try_into().unwrap());
-        let account_id =
-            zip32::AccountId::try_from(account).map_err(|_| format!("invalid account: {account}"))?;
+        let account_id = zip32::AccountId::try_from(account)
+            .map_err(|_| format!("invalid account: {account}"))?;
         let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
             .map_err(|e| format!("USK derivation failed: {e}"))?;
         let fvk = usk.to_unified_full_viewing_key();
@@ -93,8 +92,8 @@ impl ZcashProtocol {
         let pczt =
             pczt::Pczt::parse(transaction).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
 
-        let account_id =
-            zip32::AccountId::try_from(account).map_err(|_| format!("invalid account: {account}"))?;
+        let account_id = zip32::AccountId::try_from(account)
+            .map_err(|_| format!("invalid account: {account}"))?;
         let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
             .map_err(|e| format!("USK derivation failed: {e}"))?;
 
@@ -192,8 +191,7 @@ impl Protocol for ZcashProtocol {
     }
 
     fn finalize(&self, signed: &[u8]) -> Result<Vec<u8>, String> {
-        let pczt =
-            pczt::Pczt::parse(signed).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+        let pczt = pczt::Pczt::parse(signed).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
 
         let finalized = SpendFinalizer::new(pczt)
             .finalize_spends()
@@ -212,7 +210,11 @@ impl Protocol for ZcashProtocol {
         Ok(raw_tx)
     }
 
-    async fn get_balance(&self, _address: &str, _asset: &str) -> Result<paypunk_types::Balance, String> {
+    async fn get_balance(
+        &self,
+        _address: &str,
+        _asset: &str,
+    ) -> Result<paypunk_types::Balance, String> {
         Err("get_balance not yet implemented — needs WalletDb + LSP chain scan".to_string())
     }
 

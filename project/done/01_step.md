@@ -1,138 +1,192 @@
-# Pre-hash password with Argon2id before sending to daemons
+# Step 1: Extract daemon run() functions and remove standalone binary targets
 
 ## Context
 
-The raw password was being encrypted with X25519 and sent to both paypunkd (for DB unlock) and keypunkd (for seed decryption). The architecture requires that paypunkd never sees the raw password. Instead, the API layer pre-hashes the password with Argon2id using domain-separation salts before encrypting and sending.
+The `keypunkd` and `paypunkd` crates currently produce standalone binaries (via `[[bin]]` in their Cargo.toml) with `main.rs` files that parse CLI args, init tracing, and run the daemon. We want these crates to be library-only, exposing a `run()` function that the CLI can call directly (in-process) or via child process spawning.
 
 ## Changes
 
-### `api/Cargo.toml`
-Add `argon2.workspace = true` and `hex.workspace = true` dependencies.
+### 1. `keypunkd/src/run.rs` (new file)
 
-### `api/src/functions.rs`
+Create a public `run` module with a `Config` struct and an async `run()` function that encapsulates the current `main.rs` logic:
 
-**New imports:**
 ```rust
-use argon2::Argon2;
-```
+use paypunk_ipc::IpcReceiver;
+use paypunk_types::ProtocolId;
+use tactix::Actor;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
-**New helper function** (before `check_wallet_exists`):
-```rust
-/// Hash a password with a domain-separation salt using Argon2id.
-///
-/// Returns a 64-character hex-encoded string of the 32-byte hash.
-/// The domain salt ensures the same password produces different hashes
-/// for different domains (e.g., paypunkd vs keypunkd).
-fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
-    let mut hash = [0u8; 32];
-    Argon2::default()
-        .hash_password_into(password.as_bytes(), domain, &mut hash)
-        .expect("Argon2id key derivation should not fail with valid parameters");
-    Zeroizing::new(hex::encode(hash))
+pub struct Config {
+    pub socket_path: String,
+    pub data_dir: String,
+}
+
+pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .try_init();
+
+    let keystore = keypunkd::crypto::Keypair::new();
+    let (secret, public) = keystore.keypair();
+    let seed_store = keypunkd::seed_store::FilesystemSeedStore::new(
+        std::path::PathBuf::from(&config.data_dir)
+            .join("seed.enc")
+            .into_boxed_path(),
+    );
+
+    let mut protocols = keypunkd::protocol::ProtocolService::new();
+    protocols.register(
+        ProtocolId::Zcash,
+        Box::new(paypunk_chains_zcash::protocol::ZcashProtocol {
+            params: zcash_protocol::consensus::Network::MainNetwork,
+        }),
+    );
+    protocols.register(
+        ProtocolId::Ethereum,
+        Box::new(paypunk_chains_ethereum::protocol::EthereumProtocol::new(())),
+    );
+    info!("registered protocols: Zcash, Ethereum");
+
+    let keypunkd = keypunkd::Keypunkd::new(keystore, seed_store, protocols).start();
+
+    let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;
+    info!("keypunkd listening on {}", config.socket_path);
+
+    let serve = tokio::spawn(async move {
+        if let Err(e) = server.serve(keypunkd).await {
+            tracing::error!(error = %e, "server error");
+        }
+    });
+
+    tokio::signal::ctrl_c().await?;
+    info!("shutting down");
+    serve.abort();
+    Ok(())
 }
 ```
 
-**Modify `unlock()`** — lines 30-31:
-```rust
-    // Before:
-    let encrypted_keypunkd_password = client_keypair.encrypt(password.clone(), &keypunk_pk);
-    let encrypted_db_password = client_keypair.encrypt(password, &paypunkd_pk);
+Note: uses `try_init()` instead of `init()` so tracing is not double-initialized when called in-process from the CLI.
 
-    // After:
-    let encrypted_keypunkd_password =
-        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &keypunk_pk);
-    let encrypted_db_password =
-        client_keypair.encrypt(hash_for_domain(&password, b"paypunkd-db-key"), &paypunkd_pk);
+### 2. `keypunkd/src/lib.rs`
+
+Add `pub mod run;`
+
+### 3. `keypunkd/Cargo.toml`
+
+Remove the `[[bin]]` section:
+```toml
+# DELETE these 3 lines:
+# [[bin]]
+# name = "keypunkd"
+# path = "src/main.rs"
 ```
 
-**Modify `generate_seed()`** — line 50:
+### 4. `keypunkd/src/main.rs` — DELETE this file
+
+### 5. `paypunkd/src/run.rs` (new file)
+
+Create a public `run` module:
+
 ```rust
-    // Before:
-    let encrypted_password = client_keypair.encrypt(password, &server_pk);
-    // After:
-    let encrypted_password =
-        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
-```
+use keypunkd::crypto::Keypair;
+use paypunk_ipc::{IpcReceiver, IpcSender};
+use paypunkd::config::{ConfigSource, TomlConfig};
+use paypunkd::database::Database;
+use paypunkd::protocol_service::ProtocolService;
+use paypunkd::Paypunkd;
+use tactix::{Actor, Sender};
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
-**Modify `restore_seed()`** — line 70:
-```rust
-    // Before:
-    let encrypted_password = client_keypair.encrypt(password, &server_pk);
-    // After:
-    let encrypted_password =
-        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
-```
+pub struct Config {
+    pub socket_path: String,
+    pub keypunkd_socket: String,
+    pub rpc_url: String,
+    pub data_dir: String,
+}
 
-**Modify `derive_address()`** — line 88:
-```rust
-    // Before:
-    let encrypted_password = client_keypair.encrypt(password, &server_pk);
-    // After:
-    let encrypted_password =
-        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
-```
+pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .try_init();
 
-**Modify `approve_signature()`** — lines 138-144:
-```rust
-    // Before:
-    // Encode payload: raw_len(4) + raw + sig_len(4) + sig + pw
-    let mut payload = Vec::new();
-    payload.extend_from_slice(&(raw_artifact.len() as u32).to_le_bytes());
-    payload.extend_from_slice(raw_artifact);
-    payload.extend_from_slice(&(keypunkd_signature.len() as u32).to_le_bytes());
-    payload.extend_from_slice(keypunkd_signature);
-    payload.extend_from_slice(password.as_bytes());
+    let keystore = Keypair::new();
+    let (secret, public) = keystore.keypair();
 
-    // After:
-    let hashed_password = hash_for_domain(&password, b"keypunkd-seed-key");
-    // Encode payload: raw_len(4) + raw + sig_len(4) + sig + hashed_pw
-    let mut payload = Vec::new();
-    payload.extend_from_slice(&(raw_artifact.len() as u32).to_le_bytes());
-    payload.extend_from_slice(raw_artifact);
-    payload.extend_from_slice(&(keypunkd_signature.len() as u32).to_le_bytes());
-    payload.extend_from_slice(keypunkd_signature);
-    payload.extend_from_slice(hashed_password.as_bytes());
-```
+    info!("connecting to keypunkd");
+    let keypunkd = IpcSender::connect(&config.keypunkd_socket).await?;
+    let recipient = keypunkd.recipient();
 
-**New tests** at bottom of file:
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
+    let zcash = paypunk_chains_zcash::protocol::ZcashProtocol {
+        params: zcash_protocol::consensus::Network::MainNetwork,
+    };
+    let eth_client =
+        paypunk_chains_ethereum::rpc::HttpRpcClient::new(config.rpc_url.clone());
+    let ethereum = paypunk_chains_ethereum::protocol::EthereumProtocol::new(eth_client);
+    let mut protocols = ProtocolService::new();
+    protocols.register(Box::new(zcash));
+    protocols.register(Box::new(ethereum));
+    info!("registered protocols: Zcash, Ethereum");
 
-    #[test]
-    fn test_hash_for_domain_returns_hex_string() {
-        let hash = hash_for_domain("mypassword", b"test-domain");
-        assert_eq!(hash.len(), 64);
-        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
-    }
+    let db = Database::open(std::path::Path::new(&config.data_dir))
+        .map_err(|e| format!("failed to open database: {e}"))?;
+    info!("database opened");
 
-    #[test]
-    fn test_hash_for_domain_deterministic() {
-        let a = hash_for_domain("password", b"domain");
-        let b = hash_for_domain("password", b"domain");
-        assert_eq!(*a, *b);
-    }
+    let paypunkd = Paypunkd::new(recipient, protocols, db, keystore).start();
 
-    #[test]
-    fn test_hash_for_domain_different_domains() {
-        let a = hash_for_domain("password", b"domain-a");
-        let b = hash_for_domain("password", b"domain-b");
-        assert_ne!(*a, *b);
-    }
+    let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;
+    info!("paypunkd listening on {}", config.socket_path);
 
-    #[test]
-    fn test_hash_for_domain_different_passwords() {
-        let a = hash_for_domain("password-one", b"domain");
-        let b = hash_for_domain("password-two", b"domain");
-        assert_ne!(*a, *b);
-    }
+    let serve = tokio::spawn(async move {
+        if let Err(e) = server.serve(paypunkd).await {
+            tracing::error!(error = %e, "server error");
+        }
+    });
+
+    tokio::signal::ctrl_c().await?;
+    info!("shutting down");
+    serve.abort();
+    Ok(())
 }
 ```
+
+### 6. `paypunkd/src/lib.rs`
+
+Add `pub mod run;`
+
+### 7. `paypunkd/Cargo.toml`
+
+Remove the `[[bin]]` section:
+```toml
+# DELETE these 3 lines:
+# [[bin]]
+# name = "paypunkd"
+# path = "src/main.rs"
+```
+
+### 8. `paypunkd/src/main.rs` — DELETE this file
+
+### 9. Check `paypunkd/Cargo.toml` dependencies
+
+The `paypunkd` crate currently depends on `clap` (for its own main.rs CLI parsing). After removing main.rs, check if `clap` is still needed by any lib module. If not, remove it from paypunkd's `[dependencies]`.
+
+Similarly check if `tracing-subscriber` is already in paypunkd's deps (it should be — it's used in the run function).
+
+## Verification
+
+- `cargo build` succeeds (no orphaned main.rs, no missing deps)
+- `cargo test` passes (integration tests wire actors in-process, don't use binary entry points)
+- The `keypunkd` and `paypunkd` library crates compile and expose `run::Config` and `run::run()`
 
 ## Acceptance criteria
 
-- `cargo build` (full workspace) succeeds with no warnings
-- `cargo test` (all crates) passes
-- paypunkd and keypunkd receive hex-encoded Argon2id hashes instead of raw passwords
-- No changes to any crate other than `paypunk-api`
+- No standalone `keypunkd` or `paypunkd` binaries exist
+- Both crates compile as library-only crates
+- `keypunkd::run::run(config)` starts the key daemon
+- `paypunkd::run::run(config)` starts the app daemon
+- All existing tests pass

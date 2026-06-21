@@ -1,7 +1,7 @@
+use argon2::Argon2;
 use keypunkd::crypto::Keypair;
 use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
 use zeroize::Zeroizing;
-use argon2::Argon2;
 
 fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
     let mut hash = [0u8; 32];
@@ -36,8 +36,10 @@ pub async fn unlock(
     let paypunkd_pk = service.get_paypunkd_encryption_key().await?;
     let client_pk = client_keypair.public_key();
 
-    let encrypted_keypunkd_password =
-        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &keypunk_pk);
+    let encrypted_keypunkd_password = client_keypair.encrypt(
+        hash_for_domain(&password, b"keypunkd-seed-key"),
+        &keypunk_pk,
+    );
     let encrypted_db_password =
         client_keypair.encrypt(hash_for_domain(&password, b"paypunkd-db-key"), &paypunkd_pk);
 
@@ -216,12 +218,7 @@ pub async fn create_account(
     name: String,
 ) -> Result<Account, String> {
     service
-        .create_account(
-            protocol,
-            derivation_path,
-            account_index,
-            name,
-        )
+        .create_account(protocol, derivation_path, account_index, name)
         .await
 }
 

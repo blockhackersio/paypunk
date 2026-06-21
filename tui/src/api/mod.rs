@@ -2,8 +2,8 @@ pub mod mock;
 pub mod real;
 pub mod types;
 
-use types::*;
 use async_trait::async_trait;
+use types::*;
 
 #[async_trait(?Send)]
 pub trait WalletApi {
@@ -35,7 +35,8 @@ pub trait WalletApi {
 
     async fn get_settings(&self) -> SettingsData;
     async fn submit_settings(&self, input: SettingsInput) -> Result<(), ApiError>;
-    async fn submit_reveal_phrase(&self, input: RevealPhraseInput) -> Result<Vec<String>, ApiError>;
+    async fn submit_reveal_phrase(&self, input: RevealPhraseInput)
+        -> Result<Vec<String>, ApiError>;
 
     async fn check_wallet_exists(&self) -> bool;
     async fn unlock(&self, password: String) -> Result<UnlockData, ApiError>;

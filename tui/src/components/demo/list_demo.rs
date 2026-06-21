@@ -64,8 +64,14 @@ impl Component<Nav> for ListDemo {
         match self.list.handle_event(key) {
             Some(ListAction::Selected(i)) => {
                 let labels = [
-                    "Apple", "Banana", "Cherry", "Dragonfruit",
-                    "Elderberry", "Fig", "Grape", "Honeydew",
+                    "Apple",
+                    "Banana",
+                    "Cherry",
+                    "Dragonfruit",
+                    "Elderberry",
+                    "Fig",
+                    "Grape",
+                    "Honeydew",
                 ];
                 self.message = format!("Selected: {}", labels[i]);
                 None

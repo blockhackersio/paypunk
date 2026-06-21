@@ -44,7 +44,9 @@ pub enum PaypunkdRequest {
         name: String,
     },
     ListAccounts,
-    GetAccount { id: String },
+    GetAccount {
+        id: String,
+    },
     GetPaypunkdEncryptionKey,
     HasSeed,
     Unlock {
@@ -62,8 +64,12 @@ pub enum PaypunkdRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PaypunkdResponse {
-    KeypunkEncryptionKey { key: [u8; 32] },
-    SeedGenerated { encrypted_mnemonic: Vec<u8> },
+    KeypunkEncryptionKey {
+        key: [u8; 32],
+    },
+    SeedGenerated {
+        encrypted_mnemonic: Vec<u8>,
+    },
     SeedRestored,
     SignablePreview {
         raw_artifact: Vec<u8>,
@@ -71,16 +77,40 @@ pub enum PaypunkdResponse {
         keypunkd_signature: Vec<u8>,
         keypunkd_public_key: [u8; 32],
     },
-    SignatureApproved { signed_artifact: Vec<u8> },
-    Balance { balance: Balance },
-    AddressDerived { address: String },
-    TransactionBroadcasted { tx_hash: String },
-    AccountCreated { account: Account },
-    AccountsList { accounts: Vec<Account> },
-    AccountFound { account: Option<Account> },
-    PaypunkdEncryptionKey { key: [u8; 32] },
-    HasSeed { exists: bool },
-    UnlockSuccess { accounts_count: u32 },
-    AccountsBulkDerived { accounts: Vec<Account> },
-    Error { message: String },
+    SignatureApproved {
+        signed_artifact: Vec<u8>,
+    },
+    Balance {
+        balance: Balance,
+    },
+    AddressDerived {
+        address: String,
+    },
+    TransactionBroadcasted {
+        tx_hash: String,
+    },
+    AccountCreated {
+        account: Account,
+    },
+    AccountsList {
+        accounts: Vec<Account>,
+    },
+    AccountFound {
+        account: Option<Account>,
+    },
+    PaypunkdEncryptionKey {
+        key: [u8; 32],
+    },
+    HasSeed {
+        exists: bool,
+    },
+    UnlockSuccess {
+        accounts_count: u32,
+    },
+    AccountsBulkDerived {
+        accounts: Vec<Account>,
+    },
+    Error {
+        message: String,
+    },
 }

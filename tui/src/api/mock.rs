@@ -33,10 +33,18 @@ impl WalletApi for MockWalletApi {
             app_version: "1.0.0".to_string(),
             wallet_exists: self.wallet_exists,
             new_mnemonic: vec![
-                "ribbon".into(), "velvet".into(), "ocean".into(),
-                "puzzle".into(), "harvest".into(), "guitar".into(),
-                "shadow".into(), "ladder".into(), "comfort".into(),
-                "raven".into(), "spring".into(), "anchor".into(),
+                "ribbon".into(),
+                "velvet".into(),
+                "ocean".into(),
+                "puzzle".into(),
+                "harvest".into(),
+                "guitar".into(),
+                "shadow".into(),
+                "ladder".into(),
+                "comfort".into(),
+                "raven".into(),
+                "spring".into(),
+                "anchor".into(),
             ],
             word_count: 12,
             import_methods: vec!["mnemonic".into(), "privateKey".into()],
@@ -85,18 +93,16 @@ impl WalletApi for MockWalletApi {
     async fn get_assets(&self, chain_id: &str) -> AssetsData {
         if chain_id.contains("bip122") {
             AssetsData {
-                assets: vec![
-                    AssetRow {
-                        name: "Zcash".into(),
-                        ticker: "ZEC".into(),
-                        price: "$28.50".into(),
-                        price_change: "▲ 1.25%".into(),
-                        price_change_up: true,
-                        holdings_value: "$142.50".into(),
-                        holdings_amount: "5 ZEC".into(),
-                        chain_id: chain_id.into(),
-                    },
-                ],
+                assets: vec![AssetRow {
+                    name: "Zcash".into(),
+                    ticker: "ZEC".into(),
+                    price: "$28.50".into(),
+                    price_change: "▲ 1.25%".into(),
+                    price_change_up: true,
+                    holdings_value: "$142.50".into(),
+                    holdings_amount: "5 ZEC".into(),
+                    chain_id: chain_id.into(),
+                }],
             }
         } else {
             AssetsData {
@@ -231,11 +237,23 @@ impl WalletApi for MockWalletApi {
                 spendable_balance: "500000000".into(),
                 decimals: 8,
                 chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                fee_data: FeeData::Zec(FeeRates { slow: 8, medium: 21, fast: 45 }),
+                fee_data: FeeData::Zec(FeeRates {
+                    slow: 8,
+                    medium: 21,
+                    fast: 45,
+                }),
                 nonce: None,
                 utxos: Some(vec![
-                    UtxoInfo { txid: "3f8c...d29a".into(), vout: 0, value: "300000000".into() },
-                    UtxoInfo { txid: "7b1e...44f0".into(), vout: 1, value: "200000000".into() },
+                    UtxoInfo {
+                        txid: "3f8c...d29a".into(),
+                        vout: 0,
+                        value: "300000000".into(),
+                    },
+                    UtxoInfo {
+                        txid: "7b1e...44f0".into(),
+                        vout: 1,
+                        value: "200000000".into(),
+                    },
                 ]),
             }
         } else {
@@ -261,8 +279,10 @@ impl WalletApi for MockWalletApi {
             "fast" => "500000000000000",
             _ => "409500000000000",
         };
-        let total = format!("{}", input.amount.parse::<u128>().unwrap_or(0)
-            + fee_est.parse::<u128>().unwrap_or(0));
+        let total = format!(
+            "{}",
+            input.amount.parse::<u128>().unwrap_or(0) + fee_est.parse::<u128>().unwrap_or(0)
+        );
         SendReviewData {
             to_address: input.to_address,
             amount: input.amount,
@@ -273,7 +293,8 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn submit_send_confirm(&self, _input: SendConfirmInput) -> SendResult {
-        let tx_hash: String = "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b".into();
+        let tx_hash: String =
+            "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b".into();
         SendResult {
             tx_hash: tx_hash.clone(),
             status: "broadcasted".into(),
@@ -310,12 +331,23 @@ impl WalletApi for MockWalletApi {
         Ok(())
     }
 
-    async fn submit_reveal_phrase(&self, _input: RevealPhraseInput) -> Result<Vec<String>, ApiError> {
+    async fn submit_reveal_phrase(
+        &self,
+        _input: RevealPhraseInput,
+    ) -> Result<Vec<String>, ApiError> {
         Ok(vec![
-            "ribbon".into(), "velvet".into(), "ocean".into(),
-            "puzzle".into(), "harvest".into(), "guitar".into(),
-            "shadow".into(), "ladder".into(), "comfort".into(),
-            "raven".into(), "spring".into(), "anchor".into(),
+            "ribbon".into(),
+            "velvet".into(),
+            "ocean".into(),
+            "puzzle".into(),
+            "harvest".into(),
+            "guitar".into(),
+            "shadow".into(),
+            "ladder".into(),
+            "comfort".into(),
+            "raven".into(),
+            "spring".into(),
+            "anchor".into(),
         ])
     }
 
@@ -349,7 +381,10 @@ impl WalletApi for MockWalletApi {
             return ApiState::Loaded(data);
         }
         let real = self.get_receive(chain_id).await;
-        self.receive_cache.lock().unwrap().insert(chain_id.to_string(), real.clone());
+        self.receive_cache
+            .lock()
+            .unwrap()
+            .insert(chain_id.to_string(), real.clone());
         ApiState::Loaded(real)
     }
 
@@ -366,7 +401,10 @@ impl WalletApi for MockWalletApi {
             return ApiState::Loaded(data);
         }
         let real = self.get_send(chain_id).await;
-        self.send_cache.lock().unwrap().insert(chain_id.to_string(), real.clone());
+        self.send_cache
+            .lock()
+            .unwrap()
+            .insert(chain_id.to_string(), real.clone());
         ApiState::Loaded(real)
     }
 

@@ -65,8 +65,8 @@ impl ConfigLoader {
         let contents = std::fs::read_to_string(&config_path)
             .map_err(|e| ConfigError::Io(config_path.clone(), e))?;
 
-        let mut config: PaypunkConfig = toml::from_str(&contents)
-            .map_err(|e| ConfigError::Parse(config_path.clone(), e))?;
+        let mut config: PaypunkConfig =
+            toml::from_str(&contents).map_err(|e| ConfigError::Parse(config_path.clone(), e))?;
 
         Self::apply_env_overrides(&mut config);
 
@@ -103,8 +103,7 @@ impl ConfigLoader {
         let config_dir = dirs::config_dir()
             .ok_or(ConfigError::NoConfigDir)?
             .join("paypunk");
-        std::fs::create_dir_all(&config_dir)
-            .map_err(|e| ConfigError::Io(config_dir.clone(), e))?;
+        std::fs::create_dir_all(&config_dir).map_err(|e| ConfigError::Io(config_dir.clone(), e))?;
 
         let config_path = config_dir.join("config.toml");
         let contents = r#"# Paypunk Configuration

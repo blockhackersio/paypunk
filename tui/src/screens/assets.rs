@@ -45,11 +45,15 @@ impl AssetsScreen {
 
 #[async_trait(?Send)]
 impl Screen for AssetsScreen {
-    fn name(&self) -> &str { "Assets" }
+    fn name(&self) -> &str {
+        "Assets"
+    }
 
     async fn init(&mut self, api: &dyn WalletApi) {
         let data = api.get_assets(&self.chain_id).await;
-        let items: Vec<Box<dyn Component<AssetAction>>> = data.assets.iter()
+        let items: Vec<Box<dyn Component<AssetAction>>> = data
+            .assets
+            .iter()
             .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
             .collect();
         self.list = List::new(items).row_height(2);
@@ -64,16 +68,36 @@ impl Screen for AssetsScreen {
             Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Length(3),
-        ]).split(area);
-        let header = chunks[0]; let buttons = chunks[1]; let body = chunks[2]; let footer = chunks[3];
+        ])
+        .split(area);
+        let header = chunks[0];
+        let buttons = chunks[1];
+        let body = chunks[2];
+        let footer = chunks[3];
 
         let title = theme.title(" PayPunk Wallet ").centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
-        let chain_label = if self.chain_id.contains("eip155") { "Ethereum" } else { "Zcash" };
-        let subtitle = Paragraph::new(Line::from(format!("{} — {} ({})", self.account_name, chain_label, self.chain_id)).centered())
-            .style(theme.text);
-        frame.render_widget(subtitle, header.inner(Margin { vertical: 2, horizontal: 0 }));
+        let chain_label = if self.chain_id.contains("eip155") {
+            "Ethereum"
+        } else {
+            "Zcash"
+        };
+        let subtitle = Paragraph::new(
+            Line::from(format!(
+                "{} — {} ({})",
+                self.account_name, chain_label, self.chain_id
+            ))
+            .centered(),
+        )
+        .style(theme.text);
+        frame.render_widget(
+            subtitle,
+            header.inner(Margin {
+                vertical: 2,
+                horizontal: 0,
+            }),
+        );
 
         let on_buttons = matches!(self.focus, AssetsFocus::Buttons(_));
         let mut send_btn = Button::new(" \u{2191} Send ").size(ButtonSize::Sm);
@@ -83,7 +107,12 @@ impl Screen for AssetsScreen {
 
         let mut btn_bar = FlexBox::horizontal()
             .bg(ui::BG)
-            .margin(Padding { top: 1, bottom: 1, left: 2, right: 2 })
+            .margin(Padding {
+                top: 1,
+                bottom: 1,
+                left: 2,
+                right: 2,
+            })
             .gap(2)
             .child_with(Constraint::Length(10), send_btn)
             .child_with(Constraint::Length(13), recv_btn);
@@ -96,31 +125,52 @@ impl Screen for AssetsScreen {
         let on_table = matches!(self.focus, AssetsFocus::Table);
         self.list.set_focused(on_table);
 
-        let table_area = inner.inner(Margin { vertical: 0, horizontal: 1 });
+        let table_area = inner.inner(Margin {
+            vertical: 0,
+            horizontal: 1,
+        });
         let header_style = Style::new().fg(ui::palette().muted);
         let name_width = (table_area.width as usize).saturating_sub(32);
         let header_line = Line::from(vec![
-            ratatui::text::Span::styled(format!(" {:width$} ", "Asset", width = name_width), header_style),
+            ratatui::text::Span::styled(
+                format!(" {:width$} ", "Asset", width = name_width),
+                header_style,
+            ),
             ratatui::text::Span::styled(format!(" {:>14} ", "Price"), header_style),
             ratatui::text::Span::styled(format!(" {:>14} ", "Holdings"), header_style),
         ]);
         frame.render_widget(
             Paragraph::new(header_line).style(Style::new().bg(ui::BG)),
-            table_area.inner(Margin { vertical: 0, horizontal: 0 }),
+            table_area.inner(Margin {
+                vertical: 0,
+                horizontal: 0,
+            }),
         );
 
         let sep_style = Style::new().fg(ui::palette().border);
         let sep_line = Line::from(vec![
-            ratatui::text::Span::styled(format!(" {:-<width$} ", "", width = name_width), sep_style),
+            ratatui::text::Span::styled(
+                format!(" {:-<width$} ", "", width = name_width),
+                sep_style,
+            ),
             ratatui::text::Span::styled(format!(" {:->14} ", ""), sep_style),
             ratatui::text::Span::styled(format!(" {:->14} ", ""), sep_style),
         ]);
         frame.render_widget(
             Paragraph::new(sep_line).style(Style::new().bg(ui::BG)),
-            table_area.inner(Margin { vertical: 1, horizontal: 0 }),
+            table_area.inner(Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
         );
 
-        self.list.render(frame, table_area.inner(Margin { vertical: 2, horizontal: 0 }));
+        self.list.render(
+            frame,
+            table_area.inner(Margin {
+                vertical: 2,
+                horizontal: 0,
+            }),
+        );
 
         let footer_text = theme.help_line([
             ("↑↓", "Navigate"),
@@ -131,10 +181,20 @@ impl Screen for AssetsScreen {
         ]);
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
-        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        _api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
