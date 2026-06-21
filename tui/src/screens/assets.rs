@@ -24,9 +24,7 @@ enum AssetsFocus {
 }
 
 pub struct AssetsScreen {
-    account_id: String,
-    account_name: String,
-    chain_id: String,
+    account: AccountInfo,
     data: Option<AssetsData>,
     list: List<AssetAction>,
     focus: AssetsFocus,
@@ -35,9 +33,7 @@ pub struct AssetsScreen {
 impl AssetsScreen {
     pub fn new(account: AccountInfo) -> Self {
         Self {
-            account_id: account.account_id,
-            account_name: account.name,
-            chain_id: account.chain_id,
+            account,
             data: None,
             list: List::new(vec![]).row_height(2),
             focus: AssetsFocus::Buttons(0),
@@ -52,7 +48,7 @@ impl Screen for AssetsScreen {
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {
-        let data = api.get_assets(&self.account_id).await;
+        let data = api.get_assets(&self.account.account_id).await;
         let items: Vec<Box<dyn Component<AssetAction>>> = data
             .assets
             .iter()
@@ -80,7 +76,7 @@ impl Screen for AssetsScreen {
         let title = theme.title(" PayPunk Wallet ").centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
-        let chain_label = if self.chain_id.contains("eip155") {
+        let chain_label = if self.account.chain_id.contains("eip155") {
             "Ethereum"
         } else {
             "Zcash"
@@ -88,7 +84,7 @@ impl Screen for AssetsScreen {
         let subtitle = Paragraph::new(
             Line::from(format!(
                 "{} — {} ({})",
-                self.account_name, chain_label, self.chain_id
+                self.account.name, chain_label, self.account.chain_id
             ))
             .centered(),
         )
@@ -216,9 +212,9 @@ impl Screen for AssetsScreen {
                 }
                 KeyCode::Enter => {
                     return if *sel == 0 {
-                        Nav::Push(Box::new(SendScreen::new(&self.chain_id)))
+                        Nav::Push(Box::new(SendScreen::new(self.account.clone())))
                     } else {
-                        Nav::Push(Box::new(ReceiveScreen::new(&self.chain_id)))
+                        Nav::Push(Box::new(ReceiveScreen::new(&self.account.chain_id)))
                     };
                 }
                 KeyCode::Esc => return Nav::Pop,
@@ -248,7 +244,7 @@ impl Screen for AssetsScreen {
                     if let Some(idx) = self.list.selected() {
                         if let Some(ref data) = self.data {
                             if idx < data.assets.len() {
-                                return Nav::Push(Box::new(SendScreen::new(&self.chain_id)));
+                                return Nav::Push(Box::new(SendScreen::new(self.account.clone())));
                             }
                         }
                     }
