@@ -1,7 +1,6 @@
 use keypunkd::crypto::Keypair;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{caip, ProtocolId};
-use std::collections::HashMap;
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
@@ -17,7 +16,6 @@ pub struct Paypunkd {
     db: Database,
     accounts_repo: Box<dyn AccountsRepository>,
     keystore: Keypair,
-    pre_derived_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
 
 impl Paypunkd {
@@ -33,7 +31,6 @@ impl Paypunkd {
             db,
             accounts_repo: Box::new(SqliteAccountsRepository),
             keystore,
-            pre_derived_keys: HashMap::new(),
         }
     }
 
@@ -219,7 +216,6 @@ impl Paypunkd {
             usecases::create_account(
                 &self.db,
                 self.accounts_repo.as_ref(),
-                &self.pre_derived_keys,
                 protocol,
                 derivation_path,
                 account_index,
@@ -325,9 +321,16 @@ impl Paypunkd {
 
             match keys {
                 Ok(derived) => {
-                    for (protocol, account_index, viewing_key) in &derived {
-                        self.pre_derived_keys
-                            .insert((*protocol, *account_index), viewing_key.clone());
+                    // Store pre-derived keys in the database
+                    if let Some(ref conn_lock) = self.db.conn {
+                        if let Ok(conn) = conn_lock.lock() {
+                            for (protocol, account_index, viewing_key) in &derived {
+                                let _ = conn.execute(
+                                    "INSERT OR REPLACE INTO pre_derived_keys (protocol, account_index, viewing_key) VALUES (?1, ?2, ?3)",
+                                    rusqlite::params![format!("{:?}", protocol), account_index, viewing_key],
+                                );
+                            }
+                        }
                     }
                     info!(count = derived.len(), "cached pre-derived viewing keys");
                     PaypunkdResponse::UnlockSuccess {

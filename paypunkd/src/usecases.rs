@@ -1,7 +1,6 @@
 use keypunkd::services::KeypunkService;
 use paypunk_types::{Account, Balance, Intent, ProtocolId};
 use rand::Rng;
-use std::collections::HashMap;
 
 use crate::database::{AccountsRepository, Database};
 use crate::protocol_service::ProtocolService;
@@ -143,12 +142,11 @@ pub fn validate_address(protocols: &ProtocolService, protocol: ProtocolId, addre
 
 // ── Account operations ──────────────────────────────────────────────────────
 
-/// Create a new account from a pre-derived viewing key (no keypunkd call).
+/// Create a new account from a pre-derived viewing key stored in the database.
 /// Accounts must be pre-derived via unlock (indices 0-29).
 pub async fn create_account(
     db: &Database,
     repo: &dyn AccountsRepository,
-    pre_derived_keys: &HashMap<(ProtocolId, u32), Vec<u8>>,
     protocol: ProtocolId,
     derivation_path: String,
     account_index: u32,
@@ -164,7 +162,6 @@ pub async fn create_account(
     {
         return Err("account already exists".to_string());
     }
-    drop(conn);
 
     if account_index > 29 {
         return Err(format!(
@@ -173,10 +170,13 @@ pub async fn create_account(
         ));
     }
 
-    let viewing_key = pre_derived_keys
-        .get(&(protocol, account_index))
-        .cloned()
-        .ok_or_else(|| {
+    let viewing_key: Vec<u8> = conn
+        .query_row(
+            "SELECT viewing_key FROM pre_derived_keys WHERE protocol = ?1 AND account_index = ?2",
+            rusqlite::params![format!("{:?}", protocol), account_index],
+            |row| row.get(0),
+        )
+        .map_err(|_| {
             format!(
                 "no pre-derived viewing key found for {protocol:?} account {account_index}. \
                  Generate seed and unlock first."
@@ -202,8 +202,6 @@ pub async fn create_account(
             .as_secs(),
     };
 
-    let conn = db.conn.as_ref().ok_or("database is locked")?;
-    let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.save(&conn, &account)?;
     Ok(account)
 }

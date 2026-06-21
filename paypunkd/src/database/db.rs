@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 
 use super::encryption::{decrypt_db, encrypt_db, DbCryptoError};
-use super::migration::{AccountsMigration, Migration, Migrator};
+use super::migration::{AccountsMigration, Migration, Migrator, PreDerivedKeysMigration};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -94,6 +94,7 @@ impl Database {
         let mut migrator = Migrator::new();
         migrator.register(Box::new(InitialMigration));
         migrator.register(Box::new(AccountsMigration));
+        migrator.register(Box::new(PreDerivedKeysMigration));
         migrator.migrate(&conn).map_err(DbError::Migration)?;
         Ok(())
     }
@@ -152,7 +153,7 @@ mod tests {
             .unwrap()
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 2);
+        assert_eq!(count, 3);
         db.close().unwrap();
     }
 
