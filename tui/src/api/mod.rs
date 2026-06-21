@@ -11,24 +11,29 @@ pub trait WalletApi {
     async fn submit_setup_create(&self, input: SetupCreateInput) -> Result<(), ApiError>;
     async fn submit_setup_import(&self, input: SetupImportInput) -> Result<(), ApiError>;
 
-    async fn get_wallets(&self) -> WalletsData;
-    async fn get_assets(&self, chain_id: &str) -> AssetsData;
-
+    // Home — replace get_wallets with account-based methods
     async fn get_home(&self) -> HomeData;
     async fn submit_home(&self, input: HomeInput) -> HomeData;
     async fn home_state(&self) -> ApiState<HomeData>;
     async fn refresh_home(&self);
+    async fn list_accounts(&self) -> Result<Vec<AccountInfo>, ApiError>;
+    async fn add_account(&self) -> Result<(), ApiError>;
 
-    async fn get_receive(&self, chain_id: &str) -> ReceiveData;
+    // Assets — takes account_id
+    async fn get_assets(&self, account_id: &str) -> AssetsData;
+
+    // Receive — takes account_id
+    async fn get_receive(&self, account_id: &str) -> ReceiveData;
     async fn submit_receive(&self, input: ReceiveInput) -> ReceiveData;
-    async fn receive_state(&self, chain_id: &str) -> ApiState<ReceiveData>;
-    async fn refresh_receive(&self, chain_id: &str);
+    async fn receive_state(&self, account_id: &str) -> ApiState<ReceiveData>;
+    async fn refresh_receive(&self, account_id: &str);
 
-    async fn get_send(&self, chain_id: &str) -> SendData;
+    // Send — takes account_id
+    async fn get_send(&self, account_id: &str) -> SendData;
     async fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData;
     async fn submit_send_confirm(&self, input: SendConfirmInput) -> SendResult;
-    async fn send_state(&self, chain_id: &str) -> ApiState<SendData>;
-    async fn refresh_send(&self, chain_id: &str);
+    async fn send_state(&self, account_id: &str) -> ApiState<SendData>;
+    async fn refresh_send(&self, account_id: &str);
 
     async fn get_lock(&self) -> LockData;
     async fn submit_lock(&self, input: LockInput) -> Result<(), ApiError>;
