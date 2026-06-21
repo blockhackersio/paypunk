@@ -214,7 +214,7 @@ impl Screen for AssetsScreen {
                     return if *sel == 0 {
                         Nav::Push(Box::new(SendScreen::new(self.account.clone())))
                     } else {
-                        Nav::Push(Box::new(ReceiveScreen::new(&self.account.chain_id)))
+                        Nav::Push(Box::new(ReceiveScreen::new(self.account.clone())))
                     };
                 }
                 KeyCode::Esc => return Nav::Pop,
