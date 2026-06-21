@@ -100,10 +100,7 @@ impl WalletApi for RealWalletApi {
     async fn get_home(&self) -> HomeData {
         HomeData {
             accounts: vec![],
-            balances: vec![],
-            total_fiat_value: 0.0,
             fiat_currency: "USD".into(),
-            pending_tx: None,
         }
     }
 
@@ -123,6 +120,7 @@ impl WalletApi for RealWalletApi {
             chain_id: chain_id.into(),
             address_format: "hex".into(),
             qr_payload: String::new(),
+            account_id: String::new(),
         }
     }
 
@@ -139,25 +137,11 @@ impl WalletApi for RealWalletApi {
     async fn get_send(&self, chain_id: &str) -> SendData {
         let is_eth = chain_id.contains("eip155");
         SendData {
+            account_id: String::new(),
             from_address: "0x0000000000000000000000000000000000000000".into(),
             spendable_balance: "0".into(),
             decimals: if is_eth { 18 } else { 8 },
             chain_id: chain_id.into(),
-            fee_data: if is_eth {
-                FeeData::Eth(FeeDataEth {
-                    base_fee_per_gas: "0".into(),
-                    max_priority_fee_per_gas: "0".into(),
-                    gas_limit_estimate: "21000".into(),
-                })
-            } else {
-                FeeData::Zec(FeeRates {
-                    slow: 0,
-                    medium: 0,
-                    fast: 0,
-                })
-            },
-            nonce: if is_eth { Some(0) } else { None },
-            utxos: None,
         }
     }
 
@@ -189,6 +173,7 @@ impl WalletApi for RealWalletApi {
                         fee_estimate: summary.fee,
                         total_amount: summary.amount,
                         chain_id: input.chain_id,
+                        nonce: 0,
                     }
                 } else {
                     SendReviewData {
@@ -197,6 +182,7 @@ impl WalletApi for RealWalletApi {
                         fee_estimate: "unknown".into(),
                         total_amount: input.amount,
                         chain_id: input.chain_id,
+                        nonce: 0,
                     }
                 }
             }
@@ -206,6 +192,7 @@ impl WalletApi for RealWalletApi {
                 fee_estimate: String::new(),
                 total_amount: String::new(),
                 chain_id: input.chain_id,
+                nonce: 0,
             },
         }
     }

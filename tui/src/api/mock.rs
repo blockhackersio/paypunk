@@ -167,40 +167,20 @@ impl WalletApi for MockWalletApi {
             accounts: vec![
                 AccountInfo {
                     account_id: "acc_1".into(),
+                    name: "Ethereum Wallet".into(),
                     chain_id: "eip155:1".into(),
                     address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                    protocol: "ethereum".into(),
                 },
                 AccountInfo {
                     account_id: "acc_2".into(),
+                    name: "Zcash Wallet".into(),
                     chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
                     address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
+                    protocol: "zcash".into(),
                 },
             ],
-            balances: vec![
-                BalanceInfo {
-                    token_id: "eth-native".into(),
-                    chain_id: "eip155:1".into(),
-                    symbol: "ETH".into(),
-                    decimals: 18,
-                    raw_balance: "1420000000000000000".into(),
-                    fiat_value: 4956.20,
-                },
-                BalanceInfo {
-                    token_id: "zec-native".into(),
-                    chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                    symbol: "ZEC".into(),
-                    decimals: 8,
-                    raw_balance: "500000000".into(),
-                    fiat_value: 142.50,
-                },
-            ],
-            total_fiat_value: 5098.70,
             fiat_currency: "USD".into(),
-            pending_tx: Some(PendingTx {
-                tx_hash: "0x4a7db3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2".into(),
-                status: "pending".into(),
-                block_explorer_url: "https://etherscan.io/tx/0x4a7db3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2".into(),
-            }),
         }
     }
 
@@ -214,6 +194,7 @@ impl WalletApi for MockWalletApi {
             chain_id: "eip155:1".into(),
             address_format: "hex".into(),
             qr_payload: "ethereum:0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+            account_id: "acc_1".into(),
         }
     }
 
@@ -224,6 +205,7 @@ impl WalletApi for MockWalletApi {
                 chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
                 address_format: "transparent".into(),
                 qr_payload: "zcash:t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
+                account_id: "acc_2".into(),
             }
         } else {
             self.get_receive("").await
@@ -233,52 +215,25 @@ impl WalletApi for MockWalletApi {
     async fn get_send(&self, chain_id: &str) -> SendData {
         if chain_id.contains("bip122") {
             SendData {
+                account_id: "acc_2".into(),
                 from_address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
                 spendable_balance: "500000000".into(),
                 decimals: 8,
                 chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                fee_data: FeeData::Zec(FeeRates {
-                    slow: 8,
-                    medium: 21,
-                    fast: 45,
-                }),
-                nonce: None,
-                utxos: Some(vec![
-                    UtxoInfo {
-                        txid: "3f8c...d29a".into(),
-                        vout: 0,
-                        value: "300000000".into(),
-                    },
-                    UtxoInfo {
-                        txid: "7b1e...44f0".into(),
-                        vout: 1,
-                        value: "200000000".into(),
-                    },
-                ]),
             }
         } else {
             SendData {
+                account_id: "acc_1".into(),
                 from_address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
                 spendable_balance: "1420000000000000000".into(),
                 decimals: 18,
                 chain_id: "eip155:1".into(),
-                fee_data: FeeData::Eth(FeeDataEth {
-                    base_fee_per_gas: "18000000000".into(),
-                    max_priority_fee_per_gas: "1500000000".into(),
-                    gas_limit_estimate: "21000".into(),
-                }),
-                nonce: Some(42),
-                utxos: None,
             }
         }
     }
 
     async fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData {
-        let fee_est = match &input.fee_selection.tier[..] {
-            "slow" => "300000000000000",
-            "fast" => "500000000000000",
-            _ => "409500000000000",
-        };
+        let fee_est = "409500000000000";
         let total = format!(
             "{}",
             input.amount.parse::<u128>().unwrap_or(0) + fee_est.parse::<u128>().unwrap_or(0)
@@ -289,6 +244,7 @@ impl WalletApi for MockWalletApi {
             fee_estimate: fee_est.to_string(),
             total_amount: total,
             chain_id: input.chain_id,
+            nonce: 42,
         }
     }
 

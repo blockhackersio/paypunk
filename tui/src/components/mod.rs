@@ -1,5 +1,4 @@
 pub mod asset_item;
-pub mod balance_item;
 pub mod button;
 pub mod demo;
 pub mod flex_box;

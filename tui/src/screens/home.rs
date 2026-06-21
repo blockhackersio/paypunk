@@ -1,8 +1,7 @@
 use crate::api::types::*;
 use crate::api::WalletApi;
 use crate::app::Nav;
-use crate::components::balance_item::{BalanceAction, BalanceItem};
-use crate::components::list::List;
+use crate::components::list::{LabelItem, List};
 use crate::components::Component;
 use crate::screens::help::HelpScreen;
 use crate::screens::lock::LockScreen;
@@ -20,7 +19,7 @@ use ratatui::Frame;
 use ratatui_bubbletea_components::SelectList;
 
 pub struct HomeScreen {
-    list: List<BalanceAction>,
+    list: List<()>,
     menu_open: bool,
     menu: SelectList,
     state: ApiState<HomeData>,
@@ -37,10 +36,13 @@ impl HomeScreen {
     }
 
     fn rebuild_list(&mut self, data: &HomeData) {
-        let items: Vec<Box<dyn Component<BalanceAction>>> = data
-            .balances
+        let items: Vec<Box<dyn Component<()>>> = data
+            .accounts
             .iter()
-            .map(|b| Box::new(BalanceItem::new(b.clone())) as Box<dyn Component<BalanceAction>>)
+            .map(|a| {
+                let label = format!("{} ({})", a.name, a.chain_id);
+                Box::new(LabelItem::new(label)) as Box<dyn Component<()>>
+            })
             .collect();
         self.list = List::new(items);
         self.list.set_focused(true);
@@ -110,10 +112,10 @@ impl Screen for HomeScreen {
                     let sel = self.menu.selected().unwrap_or(0);
                     if let Some(idx) = self.list.selected() {
                         if let ApiState::Loaded(ref data) = self.state {
-                            if let Some(bal) = data.balances.get(idx) {
+                            if let Some(acc) = data.accounts.get(idx) {
                                 return match sel {
-                                    0 => Nav::Push(Box::new(SendScreen::new(&bal.chain_id))),
-                                    _ => Nav::Push(Box::new(ReceiveScreen::new(&bal.chain_id))),
+                                    0 => Nav::Push(Box::new(SendScreen::new(&acc.chain_id))),
+                                    _ => Nav::Push(Box::new(ReceiveScreen::new(&acc.chain_id))),
                                 };
                             }
                         }
@@ -133,7 +135,7 @@ impl Screen for HomeScreen {
             }
             KeyCode::Enter => {
                 if let ApiState::Loaded(ref data) = self.state {
-                    if !data.balances.is_empty() {
+                    if !data.accounts.is_empty() {
                         self.menu_open = true;
                         self.menu.first();
                     }
@@ -142,8 +144,8 @@ impl Screen for HomeScreen {
             KeyCode::Char('s') => {
                 if let Some(idx) = self.list.selected() {
                     if let ApiState::Loaded(ref data) = self.state {
-                        if let Some(bal) = data.balances.get(idx) {
-                            return Nav::Push(Box::new(SendScreen::new(&bal.chain_id)));
+                        if let Some(acc) = data.accounts.get(idx) {
+                            return Nav::Push(Box::new(SendScreen::new(&acc.chain_id)));
                         }
                     }
                 }
@@ -151,8 +153,8 @@ impl Screen for HomeScreen {
             KeyCode::Char('o') => {
                 if let Some(idx) = self.list.selected() {
                     if let ApiState::Loaded(ref data) = self.state {
-                        if let Some(bal) = data.balances.get(idx) {
-                            return Nav::Push(Box::new(ReceiveScreen::new(&bal.chain_id)));
+                        if let Some(acc) = data.accounts.get(idx) {
+                            return Nav::Push(Box::new(ReceiveScreen::new(&acc.chain_id)));
                         }
                     }
                 }
@@ -184,7 +186,7 @@ impl HomeScreen {
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), area);
 
         if let ApiState::Loaded(ref data) = self.state {
-            let total = format!("${:.2} {}", data.total_fiat_value, data.fiat_currency);
+            let total = format!("{}", data.fiat_currency);
             let total_line = theme.accent(&total).into_centered_line();
             frame.render_widget(
                 Paragraph::new(total_line).style(Style::new().bg(ui::BG)),
@@ -236,7 +238,7 @@ impl HomeScreen {
                 );
             }
             ApiState::Loaded(data) => {
-                if data.balances.is_empty() {
+                if data.accounts.is_empty() {
                     let block = theme.titled_block("Assets");
                     let inner = block.inner(area);
                     frame.render_widget(block, area);

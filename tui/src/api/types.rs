@@ -63,34 +63,16 @@ pub struct SetupImportInput {
 #[derive(Debug, Clone)]
 pub struct AccountInfo {
     pub account_id: String,
-    pub chain_id: String,
+    pub name: String,
     pub address: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct BalanceInfo {
-    pub token_id: String,
     pub chain_id: String,
-    pub symbol: String,
-    pub decimals: u8,
-    pub raw_balance: String,
-    pub fiat_value: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct PendingTx {
-    pub tx_hash: String,
-    pub status: String,
-    pub block_explorer_url: String,
+    pub protocol: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct HomeData {
     pub accounts: Vec<AccountInfo>,
-    pub balances: Vec<BalanceInfo>,
-    pub total_fiat_value: f64,
     pub fiat_currency: String,
-    pub pending_tx: Option<PendingTx>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +89,7 @@ pub struct ReceiveData {
     pub chain_id: String,
     pub address_format: String,
     pub qr_payload: String,
+    pub account_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -117,46 +100,12 @@ pub struct ReceiveInput {
 // ── Send ──
 
 #[derive(Debug, Clone)]
-pub struct FeeDataEth {
-    pub base_fee_per_gas: String,
-    pub max_priority_fee_per_gas: String,
-    pub gas_limit_estimate: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct FeeRates {
-    pub slow: u64,
-    pub medium: u64,
-    pub fast: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct UtxoInfo {
-    pub txid: String,
-    pub vout: u32,
-    pub value: String,
-}
-
-#[derive(Debug, Clone)]
-pub enum FeeData {
-    Eth(FeeDataEth),
-    Zec(FeeRates),
-}
-
-#[derive(Debug, Clone)]
 pub struct SendData {
+    pub account_id: String,
     pub from_address: String,
     pub spendable_balance: String,
     pub decimals: u8,
     pub chain_id: String,
-    pub fee_data: FeeData,
-    pub nonce: Option<u64>,
-    pub utxos: Option<Vec<UtxoInfo>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FeeSelection {
-    pub tier: String,
 }
 
 #[derive(Debug, Clone)]
@@ -165,7 +114,7 @@ pub struct SendReviewInput {
     pub amount: String,
     pub token_id: String,
     pub chain_id: String,
-    pub fee_selection: FeeSelection,
+    pub account_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -175,6 +124,7 @@ pub struct SendReviewData {
     pub fee_estimate: String,
     pub total_amount: String,
     pub chain_id: String,
+    pub nonce: u64,
 }
 
 #[derive(Debug, Clone)]

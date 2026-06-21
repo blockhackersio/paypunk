@@ -27,7 +27,6 @@ pub struct SendScreen {
     step: SendStep,
     to_field: TextField,
     amount_field: TextField,
-    fee_tiers: SelectList,
     review_data: Option<SendReviewData>,
     result: Option<SendResult>,
     focus: usize,
@@ -38,12 +37,6 @@ pub struct SendScreen {
 
 impl SendScreen {
     pub fn new(chain_id: &str) -> Self {
-        let fee_tiers = SelectList::new([
-            ListItem::new("slow"),
-            ListItem::new("medium"),
-            ListItem::new("fast"),
-        ])
-        .theme(ui::theme());
         let confirm_choice =
             SelectList::new([ListItem::new("Yes, send it"), ListItem::new("No, go back")])
                 .theme(ui::theme());
@@ -64,7 +57,6 @@ impl SendScreen {
                 initial_value: String::new(),
                 feedback: None,
             }),
-            fee_tiers,
             review_data: None,
             result: None,
             focus: 0,
@@ -125,7 +117,6 @@ impl Screen for SendScreen {
         let footer_text = match self.step {
             SendStep::Form => theme.help_line([
                 ("Tab/↓", "Focus"),
-                ("←/→", "Fee"),
                 ("Enter", "Review"),
                 ("Esc", "Back"),
                 ("?", "Help"),
@@ -165,23 +156,13 @@ impl Screen for SendScreen {
         match self.step {
             SendStep::Form => {
                 let is_ethereum = self.chain_id.contains("eip155");
-                let max_focus = if is_ethereum { 1 } else { 3 };
+                let max_focus = 1;
                 match key.code {
                     KeyCode::Tab | KeyCode::Down => {
                         self.focus = (self.focus + 1).min(max_focus);
                     }
                     KeyCode::Up => {
                         self.focus = self.focus.saturating_sub(1);
-                    }
-                    KeyCode::Left => {
-                        if self.focus == 3 {
-                            self.fee_tiers.previous();
-                        }
-                    }
-                    KeyCode::Right => {
-                        if self.focus == 3 {
-                            self.fee_tiers.next();
-                        }
                     }
                     _ => {
                         if key.code == KeyCode::Enter {
@@ -199,13 +180,7 @@ impl Screen for SendScreen {
                                     },
                                     token_id: "eth-native".into(),
                                     chain_id: self.chain_id.clone(),
-                                    fee_selection: FeeSelection {
-                                        tier: self
-                                            .fee_tiers
-                                            .selected_item()
-                                            .map(|i| i.label().to_string())
-                                            .unwrap_or_else(|| "medium".into()),
-                                    },
+                                    account_id: "acc_1".into(),
                                 })
                                 .await;
                             self.review_data = Some(review);
@@ -362,7 +337,7 @@ impl SendScreen {
                 } else {
                     "ZEC"
                 };
-                let is_ethereum = data.chain_id.contains("eip155");
+                let _is_ethereum = data.chain_id.contains("eip155");
 
                 self.to_field.set_focused(self.focus == 0);
                 self.to_field.render(
@@ -384,7 +359,7 @@ impl SendScreen {
                     }),
                 );
 
-                let mut y_offset = 9;
+                let y_offset = 9;
 
                 let balance_line = Line::from(vec![
                     theme.muted("Balance: "),
@@ -398,72 +373,6 @@ impl SendScreen {
                         horizontal: 2,
                     }),
                 );
-
-                if !is_ethereum {
-                    y_offset += 2;
-
-                    let fee_str = match &data.fee_data {
-                        FeeData::Eth(f) => {
-                            format!(
-                                "Base: {} Gwei | Priority: {} Gwei | Gas: {}",
-                                &f.base_fee_per_gas[..std::cmp::min(f.base_fee_per_gas.len(), 6)],
-                                &f.max_priority_fee_per_gas
-                                    [..std::cmp::min(f.max_priority_fee_per_gas.len(), 6)],
-                                f.gas_limit_estimate
-                            )
-                        }
-                        FeeData::Zec(r) => {
-                            format!(
-                                "Slow: {}  Medium: {}  Fast: {} zat/byte",
-                                r.slow, r.medium, r.fast
-                            )
-                        }
-                    };
-
-                    let fee_line = Line::from(vec![theme.muted("Fee:     "), theme.span(fee_str)]);
-                    let fee_para = Paragraph::new(fee_line).style(Style::new().bg(ui::BG));
-                    frame.render_widget(
-                        fee_para,
-                        inner.inner(Margin {
-                            vertical: y_offset,
-                            horizontal: 2,
-                        }),
-                    );
-
-                    y_offset += 1;
-                    let tier_line = Line::from(vec![theme.muted("Tier:    ")]);
-                    let tier_para = Paragraph::new(tier_line).style(Style::new().bg(ui::BG));
-                    frame.render_widget(
-                        tier_para,
-                        inner.inner(Margin {
-                            vertical: y_offset,
-                            horizontal: 2,
-                        }),
-                    );
-
-                    frame.render_widget(
-                        &self.fee_tiers,
-                        inner.inner(Margin {
-                            vertical: y_offset + 1,
-                            horizontal: 4,
-                        }),
-                    );
-
-                    if let Some(nonce) = data.nonce {
-                        let nonce_line = Line::from(vec![
-                            theme.muted("Nonce:   "),
-                            theme.span(nonce.to_string()),
-                        ]);
-                        let nonce_para = Paragraph::new(nonce_line).style(Style::new().bg(ui::BG));
-                        frame.render_widget(
-                            nonce_para,
-                            inner.inner(Margin {
-                                vertical: y_offset + 2,
-                                horizontal: 2,
-                            }),
-                        );
-                    }
-                }
             }
         }
     }
