@@ -1,8 +1,18 @@
-use blake2::Digest;
+use blake2::digest::consts::U32;
+use blake2::{Blake2b, Digest};
 use clap::{Parser, Subcommand};
+use paypunk_api::Client;
 use paypunk_config::ConfigLoader;
-use paypunk_types::{EthereumIntent, Intent, ProtocolId, ZcashIntent};
+use paypunk_types::{
+    ArtifactSummary, AssetId, EthereumIntent, Intent, ProtocolId, ZcashIntent,
+};
+use paypunk_tui::run_tui;
+use std::path::Path;
+use std::process::{exit, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
+use zeroize::Zeroizing;
 
 #[derive(Parser)]
 #[command(
@@ -117,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let data_dir = config.data_dir.clone();
             let rpc_url = config.rpc_url.clone();
 
-            let mut keypunkd_child = std::process::Command::new(&exe)
+            let mut keypunkd_child = Command::new(&exe)
                 .arg("keypunkd")
                 .arg("--socket-path")
                 .arg(&keypunkd_socket)
@@ -126,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .spawn()
                 .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
 
-            let mut paypunkd_child = std::process::Command::new(&exe)
+            let mut paypunkd_child = Command::new(&exe)
                 .arg("paypunkd")
                 .arg("--socket-path")
                 .arg(&paypunkd_socket)
@@ -140,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
 
             let wait_result = tokio::time::timeout(
-                std::time::Duration::from_secs(30),
+                Duration::from_secs(30),
                 wait_for_sockets(&[&keypunkd_socket, &paypunkd_socket]),
             )
             .await;
@@ -153,14 +163,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err("Timed out waiting for daemon sockets to appear".into());
             }
 
-            let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let shutdown = Arc::new(AtomicBool::new(false));
             let shutdown_clone = shutdown.clone();
             tokio::spawn(async move {
                 tokio::signal::ctrl_c().await.ok();
-                shutdown_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+                shutdown_clone.store(true, Ordering::SeqCst);
             });
 
-            let tui_result = paypunk_tui::run_tui(&paypunkd_socket, Some(shutdown)).await;
+            let tui_result = run_tui(&paypunkd_socket, Some(shutdown)).await;
 
             let _ = keypunkd_child.kill();
             let _ = paypunkd_child.kill();
@@ -170,7 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tui_result.map_err(|e| e.into())
         }
         Some(Commands::Tui) => {
-            paypunk_tui::run_tui(&socket_path, None).await.map_err(|e| e.into())
+            run_tui(&socket_path, None).await.map_err(|e| e.into())
         }
         Some(Commands::Keypunkd {
             socket_path,
@@ -214,17 +224,17 @@ async fn async_main(
     socket_path: String,
     command: Commands,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let client = paypunk_api::Client::connect(&socket_path).await?;
+    let client = Client::connect(&socket_path).await?;
 
     match command {
         Commands::GenerateSeed { password } => {
-            let password = zeroize::Zeroizing::new(password);
+            let password = Zeroizing::new(password);
             let mnemonic = client.generate_seed(password).await?;
             println!("{}", *mnemonic);
         }
         Commands::RestoreSeed { mnemonic, password } => {
-            let mnemonic = zeroize::Zeroizing::new(mnemonic);
-            let password = zeroize::Zeroizing::new(password);
+            let mnemonic = Zeroizing::new(mnemonic);
+            let password = Zeroizing::new(password);
             client.restore_seed(mnemonic, password).await?;
             println!("Seed restored successfully");
         }
@@ -284,10 +294,10 @@ async fn async_main(
                 "solana" => ProtocolId::Solana,
                 _ => {
                     eprintln!("Unknown protocol: {protocol}");
-                    std::process::exit(1);
+                    exit(1);
                 }
             };
-            let asset = paypunk_types::AssetId::Native;
+            let asset = AssetId::Native;
             let balance = client
                 .get_balance_legacy(protocol_id, account, asset)
                 .await?;
@@ -307,7 +317,6 @@ async fn async_main(
 }
 
 async fn wait_for_sockets(paths: &[&str]) {
-    use std::path::Path;
     loop {
         let all_exist = paths.iter().all(|p| Path::new(p).exists());
         if all_exist {
@@ -331,14 +340,14 @@ async fn submit_intent_flow(
             to_verify.extend_from_slice(&raw_artifact);
             to_verify.extend_from_slice(&parsed_summary);
             to_verify.extend_from_slice(derivation_path);
-            let _hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
+            let _hash = Blake2b::<U32>::digest(&to_verify);
 
             println!("Artifact preview received:");
             println!("  Raw artifact: {} bytes", raw_artifact.len());
 
             // Try to deserialize the parsed summary
             if let Ok(summary) =
-                postcard::from_bytes::<paypunk_types::ArtifactSummary>(&parsed_summary)
+                postcard::from_bytes::<ArtifactSummary>(&parsed_summary)
             {
                 println!("  To: {}", summary.to);
                 println!("  Amount: {}", summary.amount);
@@ -363,7 +372,7 @@ async fn submit_intent_flow(
         }
         Err(e) => {
             eprintln!("Error: {e}");
-            std::process::exit(1);
+            exit(1);
         }
     }
 }
