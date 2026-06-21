@@ -24,18 +24,20 @@ enum AssetsFocus {
 }
 
 pub struct AssetsScreen {
-    chain_id: String,
+    account_id: String,
     account_name: String,
+    chain_id: String,
     data: Option<AssetsData>,
     list: List<AssetAction>,
     focus: AssetsFocus,
 }
 
 impl AssetsScreen {
-    pub fn new(chain_id: &str, account_name: &str) -> Self {
+    pub fn new(account: AccountInfo) -> Self {
         Self {
-            chain_id: chain_id.to_string(),
-            account_name: account_name.to_string(),
+            account_id: account.account_id,
+            account_name: account.name,
+            chain_id: account.chain_id,
             data: None,
             list: List::new(vec![]).row_height(2),
             focus: AssetsFocus::Buttons(0),
@@ -50,7 +52,7 @@ impl Screen for AssetsScreen {
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {
-        let data = api.get_assets(&self.chain_id).await;
+        let data = api.get_assets(&self.account_id).await;
         let items: Vec<Box<dyn Component<AssetAction>>> = data
             .assets
             .iter()
@@ -136,8 +138,8 @@ impl Screen for AssetsScreen {
                 format!(" {:width$} ", "Asset", width = name_width),
                 header_style,
             ),
-            ratatui::text::Span::styled(format!(" {:>14} ", "Price"), header_style),
-            ratatui::text::Span::styled(format!(" {:>14} ", "Holdings"), header_style),
+            ratatui::text::Span::styled(format!(" {:>14} ", "Balance"), header_style),
+            ratatui::text::Span::styled(format!(" {:>14} ", " "), header_style),
         ]);
         frame.render_widget(
             Paragraph::new(header_line).style(Style::new().bg(ui::BG)),
@@ -173,8 +175,8 @@ impl Screen for AssetsScreen {
         );
 
         let footer_text = theme.help_line([
-            ("↑↓", "Navigate"),
-            ("←/→", "Send/Receive"),
+            ("\u{2191}\u{2193}", "Navigate"),
+            ("\u{2190}/\u{2192}", "Send/Receive"),
             ("Enter", "Select action"),
             ("Esc", "Back to wallets"),
             ("?", "Help"),

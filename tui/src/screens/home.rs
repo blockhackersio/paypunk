@@ -128,8 +128,7 @@ impl Screen for HomeScreen {
                     if let ApiState::Loaded(ref data) = self.state {
                         if let Some(acc) = data.accounts.get(idx) {
                             return Nav::Push(Box::new(AssetsScreen::new(
-                                &acc.chain_id,
-                                &acc.name,
+                                acc.clone(),
                             )));
                         }
                     }

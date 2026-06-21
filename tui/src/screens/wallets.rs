@@ -130,8 +130,7 @@ impl Screen for WalletsScreen {
                     if let Some(ref accounts) = self.data {
                         if let Some(account) = accounts.get(idx) {
                             return Nav::Push(Box::new(AssetsScreen::new(
-                                &account.chain_id,
-                                &account.name,
+                                account.clone(),
                             )));
                         }
                     }

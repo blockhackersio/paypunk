@@ -193,7 +193,13 @@ impl Screen for SetupScreen {
         {
             match key.code {
                 KeyCode::Char('a') => {
-                    return Nav::Replace(Box::new(AssetsScreen::new("eip155:1", "Account #1")))
+                    return Nav::Replace(Box::new(AssetsScreen::new(AccountInfo {
+                        account_id: "acc_1".into(),
+                        name: "Account #1".into(),
+                        chain_id: "eip155:1".into(),
+                        address: String::new(),
+                        protocol: "Ethereum".into(),
+                    })))
                 }
                 KeyCode::Char('d') => return Nav::Replace(Box::new(ComponentDemoScreen::new())),
                 _ => {}
