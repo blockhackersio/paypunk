@@ -215,6 +215,7 @@ impl Paypunkd {
             "create_account",
             usecases::create_account(
                 &self.db,
+                &self.protocols,
                 self.accounts_repo.as_ref(),
                 protocol,
                 derivation_path,
@@ -358,6 +359,7 @@ impl Paypunkd {
             "bulk_derive_accounts",
             usecases::bulk_derive_accounts(
                 &self.keypunk_service,
+                &self.protocols,
                 &self.db,
                 self.accounts_repo.as_ref(),
                 encrypted_password,

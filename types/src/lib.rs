@@ -100,6 +100,7 @@ pub struct Account {
     pub protocol: ProtocolId,
     pub derivation_path: String,
     pub name: String,
+    pub address: String,
     pub viewing_key: Vec<u8>,
     pub created_at: u64,
 }

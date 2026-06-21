@@ -16,7 +16,7 @@ use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
 pub struct WalletsScreen {
-    data: Option<WalletsData>,
+    data: Option<Vec<AccountInfo>>,
     list: List<WalletAction>,
 }
 
@@ -36,15 +36,24 @@ impl Screen for WalletsScreen {
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {
-        let data = api.get_wallets().await;
-        let items: Vec<Box<dyn Component<WalletAction>>> = data
-            .wallets
+        let accounts = api.list_accounts().await.unwrap_or_default();
+        let wallets: Vec<WalletDerivation> = accounts
+            .iter()
+            .enumerate()
+            .map(|(i, a)| WalletDerivation {
+                index: i,
+                address: a.address.clone(),
+                chain_id: a.chain_id.clone(),
+                chain_name: a.name.clone(),
+            })
+            .collect();
+        let items: Vec<Box<dyn Component<WalletAction>>> = wallets
             .iter()
             .map(|w| Box::new(WalletItem::new(w.clone())) as Box<dyn Component<WalletAction>>)
             .collect();
         self.list = List::new(items).row_height(3);
         self.list.set_focused(true);
-        self.data = Some(data);
+        self.data = Some(accounts);
     }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
@@ -118,11 +127,11 @@ impl Screen for WalletsScreen {
         if let Some(action) = self.list.handle_event(key) {
             match action {
                 ListAction::Selected(idx) => {
-                    if let Some(ref data) = self.data {
-                        if let Some(wallet) = data.wallets.get(idx) {
+                    if let Some(ref accounts) = self.data {
+                        if let Some(account) = accounts.get(idx) {
                             return Nav::Push(Box::new(AssetsScreen::new(
-                                &wallet.chain_id,
-                                &format!("Account #{}", wallet.index + 1),
+                                &account.chain_id,
+                                &account.name,
                             )));
                         }
                     }

@@ -23,12 +23,13 @@ pub struct SqliteAccountsRepository;
 impl AccountsRepository for SqliteAccountsRepository {
     fn save(&self, conn: &Connection, account: &Account) -> Result<(), String> {
         conn.execute(
-            "INSERT INTO accounts (id, protocol, derivation_path, name, viewing_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO accounts (id, protocol, derivation_path, name, address, viewing_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
                 account.id,
                 format!("{:?}", account.protocol),
                 account.derivation_path,
                 account.name,
+                account.address,
                 account.viewing_key,
                 account.created_at,
             ],
@@ -40,7 +41,7 @@ impl AccountsRepository for SqliteAccountsRepository {
     fn find_all(&self, conn: &Connection) -> Result<Vec<Account>, String> {
         let mut stmt = conn
             .prepare(
-                "SELECT id, protocol, derivation_path, name, viewing_key, created_at FROM accounts",
+                "SELECT id, protocol, derivation_path, name, address, viewing_key, created_at FROM accounts",
             )
             .map_err(|e| format!("failed to prepare query: {e}"))?;
         let rows = stmt
@@ -51,8 +52,9 @@ impl AccountsRepository for SqliteAccountsRepository {
                     protocol: parse_protocol(&protocol_str),
                     derivation_path: row.get(2)?,
                     name: row.get(3)?,
-                    viewing_key: row.get(4)?,
-                    created_at: row.get(5)?,
+                    address: row.get(4)?,
+                    viewing_key: row.get(5)?,
+                    created_at: row.get(6)?,
                 })
             })
             .map_err(|e| format!("failed to query accounts: {e}"))?;
@@ -65,7 +67,7 @@ impl AccountsRepository for SqliteAccountsRepository {
 
     fn find_by_id(&self, conn: &Connection, id: &str) -> Result<Option<Account>, String> {
         let mut stmt = conn
-            .prepare("SELECT id, protocol, derivation_path, name, viewing_key, created_at FROM accounts WHERE id = ?1")
+            .prepare("SELECT id, protocol, derivation_path, name, address, viewing_key, created_at FROM accounts WHERE id = ?1")
             .map_err(|e| format!("failed to prepare query: {e}"))?;
         let mut rows = stmt
             .query_map(rusqlite::params![id], |row| {
@@ -75,8 +77,9 @@ impl AccountsRepository for SqliteAccountsRepository {
                     protocol: parse_protocol(&protocol_str),
                     derivation_path: row.get(2)?,
                     name: row.get(3)?,
-                    viewing_key: row.get(4)?,
-                    created_at: row.get(5)?,
+                    address: row.get(4)?,
+                    viewing_key: row.get(5)?,
+                    created_at: row.get(6)?,
                 })
             })
             .map_err(|e| format!("failed to query account: {e}"))?;
@@ -94,7 +97,7 @@ impl AccountsRepository for SqliteAccountsRepository {
     ) -> Result<Vec<Account>, String> {
         let protocol_str = format!("{protocol:?}");
         let mut stmt = conn
-            .prepare("SELECT id, protocol, derivation_path, name, viewing_key, created_at FROM accounts WHERE protocol = ?1")
+            .prepare("SELECT id, protocol, derivation_path, name, address, viewing_key, created_at FROM accounts WHERE protocol = ?1")
             .map_err(|e| format!("failed to prepare query: {e}"))?;
         let rows = stmt
             .query_map(rusqlite::params![protocol_str], |row| {
@@ -104,8 +107,9 @@ impl AccountsRepository for SqliteAccountsRepository {
                     protocol: parse_protocol(&protocol_str),
                     derivation_path: row.get(2)?,
                     name: row.get(3)?,
-                    viewing_key: row.get(4)?,
-                    created_at: row.get(5)?,
+                    address: row.get(4)?,
+                    viewing_key: row.get(5)?,
+                    created_at: row.get(6)?,
                 })
             })
             .map_err(|e| format!("failed to query accounts by protocol: {e}"))?;

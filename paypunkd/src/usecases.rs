@@ -146,6 +146,7 @@ pub fn validate_address(protocols: &ProtocolService, protocol: ProtocolId, addre
 /// Accounts must be pre-derived via unlock (indices 0-29).
 pub async fn create_account(
     db: &Database,
+    protocols: &ProtocolService,
     repo: &dyn AccountsRepository,
     protocol: ProtocolId,
     derivation_path: String,
@@ -190,11 +191,14 @@ pub async fn create_account(
         })
         .collect();
 
+    let address = derive_address(protocols, protocol, &viewing_key, 0)?;
+
     let account = Account {
         id,
         protocol,
         derivation_path,
         name,
+        address,
         viewing_key,
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -209,18 +213,19 @@ pub async fn create_account(
 /// Bulk-derive accounts for all registered protocols.
 pub async fn bulk_derive_accounts(
     keypunk_service: &KeypunkService,
+    protocols: &ProtocolService,
     db: &Database,
     repo: &dyn AccountsRepository,
     encrypted_password: Vec<u8>,
     client_public_key: [u8; 32],
-    protocols: Vec<ProtocolId>,
+    protocol_ids: Vec<ProtocolId>,
     count: u32,
 ) -> Result<Vec<Account>, String> {
     let keys = keypunk_service
         .bulk_export_viewing_keys(
             encrypted_password,
             client_public_key,
-            protocols.clone(),
+            protocol_ids.clone(),
             0,
             count,
         )
@@ -243,11 +248,14 @@ pub async fn bulk_derive_accounts(
             ProtocolId::Solana => 501,
         };
 
+        let address = derive_address(protocols, protocol, &viewing_key, 0)?;
+
         let account = Account {
             id,
             protocol,
             derivation_path: format!("m/44'/{coin_type}'/{account_index}'"),
             name: format!("{protocol:?} Account {account_index}"),
+            address,
             viewing_key,
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

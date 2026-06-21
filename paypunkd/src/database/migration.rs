@@ -89,6 +89,7 @@ impl Migration for AccountsMigration {
                 protocol TEXT NOT NULL,
                 derivation_path TEXT NOT NULL,
                 name TEXT NOT NULL,
+                address TEXT NOT NULL DEFAULT '',
                 viewing_key BLOB NOT NULL,
                 created_at INTEGER NOT NULL
             );",

@@ -17,7 +17,6 @@ struct PendingSend {
 pub struct RealWalletApi {
     client: Client,
     pending: Mutex<Option<PendingSend>>,
-    derivation_index: u32,
 }
 
 impl RealWalletApi {
@@ -26,7 +25,6 @@ impl RealWalletApi {
         Ok(Self {
             client,
             pending: Mutex::new(None),
-            derivation_index: 0,
         })
     }
 
@@ -34,13 +32,16 @@ impl RealWalletApi {
         Self {
             client,
             pending: Mutex::new(None),
-            derivation_index: 0,
         }
     }
+}
 
-    pub fn set_derivation_index(&mut self, index: u32) {
-        self.derivation_index = index;
-    }
+fn parse_account_index(path: &str) -> u32 {
+    path.rsplit('\'')
+        .nth(1)
+        .and_then(|s| s.split('/').last())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
 }
 
 #[async_trait(?Send)]
@@ -74,33 +75,61 @@ impl WalletApi for RealWalletApi {
             .map_err(|e| ApiError(e))
     }
 
-    async fn get_wallets(&self) -> WalletsData {
-        WalletsData { wallets: vec![] }
-    }
-
-    async fn get_assets(&self, chain_id: &str) -> AssetsData {
-        if chain_id.contains("eip155") {
-            AssetsData {
-                assets: vec![AssetRow {
-                    name: "Ethereum".into(),
-                    ticker: "ETH".into(),
-                    price: "$2,000.00".into(),
-                    price_change: "▲ 0.00%".into(),
-                    price_change_up: true,
-                    holdings_value: "$0.00".into(),
-                    holdings_amount: "0 ETH".into(),
-                    chain_id: chain_id.into(),
-                }],
+    async fn get_assets(&self, account_id: &str) -> AssetsData {
+        match self.client.get_account(account_id.to_string()).await {
+            Ok(Some(account)) => {
+                let caip10 = format!("eip155:1:{}", account.address);
+                let balance = self
+                    .client
+                    .get_balance(caip10, "eip155:1/slip44:60".to_string())
+                    .await
+                    .map(|b| b.spendable.0.to_string())
+                    .unwrap_or_else(|_| "0".to_string());
+                AssetsData {
+                    assets: vec![AssetRow {
+                        name: "Ethereum".into(),
+                        ticker: "ETH".into(),
+                        price: "\u{2014}".into(),
+                        price_change: "\u{2014}".into(),
+                        price_change_up: true,
+                        holdings_value: "\u{2014}".into(),
+                        holdings_amount: balance,
+                        chain_id: "eip155:1".into(),
+                    }],
+                }
             }
-        } else {
-            AssetsData { assets: vec![] }
+            _ => AssetsData { assets: vec![] },
         }
     }
 
     async fn get_home(&self) -> HomeData {
-        HomeData {
-            accounts: vec![],
-            fiat_currency: "USD".into(),
+        match self.client.list_accounts().await {
+            Ok(accounts) => {
+                let account_rows: Vec<AccountInfo> = accounts
+                    .iter()
+                    .map(|a| {
+                        let chain_id = match a.protocol {
+                            ProtocolId::Ethereum => "eip155:1".to_string(),
+                            _ => format!("{}:0", format!("{:?}", a.protocol).to_lowercase()),
+                        };
+                        AccountInfo {
+                            account_id: a.id.clone(),
+                            name: a.name.clone(),
+                            address: a.address.clone(),
+                            chain_id,
+                            protocol: format!("{:?}", a.protocol),
+                        }
+                    })
+                    .collect();
+                HomeData {
+                    accounts: account_rows,
+                    fiat_currency: "USD".into(),
+                }
+            }
+            Err(_) => HomeData {
+                accounts: vec![],
+                fiat_currency: "USD".into(),
+            },
         }
     }
 
@@ -114,55 +143,128 @@ impl WalletApi for RealWalletApi {
 
     async fn refresh_home(&self) {}
 
-    async fn get_receive(&self, chain_id: &str) -> ReceiveData {
-        ReceiveData {
-            address: "not_derived".into(),
-            chain_id: chain_id.into(),
-            address_format: "hex".into(),
-            qr_payload: String::new(),
-            account_id: String::new(),
+    async fn list_accounts(&self) -> Result<Vec<AccountInfo>, ApiError> {
+        let accounts = self.client.list_accounts().await.map_err(ApiError)?;
+        Ok(accounts
+            .iter()
+            .map(|a| AccountInfo {
+                account_id: a.id.clone(),
+                name: a.name.clone(),
+                address: a.address.clone(),
+                chain_id: "eip155:1".to_string(),
+                protocol: format!("{:?}", a.protocol),
+            })
+            .collect())
+    }
+
+    async fn add_account(&self) -> Result<(), ApiError> {
+        let accounts = self.client.list_accounts().await.map_err(ApiError)?;
+        let eth_accounts: Vec<_> = accounts
+            .iter()
+            .filter(|a| a.protocol == ProtocolId::Ethereum)
+            .collect();
+        let next_index = eth_accounts.len() as u32;
+        let _ = self
+            .client
+            .create_account(
+                ProtocolId::Ethereum,
+                format!("m/44'/60'/{next_index}'"),
+                next_index,
+                format!("Ethereum Account {next_index}"),
+            )
+            .await
+            .map_err(ApiError)?;
+        Ok(())
+    }
+
+    async fn get_receive(&self, account_id: &str) -> ReceiveData {
+        match self.client.get_account(account_id.to_string()).await {
+            Ok(Some(account)) => ReceiveData {
+                address: account.address.clone(),
+                chain_id: "eip155:1".to_string(),
+                address_format: "hex".to_string(),
+                qr_payload: account.address,
+                account_id: account_id.to_string(),
+            },
+            _ => ReceiveData {
+                address: "unknown".into(),
+                chain_id: "eip155:1".into(),
+                address_format: "hex".into(),
+                qr_payload: String::new(),
+                account_id: account_id.to_string(),
+            },
         }
     }
 
-    async fn submit_receive(&self, _input: ReceiveInput) -> ReceiveData {
-        self.get_receive("").await
+    async fn submit_receive(&self, input: ReceiveInput) -> ReceiveData {
+        self.get_receive(&input.selected_chain_id).await
     }
 
-    async fn receive_state(&self, chain_id: &str) -> ApiState<ReceiveData> {
-        ApiState::Loaded(self.get_receive(chain_id).await)
+    async fn receive_state(&self, account_id: &str) -> ApiState<ReceiveData> {
+        ApiState::Loaded(self.get_receive(account_id).await)
     }
 
-    async fn refresh_receive(&self, _chain_id: &str) {}
+    async fn refresh_receive(&self, _account_id: &str) {}
 
-    async fn get_send(&self, chain_id: &str) -> SendData {
-        let is_eth = chain_id.contains("eip155");
-        SendData {
-            account_id: String::new(),
-            from_address: "0x0000000000000000000000000000000000000000".into(),
-            spendable_balance: "0".into(),
-            decimals: if is_eth { 18 } else { 8 },
-            chain_id: chain_id.into(),
+    async fn get_send(&self, account_id: &str) -> SendData {
+        match self.client.get_account(account_id.to_string()).await {
+            Ok(Some(account)) => {
+                let caip10 = format!("eip155:1:{}", account.address);
+                let balance = self
+                    .client
+                    .get_balance(caip10, "eip155:1/slip44:60".to_string())
+                    .await
+                    .map(|b| b.spendable.0.to_string())
+                    .unwrap_or_else(|_| "0".to_string());
+                SendData {
+                    account_id: account_id.to_string(),
+                    from_address: account.address,
+                    spendable_balance: balance,
+                    decimals: 18,
+                    chain_id: "eip155:1".to_string(),
+                }
+            }
+            _ => SendData {
+                account_id: account_id.to_string(),
+                from_address: String::new(),
+                spendable_balance: "0".to_string(),
+                decimals: 18,
+                chain_id: "eip155:1".to_string(),
+            },
         }
     }
 
     async fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData {
+        let account = self
+            .client
+            .get_account(input.account_id.clone())
+            .await
+            .ok()
+            .flatten();
+
+        let (from_address, derivation_path) = match &account {
+            Some(a) => (a.address.clone(), a.derivation_path.clone()),
+            None => (String::new(), String::new()),
+        };
+
         let intent = Intent::Ethereum(EthereumIntent::Transfer {
             to: input.to_address.clone(),
             amount: input.amount.clone(),
-            from: "0x0000000000000000000000000000000000000000".into(),
-            asset: input.token_id.clone(),
+            from: from_address,
+            asset: "eip155:1/slip44:60".into(),
             data: None,
         });
 
-        let path = self.derivation_index.to_le_bytes();
+        let account_index = parse_account_index(&derivation_path);
+        let path_bytes = account_index.to_le_bytes();
 
-        match self.client.submit_intent(intent, &path).await {
+        match self.client.submit_intent(intent, &path_bytes).await {
             Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
                 let pending = PendingSend {
                     raw_artifact,
                     keypunkd_signature,
                     keypunkd_public_key,
-                    derivation_path: path.to_vec(),
+                    derivation_path: path_bytes.to_vec(),
                 };
                 *self.pending.lock().unwrap() = Some(pending);
 
@@ -245,11 +347,11 @@ impl WalletApi for RealWalletApi {
         }
     }
 
-    async fn send_state(&self, chain_id: &str) -> ApiState<SendData> {
-        ApiState::Loaded(self.get_send(chain_id).await)
+    async fn send_state(&self, account_id: &str) -> ApiState<SendData> {
+        ApiState::Loaded(self.get_send(account_id).await)
     }
 
-    async fn refresh_send(&self, _chain_id: &str) {}
+    async fn refresh_send(&self, _account_id: &str) {}
 
     async fn get_lock(&self) -> LockData {
         LockData {

@@ -59,39 +59,8 @@ impl WalletApi for MockWalletApi {
         Ok(())
     }
 
-    async fn get_wallets(&self) -> WalletsData {
-        WalletsData {
-            wallets: vec![
-                WalletDerivation {
-                    index: 0,
-                    address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-                    chain_id: "eip155:1".into(),
-                    chain_name: "Ethereum".into(),
-                },
-                WalletDerivation {
-                    index: 1,
-                    address: "0x8f3E8A8e8b8C8d8E8f8A8b8C8d8E8f8A8b8C8d8E".into(),
-                    chain_id: "eip155:1".into(),
-                    chain_name: "Ethereum".into(),
-                },
-                WalletDerivation {
-                    index: 2,
-                    address: "0x1a2B3c4D5e6F7a8B9c0D1e2F3a4B5c6D7e8F9a0B".into(),
-                    chain_id: "eip155:1".into(),
-                    chain_name: "Ethereum".into(),
-                },
-                WalletDerivation {
-                    index: 3,
-                    address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
-                    chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                    chain_name: "Zcash".into(),
-                },
-            ],
-        }
-    }
-
-    async fn get_assets(&self, chain_id: &str) -> AssetsData {
-        if chain_id.contains("bip122") {
+    async fn get_assets(&self, account_id: &str) -> AssetsData {
+        if account_id.contains("bip122") {
             AssetsData {
                 assets: vec![AssetRow {
                     name: "Zcash".into(),
@@ -101,7 +70,7 @@ impl WalletApi for MockWalletApi {
                     price_change_up: true,
                     holdings_value: "$142.50".into(),
                     holdings_amount: "5 ZEC".into(),
-                    chain_id: chain_id.into(),
+                    chain_id: account_id.into(),
                 }],
             }
         } else {
@@ -115,7 +84,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: true,
                         holdings_value: "$4,000.00".into(),
                         holdings_amount: "2 ETH".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                     AssetRow {
                         name: "Wrapped Bitcoin".into(),
@@ -125,7 +94,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: false,
                         holdings_value: "$1,000.00".into(),
                         holdings_amount: "0.0001 WBTC".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                     AssetRow {
                         name: "USD Coin".into(),
@@ -135,7 +104,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: true,
                         holdings_value: "$500.00".into(),
                         holdings_amount: "500 USDC".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                     AssetRow {
                         name: "Chainlink".into(),
@@ -145,7 +114,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: false,
                         holdings_value: "$285.00".into(),
                         holdings_amount: "20 LINK".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                     AssetRow {
                         name: "Uniswap".into(),
@@ -155,7 +124,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: true,
                         holdings_value: "$156.00".into(),
                         holdings_amount: "20 UNI".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                 ],
             }
@@ -188,7 +157,30 @@ impl WalletApi for MockWalletApi {
         self.get_home().await
     }
 
-    async fn get_receive(&self, _chain_id: &str) -> ReceiveData {
+    async fn list_accounts(&self) -> Result<Vec<AccountInfo>, ApiError> {
+        Ok(vec![
+            AccountInfo {
+                account_id: "acc_1".into(),
+                name: "Ethereum Wallet".into(),
+                address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                chain_id: "eip155:1".into(),
+                protocol: "Ethereum".into(),
+            },
+            AccountInfo {
+                account_id: "acc_2".into(),
+                name: "Zcash Wallet".into(),
+                address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
+                chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
+                protocol: "Zcash".into(),
+            },
+        ])
+    }
+
+    async fn add_account(&self) -> Result<(), ApiError> {
+        Ok(())
+    }
+
+    async fn get_receive(&self, _account_id: &str) -> ReceiveData {
         ReceiveData {
             address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
             chain_id: "eip155:1".into(),
