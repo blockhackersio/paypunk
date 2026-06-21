@@ -6,7 +6,6 @@ mod screens;
 mod ui;
 
 use crate::api::WalletApi;
-use api::mock::MockWalletApi;
 use api::real::RealWalletApi;
 use app::App;
 use screens::greeting::GreetingScreen;
@@ -22,17 +21,11 @@ use ratatui::Frame;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io::Result<()> {
-    let api: Box<dyn WalletApi> = match RealWalletApi::connect(socket_path).await {
-        Ok(real) => Box::new(real),
-        Err(e) => {
-            eprintln!("Failed to connect to paypunkd at {socket_path}: {e}");
-            eprintln!("Falling back to mock API");
-            Box::new(MockWalletApi::new())
-        }
-    };
+    let api: Box<dyn WalletApi> = connect_with_retry(socket_path, shutdown.as_ref()).await?;
 
     let mut app = App::new(api);
 
@@ -113,6 +106,41 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
     terminal.show_cursor()?;
 
     Ok(())
+}
+
+async fn connect_with_retry(
+    socket_path: &str,
+    shutdown: Option<&Arc<AtomicBool>>,
+) -> io::Result<Box<dyn WalletApi>> {
+    let deadline = Duration::from_secs(30);
+    let poll_interval = Duration::from_millis(500);
+    let start = std::time::Instant::now();
+
+    loop {
+        if let Some(ref flag) = shutdown {
+            if flag.load(Ordering::SeqCst) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "shutdown requested before paypunkd connection",
+                ));
+            }
+        }
+
+        match RealWalletApi::connect(socket_path).await {
+            Ok(real) => return Ok(Box::new(real)),
+            Err(e) => {
+                if start.elapsed() >= deadline {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!(
+                            "Timed out waiting for paypunkd at {socket_path} after 30s: {e}"
+                        ),
+                    ));
+                }
+                tokio::time::sleep(poll_interval).await;
+            }
+        }
+    }
 }
 
 fn render(frame: &mut Frame, app: &mut App) {
