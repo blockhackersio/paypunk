@@ -62,6 +62,7 @@ pub struct ArtifactSummary {
     pub to: String,
     pub amount: String,
     pub fee: String,
+    pub nonce: u64,
     pub memo: Option<String>,
     pub protocol: ProtocolId,
 }
