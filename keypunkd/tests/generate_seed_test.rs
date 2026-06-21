@@ -1,8 +1,8 @@
 use keypunkd::crypto::Keypair;
-use keypunkd::protocol::ProtocolService;
-use keypunkd::Keypunkd;
 use keypunkd::messages::{KeypunkdRequest, KeypunkdResponse};
+use keypunkd::protocol::ProtocolService;
 use keypunkd::seed_store::InMemorySeedStore;
+use keypunkd::Keypunkd;
 use paypunk_ipc::IpcMessage;
 use tactix::{Actor, Sender};
 
@@ -54,7 +54,8 @@ async fn test_generate_seed_no_filesystem() {
         }
     };
 
-    let encrypted_password = client.encrypt(zeroize::Zeroizing::new("hunter2".to_string()), &server_pk);
+    let encrypted_password =
+        client.encrypt(zeroize::Zeroizing::new("hunter2".to_string()), &server_pk);
     let client_pk = client.public_key();
 
     let request = KeypunkdRequest::GenerateSeed {
@@ -67,9 +68,7 @@ async fn test_generate_seed_no_filesystem() {
 
     match response {
         KeypunkdResponse::SeedGenerated { encrypted_mnemonic } => {
-            let mnemonic = client
-                .decrypt(&encrypted_mnemonic, &server_pk)
-                .unwrap();
+            let mnemonic = client.decrypt(&encrypted_mnemonic, &server_pk).unwrap();
             assert_eq!(mnemonic.split_whitespace().count(), 12);
         }
         other => panic!("expected SeedGenerated, got {other:?}"),
@@ -108,9 +107,7 @@ async fn test_generate_seed_empty_password() {
 
     match response {
         KeypunkdResponse::SeedGenerated { encrypted_mnemonic } => {
-            let mnemonic = client
-                .decrypt(&encrypted_mnemonic, &server_pk)
-                .unwrap();
+            let mnemonic = client.decrypt(&encrypted_mnemonic, &server_pk).unwrap();
             assert_eq!(mnemonic.split_whitespace().count(), 12);
         }
         other => panic!("expected SeedGenerated, got {other:?}"),

@@ -57,19 +57,50 @@ impl Component<ButtonAction> for Button {
         let (content_area, bg_area) = match self.size {
             ButtonSize::Sm => {
                 let w = self.label.len() + 2;
-                let inner = Rect { x: area.x, width: w as u16, ..area };
+                let inner = Rect {
+                    x: area.x,
+                    width: w as u16,
+                    ..area
+                };
                 (inner, inner)
             }
             ButtonSize::Md => {
-                let padded = area.inner(Margin { vertical: 1, horizontal: 0 });
+                let padded = area.inner(Margin {
+                    vertical: 1,
+                    horizontal: 0,
+                });
                 let w = self.label.len() + 6;
-                let inner = Rect { x: padded.x, width: w as u16, ..padded };
-                let bg = Rect { x: padded.x, width: w as u16, y: area.y, height: area.height };
-                (inner.inner(Margin { vertical: 0, horizontal: 1 }), bg)
+                let inner = Rect {
+                    x: padded.x,
+                    width: w as u16,
+                    ..padded
+                };
+                let bg = Rect {
+                    x: padded.x,
+                    width: w as u16,
+                    y: area.y,
+                    height: area.height,
+                };
+                (
+                    inner.inner(Margin {
+                        vertical: 0,
+                        horizontal: 1,
+                    }),
+                    bg,
+                )
             }
             ButtonSize::Lg => {
-                let padded = area.inner(Margin { vertical: 1, horizontal: 0 });
-                (padded.inner(Margin { vertical: 0, horizontal: 2 }), area)
+                let padded = area.inner(Margin {
+                    vertical: 1,
+                    horizontal: 0,
+                });
+                (
+                    padded.inner(Margin {
+                        vertical: 0,
+                        horizontal: 2,
+                    }),
+                    area,
+                )
             }
         };
 

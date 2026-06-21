@@ -42,11 +42,11 @@ impl SendScreen {
             ListItem::new("slow"),
             ListItem::new("medium"),
             ListItem::new("fast"),
-        ]).theme(ui::theme());
-        let confirm_choice = SelectList::new([
-            ListItem::new("Yes, send it"),
-            ListItem::new("No, go back"),
-        ]).theme(ui::theme());
+        ])
+        .theme(ui::theme());
+        let confirm_choice =
+            SelectList::new([ListItem::new("Yes, send it"), ListItem::new("No, go back")])
+                .theme(ui::theme());
         Self {
             chain_id: chain_id.to_string(),
             step: SendStep::Form,
@@ -77,7 +77,9 @@ impl SendScreen {
 
 #[async_trait(?Send)]
 impl Screen for SendScreen {
-    fn name(&self) -> &str { "Send" }
+    fn name(&self) -> &str {
+        "Send"
+    }
 
     async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
         api.refresh_send(&self.chain_id).await;
@@ -95,8 +97,11 @@ impl Screen for SendScreen {
             Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Length(3),
-        ]).split(area);
-        let header = chunks[0]; let body = chunks[1]; let footer = chunks[2];
+        ])
+        .split(area);
+        let header = chunks[0];
+        let body = chunks[1];
+        let footer = chunks[2];
 
         let step_name = match self.step {
             SendStep::Form => "Send — Enter Details",
@@ -125,31 +130,33 @@ impl Screen for SendScreen {
                 ("Esc", "Back"),
                 ("?", "Help"),
             ]),
-            SendStep::Review => theme.help_line([
-                ("Enter", "Confirm"),
-                ("Esc", "Edit"),
-                ("?", "Help"),
-            ]),
-            SendStep::ConfirmSend => theme.help_line([
-                ("←/→", "Choose"),
-                ("Enter", "Send"),
-                ("Esc", "Cancel"),
-            ]),
-            SendStep::Sending => theme.help_line([
-                ("", "Sending..."),
-            ]),
-            SendStep::Confirm => theme.help_line([
-                ("c", "Copy TX Hash"),
-                ("Enter", "Done"),
-                ("?", "Help"),
-            ]),
+            SendStep::Review => {
+                theme.help_line([("Enter", "Confirm"), ("Esc", "Edit"), ("?", "Help")])
+            }
+            SendStep::ConfirmSend => {
+                theme.help_line([("←/→", "Choose"), ("Enter", "Send"), ("Esc", "Cancel")])
+            }
+            SendStep::Sending => theme.help_line([("", "Sending...")]),
+            SendStep::Confirm => {
+                theme.help_line([("c", "Copy TX Hash"), ("Enter", "Done"), ("?", "Help")])
+            }
         };
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
-        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
@@ -160,19 +167,47 @@ impl Screen for SendScreen {
                 let is_ethereum = self.chain_id.contains("eip155");
                 let max_focus = if is_ethereum { 1 } else { 3 };
                 match key.code {
-                    KeyCode::Tab | KeyCode::Down => { self.focus = (self.focus + 1).min(max_focus); }
-                    KeyCode::Up => { self.focus = self.focus.saturating_sub(1); }
-                    KeyCode::Left => { if self.focus == 3 { self.fee_tiers.previous(); } }
-                    KeyCode::Right => { if self.focus == 3 { self.fee_tiers.next(); } }
+                    KeyCode::Tab | KeyCode::Down => {
+                        self.focus = (self.focus + 1).min(max_focus);
+                    }
+                    KeyCode::Up => {
+                        self.focus = self.focus.saturating_sub(1);
+                    }
+                    KeyCode::Left => {
+                        if self.focus == 3 {
+                            self.fee_tiers.previous();
+                        }
+                    }
+                    KeyCode::Right => {
+                        if self.focus == 3 {
+                            self.fee_tiers.next();
+                        }
+                    }
                     _ => {
                         if key.code == KeyCode::Enter {
-                            let review = api.submit_send_review(SendReviewInput {
-                                to_address: if self.to_field.value().is_empty() { "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984".into() } else { self.to_field.value().into() },
-                                amount: if self.amount_field.value().is_empty() { "250000000000000000".into() } else { self.amount_field.value().into() },
-                                token_id: "eth-native".into(),
-                                chain_id: self.chain_id.clone(),
-                                fee_selection: FeeSelection { tier: self.fee_tiers.selected_item().map(|i| i.label().to_string()).unwrap_or_else(|| "medium".into()) },
-                            }).await;
+                            let review = api
+                                .submit_send_review(SendReviewInput {
+                                    to_address: if self.to_field.value().is_empty() {
+                                        "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984".into()
+                                    } else {
+                                        self.to_field.value().into()
+                                    },
+                                    amount: if self.amount_field.value().is_empty() {
+                                        "250000000000000000".into()
+                                    } else {
+                                        self.amount_field.value().into()
+                                    },
+                                    token_id: "eth-native".into(),
+                                    chain_id: self.chain_id.clone(),
+                                    fee_selection: FeeSelection {
+                                        tier: self
+                                            .fee_tiers
+                                            .selected_item()
+                                            .map(|i| i.label().to_string())
+                                            .unwrap_or_else(|| "medium".into()),
+                                    },
+                                })
+                                .await;
                             self.review_data = Some(review);
                             self.step = SendStep::Review;
                         } else if key.code == KeyCode::Esc {
@@ -180,13 +215,17 @@ impl Screen for SendScreen {
                         } else {
                             match self.focus {
                                 0 => {
-                                    if is_ethereum && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_hexdigit() && c != 'x') {
+                                    if is_ethereum
+                                        && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_hexdigit() && c != 'x')
+                                    {
                                     } else {
                                         self.to_field.handle_event(key);
                                     }
                                 }
                                 1 => {
-                                    if is_ethereum && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_digit() && c != '.') {
+                                    if is_ethereum
+                                        && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_digit() && c != '.')
+                                    {
                                     } else {
                                         self.amount_field.handle_event(key);
                                     }
@@ -198,30 +237,41 @@ impl Screen for SendScreen {
                 }
             }
             SendStep::Review => match key.code {
-                KeyCode::Enter => { self.step = SendStep::ConfirmSend; self.confirm_choice.first(); }
-                KeyCode::Esc => { self.step = SendStep::Form; }
+                KeyCode::Enter => {
+                    self.step = SendStep::ConfirmSend;
+                    self.confirm_choice.first();
+                }
+                KeyCode::Esc => {
+                    self.step = SendStep::Form;
+                }
                 _ => {}
             },
             SendStep::ConfirmSend => match key.code {
-                KeyCode::Left | KeyCode::Up => { self.confirm_choice.previous(); }
-                KeyCode::Right | KeyCode::Down => { self.confirm_choice.next(); }
+                KeyCode::Left | KeyCode::Up => {
+                    self.confirm_choice.previous();
+                }
+                KeyCode::Right | KeyCode::Down => {
+                    self.confirm_choice.next();
+                }
                 KeyCode::Enter => {
                     if self.confirm_choice.selected() == Some(0) {
                         self.step = SendStep::Sending;
                         if let Some(ref review) = self.review_data {
-                            let result = api.submit_send_confirm(SendConfirmInput {
-                                reviewed: ReviewedDetails {
-                                    to_address: review.to_address.clone(),
-                                    amount: review.amount.clone(),
-                                    fee_estimate: review.fee_estimate.clone(),
-                                    total_amount: review.total_amount.clone(),
-                                },
-                                auth_confirmation: AuthConfirmation {
-                                    auth_type: "biometric".into(),
-                                    value: "face-id-assertion-token".into(),
-                                },
-                                signed_tx: "0x02f8b00182002a8459682f00851b572f4e...".into(),
-                            }).await;
+                            let result = api
+                                .submit_send_confirm(SendConfirmInput {
+                                    reviewed: ReviewedDetails {
+                                        to_address: review.to_address.clone(),
+                                        amount: review.amount.clone(),
+                                        fee_estimate: review.fee_estimate.clone(),
+                                        total_amount: review.total_amount.clone(),
+                                    },
+                                    auth_confirmation: AuthConfirmation {
+                                        auth_type: "biometric".into(),
+                                        value: "face-id-assertion-token".into(),
+                                    },
+                                    signed_tx: "0x02f8b00182002a8459682f00851b572f4e...".into(),
+                                })
+                                .await;
                             self.result = Some(result);
                             self.step = SendStep::Confirm;
                         }
@@ -229,7 +279,9 @@ impl Screen for SendScreen {
                         self.step = SendStep::Review;
                     }
                 }
-                KeyCode::Esc => { self.step = SendStep::Review; }
+                KeyCode::Esc => {
+                    self.step = SendStep::Review;
+                }
                 _ => {}
             },
             SendStep::Sending => {}
@@ -272,10 +324,16 @@ impl SendScreen {
 
         match &self.send_data {
             ApiState::Loading => {
-                let msg = Paragraph::new(Line::from(vec![
-                    theme.muted(" Loading..."),
-                ])).centered().style(Style::new().bg(ui::BG));
-                frame.render_widget(msg, inner.inner(Margin { vertical: 3, horizontal: 2 }));
+                let msg = Paragraph::new(Line::from(vec![theme.muted(" Loading...")]))
+                    .centered()
+                    .style(Style::new().bg(ui::BG));
+                frame.render_widget(
+                    msg,
+                    inner.inner(Margin {
+                        vertical: 3,
+                        horizontal: 2,
+                    }),
+                );
             }
             ApiState::Error(err) => {
                 ui::render_error_banner(frame, area, err);
@@ -284,23 +342,47 @@ impl SendScreen {
                     theme.muted("Press "),
                     theme.accent("Esc"),
                     theme.muted(" to go back."),
-                ])).centered().style(Style::new().bg(ui::BG));
-                frame.render_widget(msg, inner.inner(Margin { vertical: 4, horizontal: 2 }));
+                ]))
+                .centered()
+                .style(Style::new().bg(ui::BG));
+                frame.render_widget(
+                    msg,
+                    inner.inner(Margin {
+                        vertical: 4,
+                        horizontal: 2,
+                    }),
+                );
             }
             ApiState::Loaded(ref data) => {
                 let divisor = 10u128.pow(data.decimals as u32) as f64;
                 let bal = data.spendable_balance.parse::<f64>().unwrap_or(0.0) / divisor;
                 let bal_str = format!("{:.8}", bal);
-                let symbol = if data.chain_id.contains("eip155") { "ETH" } else { "ZEC" };
+                let symbol = if data.chain_id.contains("eip155") {
+                    "ETH"
+                } else {
+                    "ZEC"
+                };
                 let is_ethereum = data.chain_id.contains("eip155");
 
                 self.to_field.set_focused(self.focus == 0);
-                self.to_field.render(frame, inner.inner(Margin { vertical: 3, horizontal: 2 }));
+                self.to_field.render(
+                    frame,
+                    inner.inner(Margin {
+                        vertical: 3,
+                        horizontal: 2,
+                    }),
+                );
 
                 let amt_placeholder = format!("Enter amount ({})...", symbol);
                 self.amount_field.set_placeholder(&amt_placeholder);
                 self.amount_field.set_focused(self.focus == 1);
-                self.amount_field.render(frame, inner.inner(Margin { vertical: 6, horizontal: 2 }));
+                self.amount_field.render(
+                    frame,
+                    inner.inner(Margin {
+                        vertical: 6,
+                        horizontal: 2,
+                    }),
+                );
 
                 let mut y_offset = 9;
 
@@ -309,40 +391,62 @@ impl SendScreen {
                     theme.span(format!("{} {}", bal_str, symbol)),
                 ]);
                 let bal_para = Paragraph::new(balance_line).style(Style::new().bg(ui::BG));
-                frame.render_widget(bal_para, inner.inner(Margin { vertical: y_offset, horizontal: 2 }));
+                frame.render_widget(
+                    bal_para,
+                    inner.inner(Margin {
+                        vertical: y_offset,
+                        horizontal: 2,
+                    }),
+                );
 
                 if !is_ethereum {
                     y_offset += 2;
 
                     let fee_str = match &data.fee_data {
                         FeeData::Eth(f) => {
-                            format!("Base: {} Gwei | Priority: {} Gwei | Gas: {}",
+                            format!(
+                                "Base: {} Gwei | Priority: {} Gwei | Gas: {}",
                                 &f.base_fee_per_gas[..std::cmp::min(f.base_fee_per_gas.len(), 6)],
-                                &f.max_priority_fee_per_gas[..std::cmp::min(f.max_priority_fee_per_gas.len(), 6)],
-                                f.gas_limit_estimate)
+                                &f.max_priority_fee_per_gas
+                                    [..std::cmp::min(f.max_priority_fee_per_gas.len(), 6)],
+                                f.gas_limit_estimate
+                            )
                         }
                         FeeData::Zec(r) => {
-                            format!("Slow: {}  Medium: {}  Fast: {} zat/byte", r.slow, r.medium, r.fast)
+                            format!(
+                                "Slow: {}  Medium: {}  Fast: {} zat/byte",
+                                r.slow, r.medium, r.fast
+                            )
                         }
                     };
 
-                    let fee_line = Line::from(vec![
-                        theme.muted("Fee:     "),
-                        theme.span(fee_str),
-                    ]);
+                    let fee_line = Line::from(vec![theme.muted("Fee:     "), theme.span(fee_str)]);
                     let fee_para = Paragraph::new(fee_line).style(Style::new().bg(ui::BG));
-                    frame.render_widget(fee_para, inner.inner(Margin { vertical: y_offset, horizontal: 2 }));
+                    frame.render_widget(
+                        fee_para,
+                        inner.inner(Margin {
+                            vertical: y_offset,
+                            horizontal: 2,
+                        }),
+                    );
 
                     y_offset += 1;
-                    let tier_line = Line::from(vec![
-                        theme.muted("Tier:    "),
-                    ]);
+                    let tier_line = Line::from(vec![theme.muted("Tier:    ")]);
                     let tier_para = Paragraph::new(tier_line).style(Style::new().bg(ui::BG));
-                    frame.render_widget(tier_para, inner.inner(Margin { vertical: y_offset, horizontal: 2 }));
+                    frame.render_widget(
+                        tier_para,
+                        inner.inner(Margin {
+                            vertical: y_offset,
+                            horizontal: 2,
+                        }),
+                    );
 
                     frame.render_widget(
                         &self.fee_tiers,
-                        inner.inner(Margin { vertical: y_offset + 1, horizontal: 4 }),
+                        inner.inner(Margin {
+                            vertical: y_offset + 1,
+                            horizontal: 4,
+                        }),
                     );
 
                     if let Some(nonce) = data.nonce {
@@ -351,7 +455,13 @@ impl SendScreen {
                             theme.span(nonce.to_string()),
                         ]);
                         let nonce_para = Paragraph::new(nonce_line).style(Style::new().bg(ui::BG));
-                        frame.render_widget(nonce_para, inner.inner(Margin { vertical: y_offset + 2, horizontal: 2 }));
+                        frame.render_widget(
+                            nonce_para,
+                            inner.inner(Margin {
+                                vertical: y_offset + 2,
+                                horizontal: 2,
+                            }),
+                        );
                     }
                 }
             }
@@ -405,18 +515,36 @@ impl SendScreen {
             let lines = vec![
                 Line::from(vec![theme.muted("From:      "), theme.span(&from_address)]),
                 Line::from(""),
-                Line::from(vec![theme.muted("To:        "), theme.span(&review.to_address)]),
+                Line::from(vec![
+                    theme.muted("To:        "),
+                    theme.span(&review.to_address),
+                ]),
                 Line::from(""),
-                Line::from(vec![theme.muted("Amount:    "), theme.span(&amount_display)]),
-                Line::from(vec![theme.muted("Fee:       "), theme.warning(&fee_display)]),
-                Line::from(vec![theme.muted("Total:     "), theme.accent(&total_display)]),
+                Line::from(vec![
+                    theme.muted("Amount:    "),
+                    theme.span(&amount_display),
+                ]),
+                Line::from(vec![
+                    theme.muted("Fee:       "),
+                    theme.warning(&fee_display),
+                ]),
+                Line::from(vec![
+                    theme.muted("Total:     "),
+                    theme.accent(&total_display),
+                ]),
                 Line::from(""),
                 Line::from(vec![theme.muted("Chain:     "), theme.span(&chain_display)]),
                 Line::from(""),
                 Line::from(vec![theme.success("Press ENTER to confirm")]),
             ];
             let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
-            frame.render_widget(para, inner.inner(Margin { vertical: 2, horizontal: 4 }));
+            frame.render_widget(
+                para,
+                inner.inner(Margin {
+                    vertical: 2,
+                    horizontal: 4,
+                }),
+            );
         }
     }
 
@@ -435,17 +563,32 @@ impl SendScreen {
                 ]),
                 Line::from(vec![theme.accent(&review.to_address)]),
                 Line::from(""),
-                Line::from(vec![theme.muted("Fee: "), theme.warning(&review.fee_estimate)]),
-                Line::from(vec![theme.muted("Total: "), theme.span(&review.total_amount)]),
+                Line::from(vec![
+                    theme.muted("Fee: "),
+                    theme.warning(&review.fee_estimate),
+                ]),
+                Line::from(vec![
+                    theme.muted("Total: "),
+                    theme.span(&review.total_amount),
+                ]),
                 Line::from(""),
                 Line::from(""),
             ];
             let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
-            frame.render_widget(para, inner.inner(Margin { vertical: 2, horizontal: 4 }));
+            frame.render_widget(
+                para,
+                inner.inner(Margin {
+                    vertical: 2,
+                    horizontal: 4,
+                }),
+            );
 
             frame.render_widget(
                 &self.confirm_choice,
-                inner.inner(Margin { vertical: 8, horizontal: 4 }),
+                inner.inner(Margin {
+                    vertical: 8,
+                    horizontal: 4,
+                }),
             );
         }
     }
@@ -460,15 +603,30 @@ impl SendScreen {
             .width(20)
             .label("Broadcasting")
             .theme(theme);
-        frame.render_widget(&progress, inner.inner(Margin { vertical: 2, horizontal: 4 }));
+        frame.render_widget(
+            &progress,
+            inner.inner(Margin {
+                vertical: 2,
+                horizontal: 4,
+            }),
+        );
 
         let lines = vec![
             Line::from(vec![theme.accent(" Sending transaction... ")]).centered(),
             Line::from(""),
-            Line::from(vec![theme.muted("Please wait while your transaction is broadcast")]).centered(),
+            Line::from(vec![
+                theme.muted("Please wait while your transaction is broadcast")
+            ])
+            .centered(),
         ];
         let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
-        frame.render_widget(para, inner.inner(Margin { vertical: 4, horizontal: 2 }));
+        frame.render_widget(
+            para,
+            inner.inner(Margin {
+                vertical: 4,
+                horizontal: 2,
+            }),
+        );
     }
 
     fn render_confirm(&self, frame: &mut Frame, area: Rect) {
@@ -496,7 +654,13 @@ impl SendScreen {
             }
             lines.push(Line::from(vec![theme.muted("Press ENTER to return")]));
             let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
-            frame.render_widget(para, inner.inner(Margin { vertical: 2, horizontal: 4 }));
+            frame.render_widget(
+                para,
+                inner.inner(Margin {
+                    vertical: 2,
+                    horizontal: 4,
+                }),
+            );
         }
     }
 }

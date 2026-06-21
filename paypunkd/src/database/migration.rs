@@ -44,11 +44,8 @@ impl Migrator {
 
             if !already_applied {
                 migration.up(conn)?;
-                conn.execute(
-                    "INSERT INTO _migrations (version) VALUES (?1)",
-                    [version],
-                )
-                .map_err(|e| e.to_string())?;
+                conn.execute("INSERT INTO _migrations (version) VALUES (?1)", [version])
+                    .map_err(|e| e.to_string())?;
             }
         }
 

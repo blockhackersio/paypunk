@@ -18,7 +18,14 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
-const DEMO_LABELS: &[&str] = &["Text Fields", "Password", "Feedback", "Button", "List", "Asset List"];
+const DEMO_LABELS: &[&str] = &[
+    "Text Fields",
+    "Password",
+    "Feedback",
+    "Button",
+    "List",
+    "Asset List",
+];
 
 enum DemoVariant {
     TextField(TextFieldDemo),
@@ -90,7 +97,9 @@ impl Screen for ComponentDemoScreen {
         let body = chunks[2];
         let footer = chunks[3];
 
-        let title = theme.title(format!(" Demo: {} ", self.step_name())).centered();
+        let title = theme
+            .title(format!(" Demo: {} ", self.step_name()))
+            .centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
         let nav_spans: Vec<_> = DEMO_LABELS
@@ -108,7 +117,10 @@ impl Screen for ComponentDemoScreen {
         frame.render_widget(nav_bg, nav_area);
         frame.render_widget(
             Paragraph::new(Line::from(nav_spans)).style(Style::new().bg(ui::SURFACE)),
-            nav_area.inner(Margin { vertical: 0, horizontal: 1 }),
+            nav_area.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
         );
 
         let block = theme.titled_block(self.step_name());
@@ -135,13 +147,21 @@ impl Screen for ComponentDemoScreen {
         );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        _api: &mut dyn WalletApi,
+    ) -> Nav {
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
             KeyCode::Left => {
                 let total = self.demos.len();
                 let prev = self.active;
-                self.active = if self.active == 0 { total - 1 } else { self.active - 1 };
+                self.active = if self.active == 0 {
+                    total - 1
+                } else {
+                    self.active - 1
+                };
                 if self.active != prev {
                     self.with_active(|d| d.set_focused(true));
                 }
@@ -159,6 +179,7 @@ impl Screen for ComponentDemoScreen {
             _ => {}
         }
 
-        self.with_active(|d| d.handle_event(key)).unwrap_or(Nav::None)
+        self.with_active(|d| d.handle_event(key))
+            .unwrap_or(Nav::None)
     }
 }

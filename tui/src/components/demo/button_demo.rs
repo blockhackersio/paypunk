@@ -58,8 +58,12 @@ impl Component<Nav> for ButtonDemo {
             Paragraph::new(Line::from(vec![theme.muted("Small:")])).style(Style::new().bg(ui::BG));
         frame.render_widget(label_line, rows[0]);
 
-        let sm_areas =
-            Layout::horizontal([Constraint::Length(8), Constraint::Length(1), Constraint::Length(8)]).split(rows[1]);
+        let sm_areas = Layout::horizontal([
+            Constraint::Length(8),
+            Constraint::Length(1),
+            Constraint::Length(8),
+        ])
+        .split(rows[1]);
         for (i, btn) in self.small_buttons.iter_mut().enumerate() {
             btn.set_focused(self.focus == i);
             btn.render(frame, sm_areas[i * 2]);
@@ -69,8 +73,12 @@ impl Component<Nav> for ButtonDemo {
             Paragraph::new(Line::from(vec![theme.muted("Medium:")])).style(Style::new().bg(ui::BG));
         frame.render_widget(label_line, rows[3]);
 
-        let md_areas =
-            Layout::horizontal([Constraint::Length(12), Constraint::Length(1), Constraint::Length(12)]).split(rows[4]);
+        let md_areas = Layout::horizontal([
+            Constraint::Length(12),
+            Constraint::Length(1),
+            Constraint::Length(12),
+        ])
+        .split(rows[4]);
         for (i, btn) in self.medium_buttons.iter_mut().enumerate() {
             btn.set_focused(self.focus == i + 2);
             btn.render(frame, md_areas[i * 2]);

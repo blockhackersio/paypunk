@@ -1,5 +1,5 @@
-use paypunk_types::AssetId;
 use async_trait::async_trait;
+use paypunk_types::AssetId;
 
 /// Trait abstracting an Ethereum JSON-RPC client.
 ///
@@ -26,7 +26,13 @@ pub trait EthRpcClient: Send + Sync {
     async fn get_gas_price(&self) -> Result<u128, String>;
 
     /// Estimate the gas needed for a transaction.
-    async fn estimate_gas(&self, from: &str, to: &str, value: &str, data: &str) -> Result<u64, String>;
+    async fn estimate_gas(
+        &self,
+        from: &str,
+        to: &str,
+        value: &str,
+        data: &str,
+    ) -> Result<u64, String>;
 
     /// Return the current block number.
     async fn get_block_number(&self) -> Result<u64, String>;
@@ -63,7 +69,13 @@ impl EthRpcClient for () {
     async fn get_gas_price(&self) -> Result<u128, String> {
         Err("no RPC client configured".to_string())
     }
-    async fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
+    async fn estimate_gas(
+        &self,
+        _from: &str,
+        _to: &str,
+        _value: &str,
+        _data: &str,
+    ) -> Result<u64, String> {
         Err("no RPC client configured".to_string())
     }
     async fn get_block_number(&self) -> Result<u64, String> {
@@ -91,7 +103,11 @@ impl HttpRpcClient {
         }
     }
 
-    async fn call(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+    async fn call(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
         let body = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -113,10 +129,7 @@ impl HttpRpcClient {
             .map_err(|e| format!("RPC response parse failed: {e}"))?;
 
         if let Some(err) = json.get("error") {
-            return Err(format!(
-                "RPC error ({}): {}",
-                err["code"], err["message"]
-            ));
+            return Err(format!("RPC error ({}): {}", err["code"], err["message"]));
         }
 
         json.get("result")
@@ -126,14 +139,18 @@ impl HttpRpcClient {
 
     /// Parse a hex quantity (0x-prefixed) to u64.
     fn hex_u64(val: &serde_json::Value) -> Result<u64, String> {
-        let s = val.as_str().ok_or_else(|| "expected hex string".to_string())?;
+        let s = val
+            .as_str()
+            .ok_or_else(|| "expected hex string".to_string())?;
         let s = s.strip_prefix("0x").unwrap_or(s);
         u64::from_str_radix(s, 16).map_err(|e| format!("invalid hex: {e}"))
     }
 
     /// Parse a hex quantity to u128.
     fn hex_u128(val: &serde_json::Value) -> Result<u128, String> {
-        let s = val.as_str().ok_or_else(|| "expected hex string".to_string())?;
+        let s = val
+            .as_str()
+            .ok_or_else(|| "expected hex string".to_string())?;
         let s = s.strip_prefix("0x").unwrap_or(s);
         u128::from_str_radix(s, 16).map_err(|e| format!("invalid hex: {e}"))
     }
@@ -144,24 +161,36 @@ impl EthRpcClient for HttpRpcClient {
     async fn get_balance(&self, address: &str, asset: &AssetId) -> Result<u64, String> {
         match asset {
             AssetId::Native => {
-                let result = self.call("eth_getBalance", serde_json::json!([address, "latest"])).await?;
+                let result = self
+                    .call("eth_getBalance", serde_json::json!([address, "latest"]))
+                    .await?;
                 Self::hex_u64(&result)
             }
             AssetId::Token(contract) => {
                 // ERC-20 balanceOf(address) selector: 0x70a08231
                 let addr = address.strip_prefix("0x").unwrap_or(address);
                 let data = format!("0x70a08231{:0>64}", addr);
-                let result = self.call("eth_call", serde_json::json!([{
+                let result = self
+                    .call(
+                        "eth_call",
+                        serde_json::json!([{
                     "to": contract,
                     "data": data,
-                }, "latest"])).await?;
+                }, "latest"]),
+                    )
+                    .await?;
                 Self::hex_u128(&result).map(|v| v as u64)
             }
         }
     }
 
     async fn get_transaction_count(&self, address: &str) -> Result<u64, String> {
-        let result = self.call("eth_getTransactionCount", serde_json::json!([address, "pending"])).await?;
+        let result = self
+            .call(
+                "eth_getTransactionCount",
+                serde_json::json!([address, "pending"]),
+            )
+            .await?;
         Self::hex_u64(&result)
     }
 
@@ -172,8 +201,13 @@ impl EthRpcClient for HttpRpcClient {
 
     async fn send_raw_transaction(&self, raw_tx: &[u8]) -> Result<String, String> {
         let hex = format!("0x{}", hex::encode(raw_tx));
-        let result = self.call("eth_sendRawTransaction", serde_json::json!([hex])).await?;
-        result.as_str().map(String::from).ok_or_else(|| "expected hex tx hash".to_string())
+        let result = self
+            .call("eth_sendRawTransaction", serde_json::json!([hex]))
+            .await?;
+        result
+            .as_str()
+            .map(String::from)
+            .ok_or_else(|| "expected hex tx hash".to_string())
     }
 
     async fn get_gas_price(&self) -> Result<u128, String> {
@@ -181,7 +215,13 @@ impl EthRpcClient for HttpRpcClient {
         Self::hex_u128(&result)
     }
 
-    async fn estimate_gas(&self, from: &str, to: &str, value: &str, data: &str) -> Result<u64, String> {
+    async fn estimate_gas(
+        &self,
+        from: &str,
+        to: &str,
+        value: &str,
+        data: &str,
+    ) -> Result<u64, String> {
         let mut tx = serde_json::json!({
             "to": to,
         });
@@ -195,7 +235,9 @@ impl EthRpcClient for HttpRpcClient {
         if !data.is_empty() {
             map.insert("data".into(), serde_json::json!(data));
         }
-        let result = self.call("eth_estimateGas", serde_json::json!([tx, "latest"])).await?;
+        let result = self
+            .call("eth_estimateGas", serde_json::json!([tx, "latest"]))
+            .await?;
         Self::hex_u64(&result)
     }
 
@@ -205,7 +247,9 @@ impl EthRpcClient for HttpRpcClient {
     }
 
     async fn get_transaction_receipt(&self, tx_hash: &str) -> Result<Option<TxReceipt>, String> {
-        let result = self.call("eth_getTransactionReceipt", serde_json::json!([tx_hash])).await?;
+        let result = self
+            .call("eth_getTransactionReceipt", serde_json::json!([tx_hash]))
+            .await?;
         if result.is_null() {
             return Ok(None);
         }
@@ -249,7 +293,13 @@ impl EthRpcClient for UnimplementedRpcClient {
     async fn get_gas_price(&self) -> Result<u128, String> {
         Err("not implemented".to_string())
     }
-    async fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
+    async fn estimate_gas(
+        &self,
+        _from: &str,
+        _to: &str,
+        _value: &str,
+        _data: &str,
+    ) -> Result<u64, String> {
         Err("not implemented".to_string())
     }
     async fn get_block_number(&self) -> Result<u64, String> {
@@ -283,13 +333,22 @@ mod tests {
         async fn get_gas_price(&self) -> Result<u128, String> {
             Ok(20_000_000_000)
         }
-        async fn estimate_gas(&self, _from: &str, _to: &str, _value: &str, _data: &str) -> Result<u64, String> {
+        async fn estimate_gas(
+            &self,
+            _from: &str,
+            _to: &str,
+            _value: &str,
+            _data: &str,
+        ) -> Result<u64, String> {
             Ok(21_000)
         }
         async fn get_block_number(&self) -> Result<u64, String> {
             Ok(19_000_000)
         }
-        async fn get_transaction_receipt(&self, _tx_hash: &str) -> Result<Option<TxReceipt>, String> {
+        async fn get_transaction_receipt(
+            &self,
+            _tx_hash: &str,
+        ) -> Result<Option<TxReceipt>, String> {
             Ok(Some(TxReceipt {
                 status: true,
                 block_number: 19_000_001,
@@ -302,12 +361,21 @@ mod tests {
     #[tokio::test]
     async fn test_mock_all_methods() {
         let c = MockRpcClient;
-        assert_eq!(c.get_balance("0xabc", &AssetId::Native).await.unwrap(), 10_000_000_000_000_000_000);
+        assert_eq!(
+            c.get_balance("0xabc", &AssetId::Native).await.unwrap(),
+            10_000_000_000_000_000_000
+        );
         assert_eq!(c.get_transaction_count("0xabc").await.unwrap(), 5);
         assert_eq!(c.get_chain_id().await.unwrap(), 1);
-        assert_eq!(c.send_raw_transaction(&[0x02, 0x00]).await.unwrap(), "0xabc");
+        assert_eq!(
+            c.send_raw_transaction(&[0x02, 0x00]).await.unwrap(),
+            "0xabc"
+        );
         assert_eq!(c.get_gas_price().await.unwrap(), 20_000_000_000);
-        assert_eq!(c.estimate_gas("0xabc", "0xdef", "0x0", "").await.unwrap(), 21_000);
+        assert_eq!(
+            c.estimate_gas("0xabc", "0xdef", "0x0", "").await.unwrap(),
+            21_000
+        );
         assert_eq!(c.get_block_number().await.unwrap(), 19_000_000);
         let receipt = c.get_transaction_receipt("0xabc").await.unwrap().unwrap();
         assert!(receipt.status);

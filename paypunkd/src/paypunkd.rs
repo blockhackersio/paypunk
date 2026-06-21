@@ -1,12 +1,12 @@
+use keypunkd::crypto::Keypair;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{caip, ProtocolId};
 use std::collections::HashMap;
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
-use keypunkd::crypto::Keypair;
 
-use crate::database::{AccountsRepository, Database};
 use crate::database::repository::SqliteAccountsRepository;
+use crate::database::{AccountsRepository, Database};
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
 use crate::protocol_service::ProtocolService;
 use crate::usecases;
@@ -95,11 +95,21 @@ impl Paypunkd {
         )
     }
 
-    async fn submit_intent(&self, intent: paypunk_types::Intent, derivation_path: Vec<u8>) -> PaypunkdResponse {
+    async fn submit_intent(
+        &self,
+        intent: paypunk_types::Intent,
+        derivation_path: Vec<u8>,
+    ) -> PaypunkdResponse {
         info!("handling SubmitIntent");
         self.respond(
             "submit_intent",
-            usecases::submit_intent(&self.keypunk_service, &self.protocols, &intent, &derivation_path).await,
+            usecases::submit_intent(
+                &self.keypunk_service,
+                &self.protocols,
+                &intent,
+                &derivation_path,
+            )
+            .await,
             |(raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)| {
                 PaypunkdResponse::SignablePreview {
                     raw_artifact,
@@ -131,11 +141,7 @@ impl Paypunkd {
         )
     }
 
-    async fn get_balance(
-        &self,
-        address: String,
-        asset: String,
-    ) -> PaypunkdResponse {
+    async fn get_balance(&self, address: String, asset: String) -> PaypunkdResponse {
         info!("querying balance");
         let protocol = match address.split(':').next().unwrap_or("") {
             "zcash" => ProtocolId::Zcash,
@@ -162,9 +168,7 @@ impl Paypunkd {
         index: u32,
     ) -> PaypunkdResponse {
         info!(?protocol, account, index, "deriving address");
-        let account_num = match caip::AccountId::parse(&account)
-            .and_then(|a| a.account_number())
-        {
+        let account_num = match caip::AccountId::parse(&account).and_then(|a| a.account_number()) {
             Ok(n) => n,
             Err(e) => {
                 return PaypunkdResponse::Error {
@@ -189,7 +193,11 @@ impl Paypunkd {
         )
     }
 
-    async fn broadcast_transaction(&self, protocol: ProtocolId, raw_tx: Vec<u8>) -> PaypunkdResponse {
+    async fn broadcast_transaction(
+        &self,
+        protocol: ProtocolId,
+        raw_tx: Vec<u8>,
+    ) -> PaypunkdResponse {
         info!(?protocol, "broadcasting transaction");
         self.respond(
             "broadcast_transaction",
@@ -386,12 +394,18 @@ impl Handler<IpcMessage> for Paypunkd {
                 self.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key)
                     .await
             }
-            PaypunkdRequest::SubmitIntent { intent, derivation_path } => self.submit_intent(intent, derivation_path).await,
+            PaypunkdRequest::SubmitIntent {
+                intent,
+                derivation_path,
+            } => self.submit_intent(intent, derivation_path).await,
             PaypunkdRequest::ApproveSignature {
                 encrypted_payload,
                 ephemeral_public_key,
                 derivation_path,
-            } => self.approve_signature(encrypted_payload, ephemeral_public_key, derivation_path).await,
+            } => {
+                self.approve_signature(encrypted_payload, ephemeral_public_key, derivation_path)
+                    .await
+            }
             PaypunkdRequest::GetBalance { address, asset } => {
                 self.get_balance(address, asset).await
             }
@@ -401,7 +415,16 @@ impl Handler<IpcMessage> for Paypunkd {
                 protocol,
                 account,
                 index,
-            } => self.derive_address(encrypted_password, client_public_key, protocol, account, index).await,
+            } => {
+                self.derive_address(
+                    encrypted_password,
+                    client_public_key,
+                    protocol,
+                    account,
+                    index,
+                )
+                .await
+            }
             PaypunkdRequest::BroadcastTransaction { protocol, raw_tx } => {
                 self.broadcast_transaction(protocol, raw_tx).await
             }
@@ -411,13 +434,8 @@ impl Handler<IpcMessage> for Paypunkd {
                 account_index,
                 name,
             } => {
-                self.create_account(
-                    protocol,
-                    derivation_path,
-                    account_index,
-                    name,
-                )
-                .await
+                self.create_account(protocol, derivation_path, account_index, name)
+                    .await
             }
             PaypunkdRequest::ListAccounts => self.list_accounts().await,
             PaypunkdRequest::GetAccount { id } => self.get_account(id).await,
@@ -441,7 +459,10 @@ impl Handler<IpcMessage> for Paypunkd {
                 encrypted_password,
                 client_public_key,
                 count,
-            } => self.bulk_derive_accounts(encrypted_password, client_public_key, count).await,
+            } => {
+                self.bulk_derive_accounts(encrypted_password, client_public_key, count)
+                    .await
+            }
         };
 
         let encoded =

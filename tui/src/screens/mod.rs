@@ -21,6 +21,12 @@ pub trait Screen {
     async fn init(&mut self, _api: &dyn WalletApi) {}
     async fn on_reactivate(&mut self, _api: &mut dyn WalletApi) {}
     fn render(&mut self, frame: &mut Frame, api: &dyn WalletApi);
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav;
-    async fn handle_paste(&mut self, _text: &str, _api: &mut dyn WalletApi) -> Nav { Nav::None }
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        api: &mut dyn WalletApi,
+    ) -> Nav;
+    async fn handle_paste(&mut self, _text: &str, _api: &mut dyn WalletApi) -> Nav {
+        Nav::None
+    }
 }

@@ -11,7 +11,11 @@ pub trait AccountsRepository: Send + Sync {
     fn save(&self, conn: &Connection, account: &Account) -> Result<(), String>;
     fn find_all(&self, conn: &Connection) -> Result<Vec<Account>, String>;
     fn find_by_id(&self, conn: &Connection, id: &str) -> Result<Option<Account>, String>;
-    fn find_by_protocol(&self, conn: &Connection, protocol: &ProtocolId) -> Result<Vec<Account>, String>;
+    fn find_by_protocol(
+        &self,
+        conn: &Connection,
+        protocol: &ProtocolId,
+    ) -> Result<Vec<Account>, String>;
 }
 
 pub struct SqliteAccountsRepository;
@@ -35,7 +39,9 @@ impl AccountsRepository for SqliteAccountsRepository {
 
     fn find_all(&self, conn: &Connection) -> Result<Vec<Account>, String> {
         let mut stmt = conn
-            .prepare("SELECT id, protocol, derivation_path, name, viewing_key, created_at FROM accounts")
+            .prepare(
+                "SELECT id, protocol, derivation_path, name, viewing_key, created_at FROM accounts",
+            )
             .map_err(|e| format!("failed to prepare query: {e}"))?;
         let rows = stmt
             .query_map([], |row| {
@@ -81,7 +87,11 @@ impl AccountsRepository for SqliteAccountsRepository {
         }
     }
 
-    fn find_by_protocol(&self, conn: &Connection, protocol: &ProtocolId) -> Result<Vec<Account>, String> {
+    fn find_by_protocol(
+        &self,
+        conn: &Connection,
+        protocol: &ProtocolId,
+    ) -> Result<Vec<Account>, String> {
         let protocol_str = format!("{protocol:?}");
         let mut stmt = conn
             .prepare("SELECT id, protocol, derivation_path, name, viewing_key, created_at FROM accounts WHERE protocol = ?1")

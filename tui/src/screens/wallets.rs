@@ -22,17 +22,24 @@ pub struct WalletsScreen {
 
 impl WalletsScreen {
     pub fn new() -> Self {
-        Self { data: None, list: List::new(vec![]).row_height(3) }
+        Self {
+            data: None,
+            list: List::new(vec![]).row_height(3),
+        }
     }
 }
 
 #[async_trait(?Send)]
 impl Screen for WalletsScreen {
-    fn name(&self) -> &str { "Wallets" }
+    fn name(&self) -> &str {
+        "Wallets"
+    }
 
     async fn init(&mut self, api: &dyn WalletApi) {
         let data = api.get_wallets().await;
-        let items: Vec<Box<dyn Component<WalletAction>>> = data.wallets.iter()
+        let items: Vec<Box<dyn Component<WalletAction>>> = data
+            .wallets
+            .iter()
             .map(|w| Box::new(WalletItem::new(w.clone())) as Box<dyn Component<WalletAction>>)
             .collect();
         self.list = List::new(items).row_height(3);
@@ -47,8 +54,11 @@ impl Screen for WalletsScreen {
             Constraint::Length(4),
             Constraint::Min(5),
             Constraint::Length(3),
-        ]).split(area);
-        let header = chunks[0]; let body = chunks[1]; let footer = chunks[2];
+        ])
+        .split(area);
+        let header = chunks[0];
+        let body = chunks[1];
+        let footer = chunks[2];
 
         let title_block = Block::new()
             .style(Style::new().bg(ui::BG))
@@ -56,15 +66,23 @@ impl Screen for WalletsScreen {
             .title_style(Style::new().fg(ui::palette().primary));
         frame.render_widget(title_block, header);
 
-        let subtitle = Paragraph::new(Line::from("Wallets").centered())
-            .style(theme.text);
-        frame.render_widget(subtitle, header.inner(Margin { vertical: 2, horizontal: 0 }));
+        let subtitle = Paragraph::new(Line::from("Wallets").centered()).style(theme.text);
+        frame.render_widget(
+            subtitle,
+            header.inner(Margin {
+                vertical: 2,
+                horizontal: 0,
+            }),
+        );
 
         let block = theme.titled_block("Your Wallets");
         let inner = block.inner(body);
         frame.render_widget(block, body);
 
-        let list_area = inner.inner(Margin { vertical: 1, horizontal: 2 });
+        let list_area = inner.inner(Margin {
+            vertical: 1,
+            horizontal: 2,
+        });
         self.list.render(frame, list_area);
 
         let footer_text = theme.help_line([
@@ -75,10 +93,20 @@ impl Screen for WalletsScreen {
         ]);
         let footer_block = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(footer_block, footer);
-        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        _api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
@@ -92,7 +120,10 @@ impl Screen for WalletsScreen {
                 ListAction::Selected(idx) => {
                     if let Some(ref data) = self.data {
                         if let Some(wallet) = data.wallets.get(idx) {
-                            return Nav::Push(Box::new(AssetsScreen::new(&wallet.chain_id, &format!("Account #{}", wallet.index + 1))));
+                            return Nav::Push(Box::new(AssetsScreen::new(
+                                &wallet.chain_id,
+                                &format!("Account #{}", wallet.index + 1),
+                            )));
                         }
                     }
                 }

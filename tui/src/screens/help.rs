@@ -14,7 +14,9 @@ pub struct HelpScreen {
 
 impl HelpScreen {
     pub fn new(screen_name: &str) -> Self {
-        Self { current_screen: screen_name.to_string() }
+        Self {
+            current_screen: screen_name.to_string(),
+        }
     }
 
     fn bindings_for(&self) -> Vec<KeyBinding> {
@@ -81,13 +83,18 @@ impl HelpScreen {
                 (&["?"][..], "Toggle help"),
             ],
         };
-        pairs.into_iter().map(|(keys, desc)| KeyBinding::with_keys(keys.iter().copied(), desc)).collect()
+        pairs
+            .into_iter()
+            .map(|(keys, desc)| KeyBinding::with_keys(keys.iter().copied(), desc))
+            .collect()
     }
 }
 
 #[async_trait(?Send)]
 impl Screen for HelpScreen {
-    fn name(&self) -> &str { "Help" }
+    fn name(&self) -> &str {
+        "Help"
+    }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
         let area = frame.area();
@@ -100,18 +107,25 @@ impl Screen for HelpScreen {
             Constraint::Length(2),
             Constraint::Min(1),
             Constraint::Length(2),
-        ]).split(inner);
+        ])
+        .split(inner);
 
-        let header = theme.help_line([("", format!("{} keybindings", self.current_screen))]).centered();
+        let header = theme
+            .help_line([("", format!("{} keybindings", self.current_screen))])
+            .centered();
         frame.render_widget(
             ratatui::widgets::Paragraph::new(header).style(Style::new().bg(ui::BG)),
             chunks[0],
         );
 
-        let help = Help::new(self.bindings_for())
-            .expanded()
-            .theme(theme);
-        frame.render_widget(&help, chunks[1].inner(Margin { vertical: 1, horizontal: 2 }));
+        let help = Help::new(self.bindings_for()).expanded().theme(theme);
+        frame.render_widget(
+            &help,
+            chunks[1].inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
 
         let footer = theme.help_line([("Esc/q", "Close help")]).centered();
         frame.render_widget(
@@ -120,7 +134,11 @@ impl Screen for HelpScreen {
         );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, _api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        _api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => Nav::Pop,

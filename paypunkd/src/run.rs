@@ -31,8 +31,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let zcash = paypunk_chains_zcash::protocol::ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
     };
-    let eth_client =
-        paypunk_chains_ethereum::rpc::HttpRpcClient::new(config.rpc_url.clone());
+    let eth_client = paypunk_chains_ethereum::rpc::HttpRpcClient::new(config.rpc_url.clone());
     let ethereum = paypunk_chains_ethereum::protocol::EthereumProtocol::new(eth_client);
     let mut protocols = ProtocolService::new();
     protocols.register(Box::new(zcash));

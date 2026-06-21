@@ -158,7 +158,10 @@ pub async fn create_account(
     let conn = conn.lock().map_err(|e| e.to_string())?;
 
     let existing = repo.find_by_protocol(&conn, &protocol)?;
-    if existing.iter().any(|a| a.derivation_path == derivation_path) {
+    if existing
+        .iter()
+        .any(|a| a.derivation_path == derivation_path)
+    {
         return Err("account already exists".to_string());
     }
     drop(conn);
@@ -216,7 +219,13 @@ pub async fn bulk_derive_accounts(
     count: u32,
 ) -> Result<Vec<Account>, String> {
     let keys = keypunk_service
-        .bulk_export_viewing_keys(encrypted_password, client_public_key, protocols.clone(), 0, count)
+        .bulk_export_viewing_keys(
+            encrypted_password,
+            client_public_key,
+            protocols.clone(),
+            0,
+            count,
+        )
         .await?;
 
     let mut accounts = Vec::new();
@@ -258,10 +267,7 @@ pub async fn bulk_derive_accounts(
 }
 
 /// List all accounts from the database.
-pub fn list_accounts(
-    db: &Database,
-    repo: &dyn AccountsRepository,
-) -> Result<Vec<Account>, String> {
+pub fn list_accounts(db: &Database, repo: &dyn AccountsRepository) -> Result<Vec<Account>, String> {
     let conn = db.conn.as_ref().ok_or("database is locked")?;
     let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.find_all(&conn)

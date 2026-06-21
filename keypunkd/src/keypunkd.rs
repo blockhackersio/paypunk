@@ -1,8 +1,8 @@
+use blake2::Digest;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler};
 use tracing::{debug, info, warn};
-use blake2::Digest;
 
 use crate::crypto::Keypair;
 use crate::key;
@@ -101,10 +101,11 @@ impl<S: Storage> Keypunkd<S> {
     ) -> KeypunkdResponse {
         info!(?protocol, "handling PreviewArtifact");
 
-        let parsed_summary = match usecases::preview_artifact(&self.protocols, protocol, &raw_artifact) {
-            Ok(s) => s,
-            Err(e) => return KeypunkdResponse::Error { message: e },
-        };
+        let parsed_summary =
+            match usecases::preview_artifact(&self.protocols, protocol, &raw_artifact) {
+                Ok(s) => s,
+                Err(e) => return KeypunkdResponse::Error { message: e },
+            };
 
         // Sign H(raw, parsed, path) with keypunkd's keypair for WYSIWYS verification
         let mut to_sign = Vec::new();
@@ -140,7 +141,11 @@ impl<S: Storage> Keypunkd<S> {
             .decrypt_bytes(&encrypted_payload, &ephemeral_public_key)
         {
             Ok(p) => p,
-            Err(e) => return KeypunkdResponse::Error { message: format!("decryption failed: {e}") },
+            Err(e) => {
+                return KeypunkdResponse::Error {
+                    message: format!("decryption failed: {e}"),
+                }
+            }
         };
 
         // Parse: first 64 bytes = raw_artifact length prefix + raw, then sig, then pw
@@ -160,7 +165,8 @@ impl<S: Storage> Keypunkd<S> {
         let raw_end = 4 + raw_len;
         let raw_artifact = &plaintext[4..raw_end];
 
-        let sig_len = u32::from_le_bytes(plaintext[raw_end..raw_end + 4].try_into().unwrap()) as usize;
+        let sig_len =
+            u32::from_le_bytes(plaintext[raw_end..raw_end + 4].try_into().unwrap()) as usize;
         let sig_start = raw_end + 4;
         let sig_end = sig_start + sig_len;
         if plaintext.len() < sig_end {
@@ -233,10 +239,11 @@ impl<S: Storage> Keypunkd<S> {
         };
 
         // Sign the artifact
-        let signed_artifact = match usecases::sign_artifact(&seed, &self.protocols, &derivation_path, raw_artifact) {
-            Ok(s) => s,
-            Err(e) => return KeypunkdResponse::Error { message: e },
-        };
+        let signed_artifact =
+            match usecases::sign_artifact(&seed, &self.protocols, &derivation_path, raw_artifact) {
+                Ok(s) => s,
+                Err(e) => return KeypunkdResponse::Error { message: e },
+            };
 
         KeypunkdResponse::ArtifactAuthorized { signed_artifact }
     }
@@ -299,7 +306,10 @@ impl<S: Storage> Keypunkd<S> {
         start_account: u32,
         count: u32,
     ) -> KeypunkdResponse {
-        info!(?protocols, start_account, count, "handling BulkExportViewingKeys");
+        info!(
+            ?protocols,
+            start_account, count, "handling BulkExportViewingKeys"
+        );
 
         let seed = match usecases::decrypt_seed(
             &encrypted_password,
@@ -313,7 +323,13 @@ impl<S: Storage> Keypunkd<S> {
 
         self.respond(
             "bulk_export_viewing_keys",
-            usecases::bulk_export_viewing_keys(&seed, &self.protocols, &protocols, start_account, count),
+            usecases::bulk_export_viewing_keys(
+                &seed,
+                &self.protocols,
+                &protocols,
+                start_account,
+                count,
+            ),
             |keys| KeypunkdResponse::ViewingKeys { keys },
         )
     }
@@ -348,7 +364,12 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 encrypted_payload,
                 ephemeral_public_key,
                 derivation_path,
-            } => self.authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path, msg.sender_public_key),
+            } => self.authorize_artifact(
+                encrypted_payload,
+                ephemeral_public_key,
+                derivation_path,
+                msg.sender_public_key,
+            ),
             KeypunkdRequest::ExportViewingKey {
                 encrypted_password,
                 client_public_key,
@@ -362,7 +383,13 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 protocols,
                 start_account,
                 count,
-            } => self.bulk_export_viewing_keys(encrypted_password, client_public_key, protocols, start_account, count),
+            } => self.bulk_export_viewing_keys(
+                encrypted_password,
+                client_public_key,
+                protocols,
+                start_account,
+                count,
+            ),
         };
 
         let encoded =

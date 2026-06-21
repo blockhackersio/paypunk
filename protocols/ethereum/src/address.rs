@@ -20,7 +20,8 @@ pub fn derive_address(seed: &[u8; 64], account: u32, index: u32) -> Result<Addre
     let path = format!("m/44'/60'/{account}'/0/{index}");
     let parsed = bip32::DerivationPath::from_str(&path)
         .map_err(|e| DeriveError::InvalidPath(e.to_string()))?;
-    let key = bip32::ExtendedPrivateKey::<k256::ecdsa::SigningKey>::derive_from_path(*seed, &parsed)?;
+    let key =
+        bip32::ExtendedPrivateKey::<k256::ecdsa::SigningKey>::derive_from_path(*seed, &parsed)?;
     let ext_pubkey = key.public_key();
     let inner = ext_pubkey.public_key();
     let point = inner.to_encoded_point(false);
@@ -98,11 +99,9 @@ mod tests {
         let address = derive_address(&seed, 0, 0).unwrap();
 
         let path = bip32::DerivationPath::from_str("m/44'/60'/0'/0/0").unwrap();
-        let key = bip32::ExtendedPrivateKey::<k256::ecdsa::SigningKey>::derive_from_path(
-            seed,
-            &path,
-        )
-        .unwrap();
+        let key =
+            bip32::ExtendedPrivateKey::<k256::ecdsa::SigningKey>::derive_from_path(seed, &path)
+                .unwrap();
         let ext_pubkey = key.public_key();
         let inner = ext_pubkey.public_key();
         let point = inner.to_encoded_point(false);
@@ -112,8 +111,12 @@ mod tests {
 
     #[test]
     fn test_validate_address() {
-        assert!(validate_address("0x9858effd232b4033e47d90003d41ec34ecaeda94"));
-        assert!(validate_address("0x9858EfFd232B4033e47d90003D41eC34ecAeda94"));
+        assert!(validate_address(
+            "0x9858effd232b4033e47d90003d41ec34ecaeda94"
+        ));
+        assert!(validate_address(
+            "0x9858EfFd232B4033e47d90003D41eC34ecAeda94"
+        ));
         assert!(!validate_address("invalid"));
         assert!(!validate_address("0xzzzz"));
     }

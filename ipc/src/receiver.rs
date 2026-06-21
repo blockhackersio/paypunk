@@ -8,8 +8,8 @@ use tokio::net::{UnixListener, UnixStream};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::messages::{
-    IpcMessage, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY,
-    MSG_REGISTER_CLIENT, MSG_REGISTER_CLIENT_ACK,
+    IpcMessage, MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY, MSG_REGISTER_CLIENT,
+    MSG_REGISTER_CLIENT_ACK,
 };
 use crate::transport::{IpcError, UnixSocketTransport};
 

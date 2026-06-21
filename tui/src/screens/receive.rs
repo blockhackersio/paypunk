@@ -23,16 +23,29 @@ impl ReceiveScreen {
     pub fn new(initial_chain: &str) -> Self {
         let chains = vec![
             ("eip155:1".into(), "Ethereum".into()),
-            ("bip122:00040fe8ec8471911baa1f7c215a71e9".into(), "Zcash".into()),
+            (
+                "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
+                "Zcash".into(),
+            ),
         ];
-        let sel = chains.iter().position(|(id, _)| id == initial_chain).unwrap_or(0);
-        Self { selected_chain: sel, chains, copied_feedback: None, receive_data: ApiState::Loading }
+        let sel = chains
+            .iter()
+            .position(|(id, _)| id == initial_chain)
+            .unwrap_or(0);
+        Self {
+            selected_chain: sel,
+            chains,
+            copied_feedback: None,
+            receive_data: ApiState::Loading,
+        }
     }
 }
 
 #[async_trait(?Send)]
 impl Screen for ReceiveScreen {
-    fn name(&self) -> &str { "Receive" }
+    fn name(&self) -> &str {
+        "Receive"
+    }
 
     async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
         let chain = &self.chains[self.selected_chain].0;
@@ -52,8 +65,11 @@ impl Screen for ReceiveScreen {
             Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Length(3),
-        ]).split(area);
-        let header = chunks[0]; let body = chunks[1]; let footer = chunks[2];
+        ])
+        .split(area);
+        let header = chunks[0];
+        let body = chunks[1];
+        let footer = chunks[2];
 
         let title = theme.title(" Receive Funds ").centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
@@ -62,17 +78,25 @@ impl Screen for ReceiveScreen {
             ApiState::Loading => {
                 let block = Block::new().style(Style::new().bg(ui::BG));
                 frame.render_widget(block, body);
-                let msg = Paragraph::new(Line::from(vec![
-                    theme.muted(" Loading..."),
-                ])).centered().style(Style::new().bg(ui::BG));
+                let msg = Paragraph::new(Line::from(vec![theme.muted(" Loading...")]))
+                    .centered()
+                    .style(Style::new().bg(ui::BG));
                 frame.render_widget(msg, body);
             }
             ApiState::Error(err) => {
                 ui::render_error_banner(frame, body, err);
                 let msg = Paragraph::new(Line::from(vec![
-                    theme.error(" Could not load receive data. "),
-                ])).centered().style(Style::new().bg(ui::BG));
-                frame.render_widget(msg, body.inner(Margin { vertical: 4, horizontal: 2 }));
+                    theme.error(" Could not load receive data. ")
+                ]))
+                .centered()
+                .style(Style::new().bg(ui::BG));
+                frame.render_widget(
+                    msg,
+                    body.inner(Margin {
+                        vertical: 4,
+                        horizontal: 2,
+                    }),
+                );
             }
             ApiState::Loaded(ref data) => {
                 let chain_title = format!(" on {}", self.chains[self.selected_chain].1);
@@ -83,11 +107,16 @@ impl Screen for ReceiveScreen {
                 let inner = fieldset.inner(body);
                 frame.render_widget(fieldset, body);
 
-                let inner2 = inner.inner(Margin { vertical: 2, horizontal: 4 });
+                let inner2 = inner.inner(Margin {
+                    vertical: 2,
+                    horizontal: 4,
+                });
 
                 let mut lines = Vec::new();
                 lines.push(Line::from(vec![theme.muted("Address:")]));
-                lines.push(Line::from(vec![theme.accent(format!("  {}", data.address))]));
+                lines.push(Line::from(
+                    vec![theme.accent(format!("  {}", data.address))],
+                ));
                 lines.push(Line::from(""));
                 lines.push(Line::from(vec![
                     theme.muted("Format: "),
@@ -109,31 +138,43 @@ impl Screen for ReceiveScreen {
                 }
                 lines.push(Line::from(""));
 
-                let chain_name = if data.chain_id.contains("eip155") { "ETH" } else { "ZEC" };
-                lines.push(Line::from(vec![
-                    Span::styled(" ╔══ QR CODE ══╗", Style::new().fg(ui::palette().muted)),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled(" ║              ║", Style::new().fg(ui::palette().muted)),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled(format!(" ║   {} ADDR   ║", chain_name), Style::new().fg(ui::palette().primary)),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled(" ║  ██▄██ ▄██▄  ║", Style::new().fg(ui::palette().foreground)),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled(" ║  ████ █████  ║", Style::new().fg(ui::palette().foreground)),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled(" ║  ▄▀▀█ █▄▄█  ║", Style::new().fg(ui::palette().foreground)),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled(" ║              ║", Style::new().fg(ui::palette().muted)),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled(" ╚══════════════╝", Style::new().fg(ui::palette().muted)),
-                ]));
+                let chain_name = if data.chain_id.contains("eip155") {
+                    "ETH"
+                } else {
+                    "ZEC"
+                };
+                lines.push(Line::from(vec![Span::styled(
+                    " ╔══ QR CODE ══╗",
+                    Style::new().fg(ui::palette().muted),
+                )]));
+                lines.push(Line::from(vec![Span::styled(
+                    " ║              ║",
+                    Style::new().fg(ui::palette().muted),
+                )]));
+                lines.push(Line::from(vec![Span::styled(
+                    format!(" ║   {} ADDR   ║", chain_name),
+                    Style::new().fg(ui::palette().primary),
+                )]));
+                lines.push(Line::from(vec![Span::styled(
+                    " ║  ██▄██ ▄██▄  ║",
+                    Style::new().fg(ui::palette().foreground),
+                )]));
+                lines.push(Line::from(vec![Span::styled(
+                    " ║  ████ █████  ║",
+                    Style::new().fg(ui::palette().foreground),
+                )]));
+                lines.push(Line::from(vec![Span::styled(
+                    " ║  ▄▀▀█ █▄▄█  ║",
+                    Style::new().fg(ui::palette().foreground),
+                )]));
+                lines.push(Line::from(vec![Span::styled(
+                    " ║              ║",
+                    Style::new().fg(ui::palette().muted),
+                )]));
+                lines.push(Line::from(vec![Span::styled(
+                    " ╚══════════════╝",
+                    Style::new().fg(ui::palette().muted),
+                )]));
 
                 let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
                 frame.render_widget(para, inner2);
@@ -148,23 +189,41 @@ impl Screen for ReceiveScreen {
         ]);
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
-        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Left | KeyCode::Char('1') => {
                 self.selected_chain = 0;
                 let chain = &self.chains[0].0;
-                let _ = api.submit_receive(ReceiveInput { selected_chain_id: chain.clone() }).await;
+                let _ = api
+                    .submit_receive(ReceiveInput {
+                        selected_chain_id: chain.clone(),
+                    })
+                    .await;
                 api.refresh_receive(chain).await;
                 self.receive_data = api.receive_state(chain).await;
             }
             KeyCode::Right | KeyCode::Char('2') => {
                 self.selected_chain = 1;
                 let chain = &self.chains[1].0;
-                let _ = api.submit_receive(ReceiveInput { selected_chain_id: chain.clone() }).await;
+                let _ = api
+                    .submit_receive(ReceiveInput {
+                        selected_chain_id: chain.clone(),
+                    })
+                    .await;
                 api.refresh_receive(chain).await;
                 self.receive_data = api.receive_state(chain).await;
             }

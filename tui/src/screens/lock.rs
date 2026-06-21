@@ -40,7 +40,9 @@ impl LockScreen {
 
 #[async_trait(?Send)]
 impl Screen for LockScreen {
-    fn name(&self) -> &str { "Lock" }
+    fn name(&self) -> &str {
+        "Lock"
+    }
 
     async fn init(&mut self, api: &dyn WalletApi) {
         self.data = Some(api.get_lock().await);
@@ -53,15 +55,23 @@ impl Screen for LockScreen {
             Constraint::Length(5),
             Constraint::Min(5),
             Constraint::Length(3),
-        ]).split(area);
-        let header = chunks[0]; let body = chunks[1]; let footer = chunks[2];
+        ])
+        .split(area);
+        let header = chunks[0];
+        let body = chunks[1];
+        let footer = chunks[2];
 
         let title = theme.title(" Wallet Locked ").centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
         let subtitle = theme.muted("Authenticate to unlock").into_centered_line();
-        frame.render_widget(Paragraph::new(subtitle).style(Style::new().bg(ui::BG)),
-            header.inner(Margin { vertical: 2, horizontal: 0 }));
+        frame.render_widget(
+            Paragraph::new(subtitle).style(Style::new().bg(ui::BG)),
+            header.inner(Margin {
+                vertical: 2,
+                horizontal: 0,
+            }),
+        );
 
         let block = theme.titled_block("Unlock");
         let inner = block.inner(body);
@@ -71,22 +81,33 @@ impl Screen for LockScreen {
             let mut lines: Vec<Line> = Vec::new();
 
             if data.auth_methods.biometric_available {
-                let bio_style = if self.focus == 0 { ui::selected_style() } else { theme.text };
-                lines.push(Line::from(vec![
-                    Span::styled("▸ Face ID / Biometric", bio_style),
-                ]));
+                let bio_style = if self.focus == 0 {
+                    ui::selected_style()
+                } else {
+                    theme.text
+                };
+                lines.push(Line::from(vec![Span::styled(
+                    "▸ Face ID / Biometric",
+                    bio_style,
+                )]));
                 lines.push(Line::from(""));
             }
 
             if data.auth_methods.password_set {
                 self.pw_field.set_focused(self.focus == 1);
-                self.pw_field.render(frame, inner.inner(Margin { vertical: 2, horizontal: 4 }));
+                self.pw_field.render(
+                    frame,
+                    inner.inner(Margin {
+                        vertical: 2,
+                        horizontal: 4,
+                    }),
+                );
             }
 
             if data.failed_attempts > 0 {
                 lines.push(Line::from(""));
                 lines.push(Line::from(vec![
-                    theme.warning(format!("Failed attempts: {}", data.failed_attempts)),
+                    theme.warning(format!("Failed attempts: {}", data.failed_attempts))
                 ]));
             }
 
@@ -97,7 +118,13 @@ impl Screen for LockScreen {
 
             if !lines.is_empty() {
                 let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
-                frame.render_widget(para, inner.inner(Margin { vertical: 2, horizontal: 4 }));
+                frame.render_widget(
+                    para,
+                    inner.inner(Margin {
+                        vertical: 2,
+                        horizontal: 4,
+                    }),
+                );
             }
         }
 
@@ -109,15 +136,29 @@ impl Screen for LockScreen {
         ]);
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
-        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
-            KeyCode::Tab | KeyCode::Down => { self.focus = (self.focus + 1).min(1); }
-            KeyCode::Up => { self.focus = self.focus.saturating_sub(1); }
+            KeyCode::Tab | KeyCode::Down => {
+                self.focus = (self.focus + 1).min(1);
+            }
+            KeyCode::Up => {
+                self.focus = self.focus.saturating_sub(1);
+            }
             _ => {
                 if self.focus == 1 {
                     let _ = self.pw_field.handle_event(key);
@@ -126,18 +167,30 @@ impl Screen for LockScreen {
                     if self.focus == 0 {
                         if let Some(ref data) = self.data {
                             if data.auth_methods.biometric_available {
-                                match api.submit_lock(LockInput {
-                                    credential: Credential { cred_type: "biometric".into(), value: "face-id-assertion-token".into() },
-                                }).await {
+                                match api
+                                    .submit_lock(LockInput {
+                                        credential: Credential {
+                                            cred_type: "biometric".into(),
+                                            value: "face-id-assertion-token".into(),
+                                        },
+                                    })
+                                    .await
+                                {
                                     Ok(_) => return Nav::Replace(Box::new(HomeScreen::new())),
                                     Err(e) => self.error_msg = Some(e.0),
                                 }
                             }
                         }
                     } else if self.focus == 1 {
-                        match api.submit_lock(LockInput {
-                            credential: Credential { cred_type: "password".into(), value: self.pw_field.value().into() },
-                        }).await {
+                        match api
+                            .submit_lock(LockInput {
+                                credential: Credential {
+                                    cred_type: "password".into(),
+                                    value: self.pw_field.value().into(),
+                                },
+                            })
+                            .await
+                        {
                             Ok(_) => return Nav::Replace(Box::new(HomeScreen::new())),
                             Err(e) => self.error_msg = Some(e.0),
                         }

@@ -39,7 +39,11 @@ impl TextField {
     pub fn new(config: TextFieldConfig) -> Self {
         let mut input_state = InputState::new();
         input_state.set_value(config.initial_value.clone());
-        Self { config, input_state, focused: false }
+        Self {
+            config,
+            input_state,
+            focused: false,
+        }
     }
 
     pub fn value(&self) -> &str {
@@ -78,8 +82,7 @@ impl Component<TextFieldAction> for TextField {
 
         let input_area = chunks[0];
 
-        let input = Input::new(&self.config.label)
-            .placeholder(&self.config.placeholder);
+        let input = Input::new(&self.config.label).placeholder(&self.config.placeholder);
 
         let input = if self.config.password_mode {
             input.password_mode(true)
@@ -91,15 +94,18 @@ impl Component<TextFieldAction> for TextField {
         frame.render_stateful_widget(input, input_area, &mut self.input_state);
 
         if let Some(ref feedback) = self.config.feedback {
-            let feedback_area = chunks[1].inner(Margin { vertical: 0, horizontal: 2 });
+            let feedback_area = chunks[1].inner(Margin {
+                vertical: 0,
+                horizontal: 2,
+            });
             let span = match feedback {
                 Feedback::Error(m) => theme.error(m.as_str()),
                 Feedback::Warning(m) => theme.warning(m.as_str()),
                 Feedback::Success(m) => theme.success(m.as_str()),
                 Feedback::Info(m) => theme.muted(m.as_str()),
             };
-            let feedback_para = Paragraph::new(Line::from(vec![span]))
-                .style(Style::new().bg(ui::BG));
+            let feedback_para =
+                Paragraph::new(Line::from(vec![span])).style(Style::new().bg(ui::BG));
             frame.render_widget(feedback_para, feedback_area);
         }
     }
@@ -115,7 +121,9 @@ impl Component<TextFieldAction> for TextField {
             if let Ok(mut clipboard) = arboard::Clipboard::new() {
                 if let Ok(text) = clipboard.get_text() {
                     self.handle_paste(&text);
-                    return Some(TextFieldAction::Changed(self.input_state.value().to_string()));
+                    return Some(TextFieldAction::Changed(
+                        self.input_state.value().to_string(),
+                    ));
                 }
             }
             return None;
@@ -123,11 +131,15 @@ impl Component<TextFieldAction> for TextField {
         match key.code {
             KeyCode::Char(c) => {
                 self.input_state.insert_char(c);
-                Some(TextFieldAction::Changed(self.input_state.value().to_string()))
+                Some(TextFieldAction::Changed(
+                    self.input_state.value().to_string(),
+                ))
             }
             KeyCode::Backspace => {
                 self.input_state.delete_before();
-                Some(TextFieldAction::Changed(self.input_state.value().to_string()))
+                Some(TextFieldAction::Changed(
+                    self.input_state.value().to_string(),
+                ))
             }
             KeyCode::Enter => Some(TextFieldAction::Submitted),
             _ => None,

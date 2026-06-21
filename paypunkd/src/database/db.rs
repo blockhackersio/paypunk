@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 
 use super::encryption::{decrypt_db, encrypt_db, DbCryptoError};
-use super::migration::{AccountsMigration, Migrator, Migration};
+use super::migration::{AccountsMigration, Migration, Migrator};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -57,9 +57,10 @@ impl Database {
     }
 
     pub fn unlock(&mut self, password: &str) -> Result<(), DbError> {
-        let encrypted = self.encrypted_bytes.as_ref().ok_or_else(|| {
-            DbError::Crypto(DbCryptoError::DecryptionFailed)
-        })?;
+        let encrypted = self
+            .encrypted_bytes
+            .as_ref()
+            .ok_or_else(|| DbError::Crypto(DbCryptoError::DecryptionFailed))?;
 
         let plaintext = decrypt_db(encrypted, password)?;
 
@@ -85,16 +86,15 @@ impl Database {
     }
 
     fn run_migrations(&self) -> Result<(), DbError> {
-        let conn = self.conn.as_ref().ok_or_else(|| {
-            DbError::Migration("database is locked".to_string())
-        })?;
+        let conn = self
+            .conn
+            .as_ref()
+            .ok_or_else(|| DbError::Migration("database is locked".to_string()))?;
         let conn = conn.lock().map_err(|e| DbError::Migration(e.to_string()))?;
         let mut migrator = Migrator::new();
         migrator.register(Box::new(InitialMigration));
         migrator.register(Box::new(AccountsMigration));
-        migrator
-            .migrate(&conn)
-            .map_err(DbError::Migration)?;
+        migrator.migrate(&conn).map_err(DbError::Migration)?;
         Ok(())
     }
 
@@ -102,8 +102,7 @@ impl Database {
         if let Some(conn) = self.conn {
             {
                 let conn = conn.lock().map_err(|e| DbError::Migration(e.to_string()))?;
-                conn.execute_batch("VACUUM;")
-                    .map_err(DbError::Sqlite)?;
+                conn.execute_batch("VACUUM;").map_err(DbError::Sqlite)?;
             }
 
             if let Some(password) = self.password {

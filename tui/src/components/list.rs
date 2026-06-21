@@ -21,7 +21,12 @@ pub struct List<A> {
 
 impl<A> List<A> {
     pub fn new(components: Vec<Box<dyn Component<A>>>) -> Self {
-        Self { components, focus: 0, focused: false, row_height: 1 }
+        Self {
+            components,
+            focus: 0,
+            focused: false,
+            row_height: 1,
+        }
     }
 
     pub fn row_height(mut self, height: u16) -> Self {
@@ -53,12 +58,14 @@ impl<A> Component<ListAction<A>> for List<A> {
                 let bg = if is_selected { ui::SURFACE } else { ui::BG };
                 frame.render_widget(Block::new().style(Style::new().bg(bg)), row_area);
 
-                let gutter_color = if is_selected { Color::Indexed(212) } else { ui::BG };
+                let gutter_color = if is_selected {
+                    Color::Indexed(212)
+                } else {
+                    ui::BG
+                };
                 let gutter = Block::new().style(Style::new().bg(gutter_color));
-                let col_chunks = Layout::horizontal([
-                    Constraint::Length(1),
-                    Constraint::Min(0),
-                ]).split(row_area);
+                let col_chunks =
+                    Layout::horizontal([Constraint::Length(1), Constraint::Min(0)]).split(row_area);
                 frame.render_widget(gutter, col_chunks[0]);
                 component.render(frame, col_chunks[1]);
             }
@@ -82,12 +89,12 @@ impl<A> Component<ListAction<A>> for List<A> {
                 }
                 None
             }
-            KeyCode::Enter => {
-                Some(ListAction::Selected(self.focus))
-            }
+            KeyCode::Enter => Some(ListAction::Selected(self.focus)),
             _ => {
                 if let Some(component) = self.components.get_mut(self.focus) {
-                    component.handle_event(key).map(|action| ListAction::Item(self.focus, action))
+                    component
+                        .handle_event(key)
+                        .map(|action| ListAction::Item(self.focus, action))
                 } else {
                     None
                 }
@@ -113,7 +120,10 @@ pub struct LabelItem {
 
 impl LabelItem {
     pub fn new(label: impl Into<String>) -> Self {
-        Self { label: label.into(), focused: false }
+        Self {
+            label: label.into(),
+            focused: false,
+        }
     }
 }
 
@@ -124,9 +134,10 @@ impl Component<()> for LabelItem {
         } else {
             Style::new().fg(ui::palette().foreground)
         };
-        let text = Paragraph::new(Line::from(vec![
-            Span::styled(format!(" {}", self.label), style),
-        ]));
+        let text = Paragraph::new(Line::from(vec![Span::styled(
+            format!(" {}", self.label),
+            style,
+        )]));
         frame.render_widget(text, area);
     }
 

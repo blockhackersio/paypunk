@@ -32,14 +32,12 @@ impl FeedbackDemo {
 impl Component<Nav> for FeedbackDemo {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
-        let chunks = Layout::vertical([
-            Constraint::Length(4),
-            Constraint::Length(2),
-        ])
-        .split(area.inner(Margin {
-            vertical: 1,
-            horizontal: 2,
-        }));
+        let chunks = Layout::vertical([Constraint::Length(4), Constraint::Length(2)]).split(
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
 
         self.field.set_focused(true);
         self.field.render(frame, chunks[0]);
@@ -70,8 +68,7 @@ impl Component<Nav> for FeedbackDemo {
                     self.message.clear();
                 }
                 TextFieldAction::Submitted => {
-                    self.message =
-                        format!("Username '{}' submitted!", self.field.value());
+                    self.message = format!("Username '{}' submitted!", self.field.value());
                 }
             }
         }

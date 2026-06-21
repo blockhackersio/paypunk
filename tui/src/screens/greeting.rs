@@ -35,7 +35,9 @@ impl GreetingScreen {
 
 #[async_trait(?Send)]
 impl Screen for GreetingScreen {
-    fn name(&self) -> &str { "Greeting" }
+    fn name(&self) -> &str {
+        "Greeting"
+    }
 
     async fn init(&mut self, _api: &dyn WalletApi) {}
 
@@ -46,39 +48,68 @@ impl Screen for GreetingScreen {
             Constraint::Length(5),
             Constraint::Min(5),
             Constraint::Length(3),
-        ]).split(area);
-        let header = chunks[0]; let body = chunks[1]; let footer = chunks[2];
+        ])
+        .split(area);
+        let header = chunks[0];
+        let body = chunks[1];
+        let footer = chunks[2];
 
         let title = theme.title(" PayPunk Wallet ").centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
-        let subtitle = theme.muted("Enter your password to unlock").into_centered_line();
-        frame.render_widget(Paragraph::new(subtitle).style(Style::new().bg(ui::BG)),
-            header.inner(Margin { vertical: 2, horizontal: 0 }));
+        let subtitle = theme
+            .muted("Enter your password to unlock")
+            .into_centered_line();
+        frame.render_widget(
+            Paragraph::new(subtitle).style(Style::new().bg(ui::BG)),
+            header.inner(Margin {
+                vertical: 2,
+                horizontal: 0,
+            }),
+        );
 
         let block = theme.titled_block("Unlock");
         let inner = block.inner(body);
         frame.render_widget(block, body);
 
         self.pw_field.set_focused(true);
-        self.pw_field.render(frame, inner.inner(Margin { vertical: 2, horizontal: 4 }));
+        self.pw_field.render(
+            frame,
+            inner.inner(Margin {
+                vertical: 2,
+                horizontal: 4,
+            }),
+        );
 
         if let Some(ref err) = self.error_msg {
-            let err_para = Paragraph::new(Line::from(vec![theme.error(err)]))
-                .style(Style::new().bg(ui::BG));
-            frame.render_widget(err_para, inner.inner(Margin { vertical: 4, horizontal: 4 }));
+            let err_para =
+                Paragraph::new(Line::from(vec![theme.error(err)])).style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                err_para,
+                inner.inner(Margin {
+                    vertical: 4,
+                    horizontal: 4,
+                }),
+            );
         }
 
-        let footer_text = theme.help_line([
-            ("Enter", "Unlock"),
-            ("Ctrl+C", "Quit"),
-        ]);
+        let footer_text = theme.help_line([("Enter", "Unlock"), ("Ctrl+C", "Quit")]);
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
-        frame.render_widget(Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)), footer.inner(Margin { vertical: 0, horizontal: 1 }));
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
-    async fn handle_input(&mut self, key: crossterm::event::KeyEvent, api: &mut dyn WalletApi) -> Nav {
+    async fn handle_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        api: &mut dyn WalletApi,
+    ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),

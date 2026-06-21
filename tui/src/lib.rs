@@ -6,22 +6,22 @@ mod screens;
 mod ui;
 
 use crate::api::WalletApi;
-use app::App;
 use api::mock::MockWalletApi;
 use api::real::RealWalletApi;
+use app::App;
 use screens::greeting::GreetingScreen;
 use screens::setup::SetupScreen;
 use screens::Screen;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use crossterm::event::{EnableBracketedPaste, DisableBracketedPaste};
+use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 use std::io;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io::Result<()> {
@@ -60,17 +60,15 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
     let (event_tx, mut event_rx) = mpsc::channel::<Event>(256);
     let event_tx_clone = event_tx.clone();
 
-    tokio::task::spawn_blocking(move || {
-        loop {
-            if event::poll(std::time::Duration::from_millis(50)).unwrap_or(false) {
-                let evt = event::read().unwrap_or(Event::Resize(0, 0));
-                if event_tx_clone.blocking_send(evt).is_err() {
-                    break;
-                }
-            } else {
-                if event_tx_clone.blocking_send(Event::Resize(0, 0)).is_err() {
-                    break;
-                }
+    tokio::task::spawn_blocking(move || loop {
+        if event::poll(std::time::Duration::from_millis(50)).unwrap_or(false) {
+            let evt = event::read().unwrap_or(Event::Resize(0, 0));
+            if event_tx_clone.blocking_send(evt).is_err() {
+                break;
+            }
+        } else {
+            if event_tx_clone.blocking_send(Event::Resize(0, 0)).is_err() {
+                break;
             }
         }
     });
@@ -126,8 +124,7 @@ fn render(frame: &mut Frame, app: &mut App) {
     if let Some(screen) = app.screen_stack.last_mut() {
         screen.render(frame, api);
     } else {
-        let block = Block::new()
-            .style(Style::new().bg(ui::BG));
+        let block = Block::new().style(Style::new().bg(ui::BG));
         frame.render_widget(block, frame.area());
         let msg = Paragraph::new(Line::from("No screen loaded").centered())
             .style(Style::new().fg(ui::palette().error));
