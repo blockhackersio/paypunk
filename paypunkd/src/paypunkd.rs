@@ -323,16 +323,22 @@ impl Paypunkd {
             match keys {
                 Ok(derived) => {
                     // Store pre-derived keys in the database
-                    if let Some(ref conn_lock) = self.db.conn {
-                        if let Ok(conn) = conn_lock.lock() {
-                            for (protocol, account_index, viewing_key) in &derived {
-                                let _ = conn.execute(
-                                    "INSERT OR REPLACE INTO pre_derived_keys (protocol, account_index, viewing_key) VALUES (?1, ?2, ?3)",
-                                    rusqlite::params![format!("{:?}", protocol), account_index, viewing_key],
-                                );
-                            }
-                        }
+                    for (protocol, account_index, viewing_key) in &derived {
+                        let _ = usecases::save_pre_derived_key(
+                            &self.db,
+                            *protocol,
+                            *account_index,
+                            viewing_key,
+                        );
                     }
+
+                    // Create Ethereum Account 0 automatically
+                    let _ = usecases::create_ethereum_account_0(
+                        &self.db,
+                        self.accounts_repo.as_ref(),
+                        &self.protocols,
+                    );
+
                     info!(count = derived.len(), "cached pre-derived viewing keys");
                     PaypunkdResponse::UnlockSuccess {
                         accounts_count: derived.len() as u32,

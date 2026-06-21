@@ -216,7 +216,7 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
             to,
             amount,
             fee,
-            nonce: 0,
+            nonce: tx.nonce,
             memo: None,
             protocol: ProtocolId::Ethereum,
         };

@@ -484,15 +484,15 @@ async fn test_list_accounts() {
     let acct2 = client
         .create_account(
             ProtocolId::Ethereum,
-            "m/44'/60'/0'".into(),
-            0,
+            "m/44'/60'/1'".into(),
+            1,
             "Ethereum 1".into(),
         )
         .await
         .unwrap();
 
     let accounts = client.list_accounts().await.unwrap();
-    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts.len(), 3);
     assert!(accounts.iter().any(|a| a.id == acct1.id));
     assert!(accounts.iter().any(|a| a.id == acct2.id));
 }
