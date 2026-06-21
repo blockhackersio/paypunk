@@ -8,7 +8,6 @@ pub mod receive;
 pub mod send;
 pub mod settings;
 pub mod setup;
-pub mod wallets;
 
 use crate::api::WalletApi;
 use crate::app::Nav;

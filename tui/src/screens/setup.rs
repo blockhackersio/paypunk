@@ -328,7 +328,6 @@ impl Screen for SetupScreen {
                                             verification_words: vec![],
                                             backup_confirmed: true,
                                             password: pw,
-                                            biometric_enabled: false,
                                         })
                                         .await;
                                     return Nav::Replace(Box::new(HomeScreen::new()));

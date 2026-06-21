@@ -48,7 +48,6 @@ pub struct SetupCreateInput {
     pub verification_words: Vec<WordVerification>,
     pub backup_confirmed: bool,
     pub password: String,
-    pub biometric_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -155,21 +154,6 @@ pub struct SendResult {
     pub block_explorer_url: String,
 }
 
-// ── Wallets ──
-
-#[derive(Debug, Clone)]
-pub struct WalletDerivation {
-    pub index: usize,
-    pub address: String,
-    pub chain_id: String,
-    pub chain_name: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct WalletsData {
-    pub wallets: Vec<WalletDerivation>,
-}
-
 // ── Assets ──
 
 #[derive(Debug, Clone)]
@@ -197,7 +181,6 @@ pub struct LockData {
 
 #[derive(Debug, Clone)]
 pub struct LockAuthMethods {
-    pub biometric_available: bool,
     pub password_set: bool,
 }
 
@@ -216,7 +199,6 @@ pub struct LockInput {
 
 #[derive(Debug, Clone)]
 pub struct SecuritySettings {
-    pub biometric_enabled: bool,
     pub auto_lock_minutes: u32,
 }
 

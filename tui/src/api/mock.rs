@@ -310,7 +310,6 @@ impl WalletApi for MockWalletApi {
     async fn get_lock(&self) -> LockData {
         LockData {
             auth_methods: LockAuthMethods {
-                biometric_available: true,
                 password_set: true,
             },
             failed_attempts: 0,
@@ -324,7 +323,6 @@ impl WalletApi for MockWalletApi {
     async fn get_settings(&self) -> SettingsData {
         SettingsData {
             security: SecuritySettings {
-                biometric_enabled: true,
                 auto_lock_minutes: 5,
             },
             fiat_currency: "USD".into(),

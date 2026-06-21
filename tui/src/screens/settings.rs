@@ -264,14 +264,6 @@ impl SettingsScreen {
             lines.push(Line::from(vec![
                 theme.muted(format!("Version: {}", data.app_version))
             ]));
-            lines.push(Line::from(vec![theme.muted(format!(
-                "Biometric: {}",
-                if data.security.biometric_enabled {
-                    "Enabled"
-                } else {
-                    "Disabled"
-                }
-            ))]));
         }
 
         let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));

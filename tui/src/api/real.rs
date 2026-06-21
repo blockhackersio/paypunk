@@ -356,7 +356,6 @@ impl WalletApi for RealWalletApi {
     async fn get_lock(&self) -> LockData {
         LockData {
             auth_methods: LockAuthMethods {
-                biometric_available: false,
                 password_set: true,
             },
             failed_attempts: 0,
@@ -370,7 +369,6 @@ impl WalletApi for RealWalletApi {
     async fn get_settings(&self) -> SettingsData {
         SettingsData {
             security: SecuritySettings {
-                biometric_enabled: false,
                 auto_lock_minutes: 5,
             },
             fiat_currency: "USD".into(),
