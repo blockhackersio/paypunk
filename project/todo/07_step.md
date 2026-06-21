@@ -149,11 +149,33 @@ async fn get_assets(&self, account_id: &str) -> AssetsData {
 ```
 
 **Update `submit_send_review()`:**
-- Look up the account by `input.account_id` to get the real `from` address
+- Look up the account by `input.account_id` to get the real `from` address and `derivation_path`
+- The derivation path for signing is the account's `derivation_path` field (e.g., `"m/44'/60'/0'"`). Convert it to bytes by extracting the account index (the last number before `'`):
+  ```rust
+  // Parse account index from derivation path like "m/44'/60'/0'"
+  fn parse_account_index(path: &str) -> u32 {
+      path.rsplit('\'').nth(1)
+          .and_then(|s| s.split('/').last())
+          .and_then(|s| s.parse().ok())
+          .unwrap_or(0)
+  }
+  let account_index = parse_account_index(&account.derivation_path);
+  let path_bytes = account_index.to_le_bytes();
+  ```
 - Construct `Intent::Ethereum(Transfer { from: account.address, to: input.to_address, amount: input.amount, asset: "eip155:1/slip44:60", data: None })`
-- Derivation path from account index: parse from Account's `derivation_path` field or use account index
-- Store `PendingSend` as before
-- RLP-decode the raw artifact to extract nonce for `SendReviewData`
+- Call `self.client.submit_intent(intent, &path_bytes)`
+```rust
+if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
+    SendReviewData {
+        to_address: summary.to,
+        amount: summary.amount.clone(),
+        fee_estimate: summary.fee,
+        total_amount: summary.amount,
+        chain_id: input.chain_id,
+        nonce: summary.nonce,
+    }
+}
+```
 
 **Update `submit_send_confirm()`:**
 - Read password from `input.auth_confirmation.value`

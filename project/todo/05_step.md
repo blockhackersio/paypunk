@@ -50,20 +50,20 @@ pub struct SendReviewData {
 }
 ```
 
-**Update `SendReviewInput`:** Add `account_id`:
+**Update `SendReviewInput`:** Add `account_id`, remove `fee_selection` (no fee tier selection for Ethereum EIP-1559):
 ```rust
 pub struct SendReviewInput {
     pub to_address: String,
     pub amount: String,
     pub token_id: String,
     pub chain_id: String,
-    pub fee_selection: FeeSelection,
     pub account_id: String,
 }
 ```
 
 **Remove unused types:**
 - `FeeData` / `FeeDataEth` / `FeeRates` / `UtxoInfo` — fee data is now shown only on Review step
+- `FeeSelection` — no fee tier selection for Ethereum EIP-1559
 - `PendingTx` — not used in new HomeScreen design
 
 **Keep `AuthConfirmation` as-is** (auth_type will always be "password").

@@ -47,7 +47,7 @@ pub fn get_pre_derived_key(
 
 **Modify `create_account()`:**
 - Remove `pre_derived_keys: &HashMap` parameter
-- Add `db: &Database` parameter
+- Add `protocols: &ProtocolService` parameter (for `derive_address` call)
 - Read viewing key from `pre_derived_keys` table via `get_pre_derived_key()`
 - Derive address from viewing key using `usecases::derive_address(protocols, protocol, &viewing_key, 0)`
 - Set `address` in the created Account record
@@ -91,6 +91,35 @@ pub fn create_ethereum_account_0(
     let conn = conn.lock().map_err(|e| e.to_string())?;
     repo.save(&conn, &account)?;
     Ok(account)
+}
+```
+
+### `protocols/ethereum/src/protocol.rs`
+
+**Update `parse_artifact()`** to populate the `nonce` field in `ArtifactSummary`:
+```rust
+fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String> {
+    let tx: TxEip1559 = alloy_rlp::decode_exact(artifact)
+        .map_err(|e| format!("RLP decode failed: {e}"))?;
+
+    let to = match tx.to {
+        TxKind::Call(addr) => addr.to_string(),
+        TxKind::Create => "contract_creation".to_string(),
+    };
+
+    let amount = format!("{}", tx.value);
+    let fee = format!("{}", tx.max_fee_per_gas * tx.gas_limit as u128);
+
+    let summary = ArtifactSummary {
+        to,
+        amount,
+        fee,
+        nonce: tx.nonce,         // ← NEW: populate nonce
+        memo: None,
+        protocol: ProtocolId::Ethereum,
+    };
+
+    postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
 }
 ```
 

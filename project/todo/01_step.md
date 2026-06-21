@@ -8,6 +8,7 @@ The `Account` struct in `paypunk-types` needs an `address` field so the TUI can 
 
 ### `types/src/lib.rs`
 - Add `pub address: String` field to the `Account` struct (between `name` and `viewing_key`)
+- Add `pub nonce: u64` field to the `ArtifactSummary` struct (between `fee` and `memo`)
 
 ### `paypunkd/src/database/migration.rs`
 - Add a new `AddAddressToAccounts` migration (version 3):

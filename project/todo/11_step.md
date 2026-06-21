@@ -30,7 +30,7 @@ password_field: TextField,  // added to struct
 - Show to address field, amount field
 - Show balance from `SendData.spendable_balance` (formatted as ETH)
 - No fee data, no nonce, no fee tier selector
-- Enter → calls `submit_send_review()`, transitions to Review
+- Enter → constructs `SendReviewInput` with `account_id`, calls `submit_send_review()`, transitions to Review
 
 **Review step (replaces old Review + ConfirmSend):**
 - Show all details: from, to, amount, fee (formatted as ETH), nonce, total
@@ -45,18 +45,19 @@ password_field: TextField,  // added to struct
 **Remove:**
 - `fee_tiers` SelectList
 - `confirm_choice` SelectList
-- `focus` tracking for fee tier
+- Fee tier focus tracking (keep `focus` field for cycling to_field/amount_field in Form step)
 - Default address/amount values
 - Hardcoded `"face-id-assertion-token"`
 
 **Update `handle_input()`:**
-- Form: Tab/Down cycles through to_field, amount_field
+- Form: Tab/Down cycles through to_field, amount_field (keep existing focus logic, remove fee tier case)
 - Review: password_field is focused; Enter submits; Esc goes back
 - No ConfirmSend handling
 
 **Update `render_form()`:**
 - Show balance line
 - No fee tier, no nonce display
+- Remove the `!is_ethereum` conditional block that showed fee data (lines 314-356 in current file)
 
 **Update `render_review()`:**
 - Show all details including nonce
