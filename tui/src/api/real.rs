@@ -17,6 +17,7 @@ struct PendingSend {
 pub struct RealWalletApi {
     client: Client,
     pending: Mutex<Option<PendingSend>>,
+    pending_mnemonic: Mutex<Option<Zeroizing<String>>>,
 }
 
 impl RealWalletApi {
@@ -25,6 +26,7 @@ impl RealWalletApi {
         Ok(Self {
             client,
             pending: Mutex::new(None),
+            pending_mnemonic: Mutex::new(None),
         })
     }
 
@@ -32,6 +34,7 @@ impl RealWalletApi {
         Self {
             client,
             pending: Mutex::new(None),
+            pending_mnemonic: Mutex::new(None),
         }
     }
 }
@@ -47,18 +50,27 @@ fn parse_account_index(path: &str) -> u32 {
 #[async_trait(?Send)]
 impl WalletApi for RealWalletApi {
     async fn get_setup(&self) -> SetupData {
+        let mnemonic = self.client.generate_mnemonic();
+        let words: Vec<String> = mnemonic.split_whitespace().map(|s| s.to_string()).collect();
+        *self.pending_mnemonic.lock().unwrap() = Some(mnemonic);
         SetupData {
             app_version: "0.1.0".to_string(),
             wallet_exists: false,
-            new_mnemonic: vec![],
+            new_mnemonic: words,
             word_count: 12,
             import_methods: vec!["mnemonic".into()],
         }
     }
 
     async fn submit_setup_create(&self, input: SetupCreateInput) -> Result<(), ApiError> {
+        let mnemonic = self
+            .pending_mnemonic
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| ApiError("no pending mnemonic — generate seed first".into()))?;
         self.client
-            .generate_seed(Zeroizing::new(input.password.clone()))
+            .restore_seed(mnemonic, Zeroizing::new(input.password.clone()))
             .await
             .map_err(|e| ApiError(e))?;
         self.client

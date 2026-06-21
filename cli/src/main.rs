@@ -8,7 +8,7 @@ use paypunk_types::{
 };
 use paypunk_tui::run_tui;
 use std::path::Path;
-use std::process::{exit, Command};
+use std::process::{exit, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -133,6 +133,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .arg(&keypunkd_socket)
                 .arg("--data-dir")
                 .arg(&data_dir)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .spawn()
                 .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
 
@@ -146,6 +148,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .arg(&rpc_url)
                 .arg("--data-dir")
                 .arg(&data_dir)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .spawn()
                 .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
 
