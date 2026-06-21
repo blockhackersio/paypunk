@@ -82,8 +82,16 @@ impl WalletApi for RealWalletApi {
 
     async fn submit_setup_import(&self, input: SetupImportInput) -> Result<(), ApiError> {
         self.client
-            .restore_seed(Zeroizing::new(input.secret), Zeroizing::new(input.password))
+            .restore_seed(
+                Zeroizing::new(input.secret.clone()),
+                Zeroizing::new(input.password.clone()),
+            )
             .await
+            .map_err(|e| ApiError(e))?;
+        self.client
+            .unlock(Zeroizing::new(input.password))
+            .await
+            .map(|_| ())
             .map_err(|e| ApiError(e))
     }
 

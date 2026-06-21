@@ -323,14 +323,21 @@ impl Screen for SetupScreen {
                                 } else if pw != self.confirm_field.value() {
                                     self.pw_error = Some("Passwords don't match.".into());
                                 } else {
-                                    let _ = api
+                                    match api
                                         .submit_setup_create(SetupCreateInput {
                                             verification_words: vec![],
                                             backup_confirmed: true,
                                             password: pw,
                                         })
-                                        .await;
-                                    return Nav::Replace(Box::new(HomeScreen::new()));
+                                        .await
+                                    {
+                                        Ok(()) => {
+                                            return Nav::Replace(Box::new(HomeScreen::new()));
+                                        }
+                                        Err(e) => {
+                                            self.error_msg = Some(e.0);
+                                        }
+                                    }
                                 }
                             }
                             KeyCode::Esc => {
@@ -388,14 +395,21 @@ impl Screen for SetupScreen {
                     } else if pw.len() < 4 {
                         self.error_msg = Some("Password must be at least 4 characters.".into());
                     } else {
-                        let _ = api
+                        match api
                             .submit_setup_import(SetupImportInput {
                                 method: "mnemonic".into(),
                                 secret: phrase,
                                 password: pw.into(),
                             })
-                            .await;
-                        return Nav::Replace(Box::new(HomeScreen::new()));
+                            .await
+                        {
+                            Ok(()) => {
+                                return Nav::Replace(Box::new(HomeScreen::new()));
+                            }
+                            Err(e) => {
+                                self.error_msg = Some(e.0);
+                            }
+                        }
                     }
                 }
                 KeyCode::Esc => {
