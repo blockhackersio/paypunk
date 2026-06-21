@@ -3,7 +3,7 @@ use crate::app::Nav;
 use crate::components::text_field::{TextField, TextFieldConfig};
 use crate::components::Component;
 use crate::screens::help::HelpScreen;
-use crate::screens::wallets::WalletsScreen;
+use crate::screens::home::HomeScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
@@ -118,7 +118,7 @@ impl Screen for GreetingScreen {
                 if key.code == KeyCode::Enter {
                     let password = self.pw_field.value().to_string();
                     match api.unlock(password).await {
-                        Ok(_data) => return Nav::Replace(Box::new(WalletsScreen::new())),
+                        Ok(_data) => return Nav::Replace(Box::new(HomeScreen::new())),
                         Err(e) => self.error_msg = Some(e.0),
                     }
                 }

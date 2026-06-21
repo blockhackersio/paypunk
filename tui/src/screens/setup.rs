@@ -7,7 +7,7 @@ use crate::components::Component;
 use crate::screens::assets::AssetsScreen;
 use crate::screens::component_demo::ComponentDemoScreen;
 use crate::screens::help::HelpScreen;
-use crate::screens::wallets::WalletsScreen;
+use crate::screens::home::HomeScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
@@ -331,7 +331,7 @@ impl Screen for SetupScreen {
                                             biometric_enabled: false,
                                         })
                                         .await;
-                                    return Nav::Replace(Box::new(WalletsScreen::new()));
+                                    return Nav::Replace(Box::new(HomeScreen::new()));
                                 }
                             }
                             KeyCode::Esc => {
@@ -396,7 +396,7 @@ impl Screen for SetupScreen {
                                 password: pw.into(),
                             })
                             .await;
-                        return Nav::Replace(Box::new(WalletsScreen::new()));
+                        return Nav::Replace(Box::new(HomeScreen::new()));
                     }
                 }
                 KeyCode::Esc => {
