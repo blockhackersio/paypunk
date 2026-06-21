@@ -1,5 +1,20 @@
-# Process spawning
+# Fix the following 
 
-- I want to make it so that users must use the cli and run `paypunk paypunkd` also `paypunk keypunkd` to start the daemons. Remove the other binary compilations.
-- Remove the binary builds for paypunkd and keypunkd and make the only way to run those daemons through the cli.
-- make it so that running `paypunk` first launches `paypunk keypunkd`  then it launches `paypunk paypunkd` then it launches `paypunk tui` you can use env::current_exe() to get thee location of the cli
+
+## Logging is displayed
+
+Running with `cargo run` shows logging at the bottom of the tui:
+```
+2026-06-21T13:48:24.091538Z  INFO keypunkd::run: keypunkd listening on /tmp/keypunkd.sock
+                                                                                         Error: Io(Os { code: 111, kind: ConnectionRefused, message: "Connection refused" })
+```
+
+## Running TUI -> Create New Wallet shows incorrect seed phrase
+
+Shows fake canned seed phrase instead of correct newly generated seed phrase
+
+
+
+
+
+
