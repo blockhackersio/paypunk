@@ -106,10 +106,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .clone()
         .unwrap_or(config.paypunkd_socket_path);
 
-    match cli.command {
-        None | Some(Commands::Tui) => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async move {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        match cli.command {
+            None => {
                 let config = ConfigLoader::load_or_default();
                 let exe = std::env::current_exe()
                     .map_err(|e| format!("Failed to get current exe path: {e}"))?;
@@ -169,14 +169,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = paypunkd_child.wait();
 
                 tui_result.map_err(|e| e.into())
-            })
-        }
-        Some(Commands::Keypunkd {
-            socket_path,
-            data_dir,
-        }) => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async {
+            }
+            Some(Commands::Tui) => {
+                paypunk_tui::run_tui(&socket_path, None).await.map_err(|e| e.into())
+            }
+            Some(Commands::Keypunkd {
+                socket_path,
+                data_dir,
+            }) => {
                 let config = ConfigLoader::load_or_default();
                 let socket = socket_path.unwrap_or(config.keypunkd_socket_path);
                 let dir = data_dir.unwrap_or(config.data_dir);
@@ -186,16 +186,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     data_dir: dir,
                 })
                 .await
-            })
-        }
-        Some(Commands::Paypunkd {
-            socket_path,
-            keypunkd_socket,
-            rpc_url,
-            data_dir,
-        }) => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async {
+            }
+            Some(Commands::Paypunkd {
+                socket_path,
+                keypunkd_socket,
+                rpc_url,
+                data_dir,
+            }) => {
                 let config = ConfigLoader::load_or_default();
                 let socket = socket_path.unwrap_or(config.paypunkd_socket_path);
                 let ks = keypunkd_socket.unwrap_or(config.keypunkd_socket_path);
@@ -209,13 +206,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     data_dir: dir,
                 })
                 .await
-            })
+            }
+            Some(command) => async_main(socket_path, command).await,
         }
-        Some(command) => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async_main(socket_path, command))
-        }
-    }
+    })
 }
 
 async fn async_main(
