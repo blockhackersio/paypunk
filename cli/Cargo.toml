@@ -14,7 +14,7 @@ paypunk-types.workspace = true
 paypunk-tui.workspace = true
 keypunkd.workspace = true
 paypunkd.workspace = true
-tokio = { workspace = true, features = ["rt", "macros", "net", "time", "signal"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "net", "time", "signal"] }
 clap = { workspace = true, features = ["derive"] }
 zeroize.workspace = true
 blake2.workspace = true
