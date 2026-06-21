@@ -4,8 +4,14 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+struct MockData {
+    accounts: Vec<AccountInfo>,
+    next_account_index: u32,
+}
+
 pub struct MockWalletApi {
     wallet_exists: bool,
+    data: Mutex<MockData>,
     home_cache: Mutex<Option<HomeData>>,
     send_cache: Mutex<HashMap<String, SendData>>,
     receive_cache: Mutex<HashMap<String, ReceiveData>>,
@@ -15,6 +21,25 @@ impl MockWalletApi {
     pub fn new() -> Self {
         Self {
             wallet_exists: false,
+            data: Mutex::new(MockData {
+                accounts: vec![
+                    AccountInfo {
+                        account_id: "acc_1".into(),
+                        name: "Ethereum Wallet".into(),
+                        chain_id: "eip155:1".into(),
+                        address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                        protocol: "Ethereum".into(),
+                    },
+                    AccountInfo {
+                        account_id: "acc_2".into(),
+                        name: "Zcash Wallet".into(),
+                        chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
+                        address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
+                        protocol: "Zcash".into(),
+                    },
+                ],
+                next_account_index: 3,
+            }),
             home_cache: Mutex::new(None),
             send_cache: Mutex::new(HashMap::new()),
             receive_cache: Mutex::new(HashMap::new()),
@@ -132,23 +157,9 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn get_home(&self) -> HomeData {
+        let data = self.data.lock().unwrap();
         HomeData {
-            accounts: vec![
-                AccountInfo {
-                    account_id: "acc_1".into(),
-                    name: "Ethereum Wallet".into(),
-                    chain_id: "eip155:1".into(),
-                    address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-                    protocol: "ethereum".into(),
-                },
-                AccountInfo {
-                    account_id: "acc_2".into(),
-                    name: "Zcash Wallet".into(),
-                    chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                    address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
-                    protocol: "zcash".into(),
-                },
-            ],
+            accounts: data.accounts.clone(),
             fiat_currency: "USD".into(),
         }
     }
@@ -158,35 +169,72 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn list_accounts(&self) -> Result<Vec<AccountInfo>, ApiError> {
-        Ok(vec![
-            AccountInfo {
-                account_id: "acc_1".into(),
-                name: "Ethereum Wallet".into(),
-                address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-                chain_id: "eip155:1".into(),
-                protocol: "Ethereum".into(),
-            },
-            AccountInfo {
-                account_id: "acc_2".into(),
-                name: "Zcash Wallet".into(),
-                address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
-                chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                protocol: "Zcash".into(),
-            },
-        ])
+        let data = self.data.lock().unwrap();
+        Ok(data.accounts.clone())
     }
 
     async fn add_account(&self) -> Result<(), ApiError> {
+        let mut data = self.data.lock().unwrap();
+        let index = data.next_account_index;
+        data.next_account_index += 1;
+
+        let account_id = format!("acc_{}", index);
+        let is_eth = index % 2 == 0;
+        let (name, chain_id, address, protocol) = if is_eth {
+            (
+                format!("Ethereum Account {}", index),
+                "eip155:1".into(),
+                format!("0x{:040x}", index),
+                "Ethereum".into(),
+            )
+        } else {
+            (
+                format!("Zcash Account {}", index),
+                "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
+                format!("t1{:33}", index),
+                "Zcash".into(),
+            )
+        };
+
+        data.accounts.push(AccountInfo {
+            account_id,
+            name,
+            chain_id,
+            address,
+            protocol,
+        });
         Ok(())
     }
 
-    async fn get_receive(&self, _account_id: &str) -> ReceiveData {
-        ReceiveData {
-            address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-            chain_id: "eip155:1".into(),
-            address_format: "hex".into(),
-            qr_payload: "ethereum:0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-            account_id: "acc_1".into(),
+    async fn get_receive(&self, account_id: &str) -> ReceiveData {
+        let data = self.data.lock().unwrap();
+        let account = data
+            .accounts
+            .iter()
+            .find(|a| a.account_id == account_id);
+
+        match account {
+            Some(acc) if acc.protocol == "Zcash" => ReceiveData {
+                address: acc.address.clone(),
+                chain_id: acc.chain_id.clone(),
+                address_format: "transparent".into(),
+                qr_payload: format!("zcash:{}", acc.address),
+                account_id: account_id.to_string(),
+            },
+            Some(acc) => ReceiveData {
+                address: acc.address.clone(),
+                chain_id: acc.chain_id.clone(),
+                address_format: "hex".into(),
+                qr_payload: format!("ethereum:{}", acc.address),
+                account_id: account_id.to_string(),
+            },
+            None => ReceiveData {
+                address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                chain_id: "eip155:1".into(),
+                address_format: "hex".into(),
+                qr_payload: "ethereum:0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                account_id: account_id.to_string(),
+            },
         }
     }
 
@@ -200,27 +248,36 @@ impl WalletApi for MockWalletApi {
                 account_id: "acc_2".into(),
             }
         } else {
-            self.get_receive("").await
+            self.get_receive("acc_1").await
         }
     }
 
-    async fn get_send(&self, chain_id: &str) -> SendData {
-        if chain_id.contains("bip122") {
-            SendData {
-                account_id: "acc_2".into(),
-                from_address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
+    async fn get_send(&self, account_id: &str) -> SendData {
+        let data = self.data.lock().unwrap();
+        let account = data.accounts.iter().find(|a| a.account_id == account_id);
+
+        match account {
+            Some(acc) if acc.protocol == "Zcash" => SendData {
+                account_id: account_id.to_string(),
+                from_address: acc.address.clone(),
                 spendable_balance: "500000000".into(),
                 decimals: 8,
-                chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-            }
-        } else {
-            SendData {
-                account_id: "acc_1".into(),
+                chain_id: acc.chain_id.clone(),
+            },
+            Some(acc) => SendData {
+                account_id: account_id.to_string(),
+                from_address: acc.address.clone(),
+                spendable_balance: "1420000000000000000".into(),
+                decimals: 18,
+                chain_id: acc.chain_id.clone(),
+            },
+            None => SendData {
+                account_id: account_id.to_string(),
                 from_address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
                 spendable_balance: "1420000000000000000".into(),
                 decimals: 18,
                 chain_id: "eip155:1".into(),
-            }
+            },
         }
     }
 
@@ -320,43 +377,43 @@ impl WalletApi for MockWalletApi {
         *self.home_cache.lock().unwrap() = None;
     }
 
-    async fn receive_state(&self, chain_id: &str) -> ApiState<ReceiveData> {
+    async fn receive_state(&self, account_id: &str) -> ApiState<ReceiveData> {
         let data = {
             let cache = self.receive_cache.lock().unwrap();
-            cache.get(chain_id).cloned()
+            cache.get(account_id).cloned()
         };
         if let Some(data) = data {
             return ApiState::Loaded(data);
         }
-        let real = self.get_receive(chain_id).await;
+        let real = self.get_receive(account_id).await;
         self.receive_cache
             .lock()
             .unwrap()
-            .insert(chain_id.to_string(), real.clone());
+            .insert(account_id.to_string(), real.clone());
         ApiState::Loaded(real)
     }
 
-    async fn refresh_receive(&self, chain_id: &str) {
-        self.receive_cache.lock().unwrap().remove(chain_id);
+    async fn refresh_receive(&self, account_id: &str) {
+        self.receive_cache.lock().unwrap().remove(account_id);
     }
 
-    async fn send_state(&self, chain_id: &str) -> ApiState<SendData> {
+    async fn send_state(&self, account_id: &str) -> ApiState<SendData> {
         let data = {
             let cache = self.send_cache.lock().unwrap();
-            cache.get(chain_id).cloned()
+            cache.get(account_id).cloned()
         };
         if let Some(data) = data {
             return ApiState::Loaded(data);
         }
-        let real = self.get_send(chain_id).await;
+        let real = self.get_send(account_id).await;
         self.send_cache
             .lock()
             .unwrap()
-            .insert(chain_id.to_string(), real.clone());
+            .insert(account_id.to_string(), real.clone());
         ApiState::Loaded(real)
     }
 
-    async fn refresh_send(&self, chain_id: &str) {
-        self.send_cache.lock().unwrap().remove(chain_id);
+    async fn refresh_send(&self, account_id: &str) {
+        self.send_cache.lock().unwrap().remove(account_id);
     }
 }
