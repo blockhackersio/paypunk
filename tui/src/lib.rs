@@ -79,9 +79,7 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
         if let Some(evt) = event_rx.recv().await {
             match evt {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    if key.code == KeyCode::Char('q') && app.screen_stack.len() <= 1 {
-                        app.should_quit = true;
-                    } else if key.modifiers.contains(KeyModifiers::CONTROL)
+                    if key.modifiers.contains(KeyModifiers::CONTROL)
                         && key.code == KeyCode::Char('c')
                     {
                         app.should_quit = true;

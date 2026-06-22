@@ -17,14 +17,16 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 use ratatui_cheese::fieldset::{Fieldset, FieldsetFill};
-use ratatui_cheese::input::{Input, InputState};
+use ratatui_cheese::input::InputState;
 
 enum SetupStep {
     Choice,
     ShowMnemonic,
     VerifyMnemonic,
     SetPassword,
+    Creating,
     ImportMnemonic,
+    ImportPassword,
 }
 
 pub struct SetupScreen {
@@ -40,7 +42,11 @@ pub struct SetupScreen {
     import_states: Vec<InputState>,
     import_focus: usize,
     import_pw_field: TextField,
+    import_confirm_field: TextField,
+    import_pw_focus: usize,
+    import_pw_error: Option<String>,
     error_msg: Option<String>,
+    spinner_frame: u32,
 }
 
 impl SetupScreen {
@@ -108,7 +114,17 @@ impl SetupScreen {
                 initial_value: String::new(),
                 feedback: None,
             }),
+            import_confirm_field: TextField::new(TextFieldConfig {
+                label: "Confirm Password".into(),
+                placeholder: "".into(),
+                password_mode: true,
+                initial_value: String::new(),
+                feedback: None,
+            }),
+            import_pw_focus: 0,
+            import_pw_error: None,
             error_msg: None,
+            spinner_frame: 0,
         }
     }
 }
@@ -157,7 +173,9 @@ impl Screen for SetupScreen {
             SetupStep::ShowMnemonic => self.render_show_mnemonic(frame, content_area),
             SetupStep::VerifyMnemonic => self.render_verify(frame, content_area),
             SetupStep::SetPassword => self.render_set_password(frame, content_area),
+            SetupStep::Creating => self.render_creating(frame, content_area),
             SetupStep::ImportMnemonic => self.render_import(frame, content_area),
+            SetupStep::ImportPassword => self.render_import_password(frame, content_area),
         }
 
         let footer_text = theme.help_line([
@@ -323,6 +341,9 @@ impl Screen for SetupScreen {
                                 } else if pw != self.confirm_field.value() {
                                     self.pw_error = Some("Passwords don't match.".into());
                                 } else {
+                                    self.step = SetupStep::Creating;
+                                    self.spinner_frame = 0;
+                                    let api = api as &mut dyn WalletApi;
                                     match api
                                         .submit_setup_create(SetupCreateInput {
                                             verification_words: vec![],
@@ -335,6 +356,7 @@ impl Screen for SetupScreen {
                                             return Nav::Replace(Box::new(HomeScreen::new()));
                                         }
                                         Err(e) => {
+                                            self.step = SetupStep::SetPassword;
                                             self.error_msg = Some(e.0);
                                         }
                                     }
@@ -370,15 +392,11 @@ impl Screen for SetupScreen {
                 KeyCode::Char(c) => {
                     if self.import_focus < 12 {
                         self.import_states[self.import_focus].insert_char(c);
-                    } else {
-                        let _ = self.import_pw_field.handle_event(key);
                     }
                 }
                 KeyCode::Backspace => {
                     if self.import_focus < 12 {
                         self.import_states[self.import_focus].delete_before();
-                    } else {
-                        let _ = self.import_pw_field.handle_event(key);
                     }
                 }
                 KeyCode::Enter => {
@@ -389,27 +407,12 @@ impl Screen for SetupScreen {
                         .filter(|w| !w.is_empty())
                         .collect::<Vec<_>>()
                         .join(" ");
-                    let pw = self.import_pw_field.value();
                     if phrase.is_empty() {
                         self.error_msg = Some("Please enter your recovery phrase.".into());
-                    } else if pw.len() < 4 {
-                        self.error_msg = Some("Password must be at least 4 characters.".into());
                     } else {
-                        match api
-                            .submit_setup_import(SetupImportInput {
-                                method: "mnemonic".into(),
-                                secret: phrase,
-                                password: pw.into(),
-                            })
-                            .await
-                        {
-                            Ok(()) => {
-                                return Nav::Replace(Box::new(HomeScreen::new()));
-                            }
-                            Err(e) => {
-                                self.error_msg = Some(e.0);
-                            }
-                        }
+                        self.step = SetupStep::ImportPassword;
+                        self.import_pw_focus = 0;
+                        self.import_pw_error = None;
                     }
                 }
                 KeyCode::Esc => {
@@ -417,6 +420,78 @@ impl Screen for SetupScreen {
                 }
                 _ => {}
             },
+            SetupStep::ImportPassword => {
+                let pw_len = self.import_pw_field.value().len();
+                let pw_valid = pw_len >= 4;
+                let show_confirm = pw_valid;
+
+                match key.code {
+                    KeyCode::Tab | KeyCode::Down => {
+                        if self.import_pw_focus == 0 && show_confirm {
+                            self.import_pw_focus = 1;
+                        } else if self.import_pw_focus == 1 {
+                            self.import_pw_focus = 0;
+                        }
+                    }
+                    KeyCode::Up => {
+                        self.import_pw_focus = 0;
+                    }
+                    KeyCode::Esc => {
+                        self.step = SetupStep::ImportMnemonic;
+                        self.import_pw_error = None;
+                    }
+                    _ => {
+                        if self.import_pw_focus == 0 {
+                            let _ = self.import_pw_field.handle_event(key);
+                            let new_len = self.import_pw_field.value().len();
+                            if new_len > 0 && new_len < 4 {
+                                self.import_pw_error =
+                                    Some("Password must be at least 4 characters.".into());
+                            } else {
+                                self.import_pw_error = None;
+                            }
+                        } else if show_confirm {
+                            let _ = self.import_confirm_field.handle_event(key);
+                        }
+                        match key.code {
+                            KeyCode::Enter => {
+                                let pw = self.import_pw_field.value().to_string();
+                                if pw.len() < 4 {
+                                    self.import_pw_error =
+                                        Some("Password must be at least 4 characters.".into());
+                                } else if pw != self.import_confirm_field.value() {
+                                    self.import_pw_error = Some("Passwords don't match.".into());
+                                } else {
+                                    let phrase = self
+                                        .import_states
+                                        .iter()
+                                        .map(|s| s.value().trim())
+                                        .filter(|w| !w.is_empty())
+                                        .collect::<Vec<_>>()
+                                        .join(" ");
+                                    match api
+                                        .submit_setup_import(SetupImportInput {
+                                            method: "mnemonic".into(),
+                                            secret: phrase,
+                                            password: pw.into(),
+                                        })
+                                        .await
+                                    {
+                                        Ok(()) => {
+                                            return Nav::Replace(Box::new(HomeScreen::new()));
+                                        }
+                                        Err(e) => {
+                                            self.import_pw_error = Some(e.0);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            SetupStep::Creating => {}
         }
         Nav::None
     }
@@ -439,6 +514,13 @@ impl Screen for SetupScreen {
                     self.password_field.handle_paste(text);
                 } else if !self.password_field.value().is_empty() {
                     self.confirm_field.handle_paste(text);
+                }
+            }
+            SetupStep::ImportPassword => {
+                if self.import_pw_focus == 0 {
+                    self.import_pw_field.handle_paste(text);
+                } else if !self.import_pw_field.value().is_empty() {
+                    self.import_confirm_field.handle_paste(text);
                 }
             }
             _ => {}
@@ -679,7 +761,7 @@ impl SetupScreen {
         }
     }
 
-    fn render_import(&self, frame: &mut Frame, area: Rect) {
+    fn render_import(&mut self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
         let block = theme.titled_block("Import Wallet");
         let inner = block.inner(area);
@@ -688,7 +770,6 @@ impl SetupScreen {
         let chunks = Layout::vertical([
             Constraint::Length(2),
             Constraint::Min(6),
-            Constraint::Length(2),
             Constraint::Length(2),
         ])
         .split(inner);
@@ -735,10 +816,17 @@ impl SetupScreen {
                 let is_focused = idx == self.import_focus;
                 let val = self.import_states[idx].value();
                 let masked: String = val.chars().map(|_| '•').collect();
-                let display = if val.is_empty() {
-                    "______".to_string()
+                let cursor = if is_focused && val.is_empty() {
+                    "█"
+                } else if is_focused {
+                    " "
                 } else {
-                    masked
+                    " "
+                };
+                let display = if val.is_empty() {
+                    format!("______{}", cursor)
+                } else {
+                    format!("{}{}", masked, cursor)
                 };
                 let cell_style = if is_focused {
                     ui::selected_style()
@@ -764,25 +852,13 @@ impl SetupScreen {
             }
         }
 
-        let pw_input = Input::new("New Password").password_mode(true);
-        let mut pw_state = InputState::new();
-        pw_state.set_value(self.import_pw_field.value().to_string());
-        frame.render_stateful_widget(
-            pw_input,
-            chunks[2].inner(Margin {
-                vertical: 0,
-                horizontal: 2,
-            }),
-            &mut pw_state,
-        );
-
         if let Some(ref err) = self.error_msg {
             let err_para =
                 Paragraph::new(Line::from(vec![theme.error(err)])).style(Style::new().bg(ui::BG));
             frame.render_widget(
                 err_para,
                 chunks[2].inner(Margin {
-                    vertical: 1,
+                    vertical: 0,
                     horizontal: 2,
                 }),
             );
@@ -795,8 +871,113 @@ impl SetupScreen {
         .style(Style::new().bg(ui::BG));
         frame.render_widget(
             hint,
-            chunks[3].inner(Margin {
-                vertical: 0,
+            chunks[2].inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
+    }
+
+    fn render_import_password(&mut self, frame: &mut Frame, area: Rect) {
+        let theme = ui::theme();
+        let block = theme.titled_block("Set Password");
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let instruction = Paragraph::new(Line::from(vec![
+            theme.span("Create a password to protect your wallet:")
+        ]))
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            instruction,
+            inner.inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
+
+        self.import_pw_field.set_focused(self.import_pw_focus == 0);
+        self.import_pw_field.render(
+            frame,
+            inner.inner(Margin {
+                vertical: 3,
+                horizontal: 2,
+            }),
+        );
+
+        let pw = self.import_pw_field.value();
+        let pw_valid = pw.len() >= 4;
+        let show_confirm = pw_valid;
+
+        let mut extra_y = 5;
+
+        if let Some(ref err) = self.import_pw_error {
+            let err_para =
+                Paragraph::new(Line::from(vec![theme.error(err)])).style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                err_para,
+                inner.inner(Margin {
+                    vertical: extra_y,
+                    horizontal: 4,
+                }),
+            );
+            extra_y += 1;
+        }
+
+        if show_confirm {
+            self.import_confirm_field.set_focused(self.import_pw_focus == 1);
+            self.import_confirm_field.render(
+                frame,
+                inner.inner(Margin {
+                    vertical: extra_y,
+                    horizontal: 2,
+                }),
+            );
+        } else if !pw.is_empty() {
+            let hint = Paragraph::new(Line::from(vec![
+                theme.muted("Type at least 4 characters to unlock confirmation")
+            ]))
+            .style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                hint,
+                inner.inner(Margin {
+                    vertical: extra_y,
+                    horizontal: 4,
+                }),
+            );
+        }
+    }
+
+    fn render_creating(&mut self, frame: &mut Frame, area: Rect) {
+        let theme = ui::theme();
+        let block = theme.titled_block("Creating Wallet");
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        self.spinner_frame += 1;
+        let spinner = match self.spinner_frame % 4 {
+            0 => "◐",
+            1 => "◓",
+            2 => "◑",
+            3 => "◒",
+            _ => "◐",
+        };
+
+        let lines = vec![
+            Line::from(vec![theme.accent(format!(" {} Creating your wallet... ", spinner))]).centered(),
+            Line::from(""),
+            Line::from(vec![
+                theme.muted("Generating encryption keys and securing your seed.")
+            ])
+            .centered(),
+            Line::from(vec![theme.muted("This should only take a moment.")]).centered(),
+        ];
+        let para = ratatui::widgets::Paragraph::new(ratatui::text::Text::from(lines))
+            .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            para,
+            inner.inner(Margin {
+                vertical: 3,
                 horizontal: 2,
             }),
         );
