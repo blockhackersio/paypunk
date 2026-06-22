@@ -10,7 +10,7 @@ use crate::ui;
 use async_trait::async_trait;
 use ratatui::layout::{Constraint, Layout, Margin};
 use ratatui::style::Style;
-use ratatui::text::{Line, Span, Text};
+use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
@@ -80,21 +80,8 @@ impl Screen for LockScreen {
         if let Some(ref data) = self.data {
             let mut lines: Vec<Line> = Vec::new();
 
-            if data.auth_methods.biometric_available {
-                let bio_style = if self.focus == 0 {
-                    ui::selected_style()
-                } else {
-                    theme.text
-                };
-                lines.push(Line::from(vec![Span::styled(
-                    "▸ Face ID / Biometric",
-                    bio_style,
-                )]));
-                lines.push(Line::from(""));
-            }
-
             if data.auth_methods.password_set {
-                self.pw_field.set_focused(self.focus == 1);
+                self.pw_field.set_focused(self.focus == 0);
                 self.pw_field.render(
                     frame,
                     inner.inner(Margin {
@@ -154,46 +141,27 @@ impl Screen for LockScreen {
         match key.code {
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
             KeyCode::Tab | KeyCode::Down => {
-                self.focus = (self.focus + 1).min(1);
+                self.focus = 0;
             }
             KeyCode::Up => {
-                self.focus = self.focus.saturating_sub(1);
+                self.focus = 0;
             }
             _ => {
-                if self.focus == 1 {
+                if self.focus == 0 {
                     let _ = self.pw_field.handle_event(key);
                 }
                 if key.code == KeyCode::Enter {
-                    if self.focus == 0 {
-                        if let Some(ref data) = self.data {
-                            if data.auth_methods.biometric_available {
-                                match api
-                                    .submit_lock(LockInput {
-                                        credential: Credential {
-                                            cred_type: "biometric".into(),
-                                            value: "face-id-assertion-token".into(),
-                                        },
-                                    })
-                                    .await
-                                {
-                                    Ok(_) => return Nav::Replace(Box::new(HomeScreen::new())),
-                                    Err(e) => self.error_msg = Some(e.0),
-                                }
-                            }
-                        }
-                    } else if self.focus == 1 {
-                        match api
-                            .submit_lock(LockInput {
-                                credential: Credential {
-                                    cred_type: "password".into(),
-                                    value: self.pw_field.value().into(),
-                                },
-                            })
-                            .await
-                        {
-                            Ok(_) => return Nav::Replace(Box::new(HomeScreen::new())),
-                            Err(e) => self.error_msg = Some(e.0),
-                        }
+                    match api
+                        .submit_lock(LockInput {
+                            credential: Credential {
+                                cred_type: "password".into(),
+                                value: self.pw_field.value().into(),
+                            },
+                        })
+                        .await
+                    {
+                        Ok(_) => return Nav::Replace(Box::new(HomeScreen::new())),
+                        Err(e) => self.error_msg = Some(e.0),
                     }
                 } else if key.code == KeyCode::Esc {
                     return Nav::Pop;

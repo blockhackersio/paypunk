@@ -1,12 +1,17 @@
-pub mod mock;
-pub mod real;
-pub mod types;
+# Step 6: Update WalletApi trait signatures
 
-use async_trait::async_trait;
-use types::*;
+## Context
 
-#[async_trait(?Send)]
+The `WalletApi` trait methods need to accept `account_id` instead of `chain_id` where appropriate, and add new methods for account management.
+
+## Changes
+
+### `tui/src/api/mod.rs`
+
+**Update method signatures:**
+```rust
 pub trait WalletApi {
+    // Setup (unchanged)
     async fn get_setup(&self) -> SetupData;
     async fn submit_setup_create(&self, input: SetupCreateInput) -> Result<(), ApiError>;
     async fn submit_setup_import(&self, input: SetupImportInput) -> Result<(), ApiError>;
@@ -35,14 +40,20 @@ pub trait WalletApi {
     async fn send_state(&self, account_id: &str) -> ApiState<SendData>;
     async fn refresh_send(&self, account_id: &str);
 
+    // Lock, Settings, Greeting (unchanged)
     async fn get_lock(&self) -> LockData;
     async fn submit_lock(&self, input: LockInput) -> Result<(), ApiError>;
-
     async fn get_settings(&self) -> SettingsData;
     async fn submit_settings(&self, input: SettingsInput) -> Result<(), ApiError>;
-    async fn submit_reveal_phrase(&self, input: RevealPhraseInput)
-        -> Result<Vec<String>, ApiError>;
-
+    async fn submit_reveal_phrase(&self, input: RevealPhraseInput) -> Result<Vec<String>, ApiError>;
     async fn check_wallet_exists(&self) -> bool;
     async fn unlock(&self, password: String) -> Result<UnlockData, ApiError>;
 }
+```
+
+**Remove:** `get_wallets()`, `get_assets(chain_id)` old signature
+
+## Acceptance Criteria
+
+- [ ] Trait compiles with new signatures
+- [ ] `cargo build` fails on RealWalletApi and MockWalletApi (expected — they'll be updated in Steps 7 and 8)

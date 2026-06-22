@@ -53,6 +53,27 @@ impl Migrator {
     }
 }
 
+pub struct PreDerivedKeysMigration;
+
+impl Migration for PreDerivedKeysMigration {
+    fn version(&self) -> u32 {
+        3
+    }
+
+    fn up(&self, conn: &Connection) -> Result<(), String> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS pre_derived_keys (
+                protocol TEXT NOT NULL,
+                account_index INTEGER NOT NULL,
+                viewing_key BLOB NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                PRIMARY KEY (protocol, account_index)
+            );",
+        )
+        .map_err(|e| e.to_string())
+    }
+}
+
 pub struct AccountsMigration;
 
 impl Migration for AccountsMigration {
@@ -68,6 +89,7 @@ impl Migration for AccountsMigration {
                 protocol TEXT NOT NULL,
                 derivation_path TEXT NOT NULL,
                 name TEXT NOT NULL,
+                address TEXT NOT NULL DEFAULT '',
                 viewing_key BLOB NOT NULL,
                 created_at INTEGER NOT NULL
             );",

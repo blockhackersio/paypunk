@@ -1,14 +1,12 @@
 use crate::api::types::*;
 use crate::api::WalletApi;
 use crate::app::Nav;
-use crate::components::balance_item::{BalanceAction, BalanceItem};
-use crate::components::list::List;
+use crate::components::list::{LabelItem, List};
 use crate::components::Component;
+use crate::screens::assets::AssetsScreen;
 use crate::screens::help::HelpScreen;
-use crate::screens::lock::LockScreen;
 use crate::screens::receive::ReceiveScreen;
 use crate::screens::send::SendScreen;
-use crate::screens::settings::SettingsScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
@@ -17,12 +15,9 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
-use ratatui_bubbletea_components::SelectList;
 
 pub struct HomeScreen {
-    list: List<BalanceAction>,
-    menu_open: bool,
-    menu: SelectList,
+    list: List<()>,
     state: ApiState<HomeData>,
 }
 
@@ -30,17 +25,19 @@ impl HomeScreen {
     pub fn new() -> Self {
         Self {
             list: List::new(vec![]),
-            menu_open: false,
-            menu: SelectList::new([" Send ", " Receive "]),
             state: ApiState::Loading,
         }
     }
 
     fn rebuild_list(&mut self, data: &HomeData) {
-        let items: Vec<Box<dyn Component<BalanceAction>>> = data
-            .balances
+        let items: Vec<Box<dyn Component<()>>> = data
+            .accounts
             .iter()
-            .map(|b| Box::new(BalanceItem::new(b.clone())) as Box<dyn Component<BalanceAction>>)
+            .map(|a| {
+                let addr = a.address.clone();
+                let label = format!("{} — {}", a.name, addr);
+                Box::new(LabelItem::new(label)) as Box<dyn Component<()>>
+            })
             .collect();
         self.list = List::new(items);
         self.list.set_focused(true);
@@ -76,7 +73,7 @@ impl Screen for HomeScreen {
 
         let area = frame.area();
         let chunks = Layout::vertical([
-            Constraint::Length(5),
+            Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Length(3),
         ])
@@ -85,9 +82,30 @@ impl Screen for HomeScreen {
         let body = chunks[1];
         let footer = chunks[2];
 
-        self.render_header(frame, header);
+        let theme = ui::theme();
+        let title = theme.title(" PayPunk Wallet ").centered();
+        frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
+
         self.render_body(frame, body);
-        self.render_footer(frame, footer);
+
+        let footer_text = theme.help_line([
+            ("↑↓", "Select"),
+            ("Enter", "Assets"),
+            ("s", "Send"),
+            ("o", "Receive"),
+            ("a", "Add Account"),
+            ("r", "Refresh"),
+            ("q", "Quit"),
+        ]);
+        let fb = Block::new().style(Style::new().bg(ui::SURFACE));
+        frame.render_widget(fb, footer);
+        frame.render_widget(
+            Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
+        );
     }
 
     async fn handle_input(
@@ -97,53 +115,26 @@ impl Screen for HomeScreen {
     ) -> Nav {
         use crossterm::event::KeyCode;
 
-        if self.menu_open {
-            match key.code {
-                KeyCode::Left => {
-                    self.menu.first();
-                }
-                KeyCode::Right => {
-                    self.menu.last();
-                }
-                KeyCode::Enter => {
-                    self.menu_open = false;
-                    let sel = self.menu.selected().unwrap_or(0);
-                    if let Some(idx) = self.list.selected() {
-                        if let ApiState::Loaded(ref data) = self.state {
-                            if let Some(bal) = data.balances.get(idx) {
-                                return match sel {
-                                    0 => Nav::Push(Box::new(SendScreen::new(&bal.chain_id))),
-                                    _ => Nav::Push(Box::new(ReceiveScreen::new(&bal.chain_id))),
-                                };
-                            }
-                        }
-                    }
-                }
-                KeyCode::Esc => {
-                    self.menu_open = false;
-                }
-                _ => {}
-            }
-            return Nav::None;
-        }
-
         match key.code {
             KeyCode::Up | KeyCode::Down => {
                 let _ = self.list.handle_event(key);
             }
             KeyCode::Enter => {
-                if let ApiState::Loaded(ref data) = self.state {
-                    if !data.balances.is_empty() {
-                        self.menu_open = true;
-                        self.menu.first();
+                if let Some(idx) = self.list.selected() {
+                    if let ApiState::Loaded(ref data) = self.state {
+                        if let Some(acc) = data.accounts.get(idx) {
+                            return Nav::Push(Box::new(AssetsScreen::new(
+                                acc.clone(),
+                            )));
+                        }
                     }
                 }
             }
             KeyCode::Char('s') => {
                 if let Some(idx) = self.list.selected() {
                     if let ApiState::Loaded(ref data) = self.state {
-                        if let Some(bal) = data.balances.get(idx) {
-                            return Nav::Push(Box::new(SendScreen::new(&bal.chain_id)));
+                        if let Some(acc) = data.accounts.get(idx) {
+                            return Nav::Push(Box::new(SendScreen::new(acc.clone())));
                         }
                     }
                 }
@@ -151,10 +142,19 @@ impl Screen for HomeScreen {
             KeyCode::Char('o') => {
                 if let Some(idx) = self.list.selected() {
                     if let ApiState::Loaded(ref data) = self.state {
-                        if let Some(bal) = data.balances.get(idx) {
-                            return Nav::Push(Box::new(ReceiveScreen::new(&bal.chain_id)));
+                        if let Some(acc) = data.accounts.get(idx) {
+                            return Nav::Push(Box::new(ReceiveScreen::new(acc.clone())));
                         }
                     }
+                }
+            }
+            KeyCode::Char('a') => {
+                let _ = api.add_account().await;
+                api.refresh_home().await;
+                self.state = api.home_state().await;
+                if let ApiState::Loaded(ref data) = self.state {
+                    let data = data.clone();
+                    self.rebuild_list(&data);
                 }
             }
             KeyCode::Char('r') => {
@@ -165,8 +165,7 @@ impl Screen for HomeScreen {
                     self.rebuild_list(&data);
                 }
             }
-            KeyCode::Char('t') => return Nav::Push(Box::new(SettingsScreen::new())),
-            KeyCode::Char('l') => return Nav::Push(Box::new(LockScreen::new())),
+            KeyCode::Char('q') => return Nav::Quit,
             KeyCode::Char('?') => return Nav::Push(Box::new(HelpScreen::new(self.name()))),
             _ => {}
         }
@@ -175,32 +174,11 @@ impl Screen for HomeScreen {
 }
 
 impl HomeScreen {
-    fn render_header(&self, frame: &mut Frame, area: Rect) {
-        let theme = ui::theme();
-        let block = Block::new().style(Style::new().bg(ui::BG));
-        frame.render_widget(block, area);
-
-        let title = theme.title(" PayPunk Wallet ").centered();
-        frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), area);
-
-        if let ApiState::Loaded(ref data) = self.state {
-            let total = format!("${:.2} {}", data.total_fiat_value, data.fiat_currency);
-            let total_line = theme.accent(&total).into_centered_line();
-            frame.render_widget(
-                Paragraph::new(total_line).style(Style::new().bg(ui::BG)),
-                area.inner(Margin {
-                    vertical: 2,
-                    horizontal: 0,
-                }),
-            );
-        }
-    }
-
     fn render_body(&mut self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
         match &self.state {
             ApiState::Loading => {
-                let block = theme.titled_block("Assets");
+                let block = theme.titled_block("Accounts");
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
                 let msg = Paragraph::new(Line::from(vec![theme.muted(" Loading...")]))
@@ -215,12 +193,12 @@ impl HomeScreen {
                 );
             }
             ApiState::Error(err) => {
-                let block = theme.titled_block("Assets");
+                let block = theme.titled_block("Accounts");
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
                 ui::render_error_banner(frame, area, err);
                 let msg = Paragraph::new(Line::from(vec![
-                    theme.error(" Could not load assets. "),
+                    theme.error(" Could not load accounts. "),
                     theme.muted("Press "),
                     theme.accent("r"),
                     theme.muted(" to retry."),
@@ -236,14 +214,14 @@ impl HomeScreen {
                 );
             }
             ApiState::Loaded(data) => {
-                if data.balances.is_empty() {
-                    let block = theme.titled_block("Assets");
+                if data.accounts.is_empty() {
+                    let block = theme.titled_block("Accounts");
                     let inner = block.inner(area);
                     frame.render_widget(block, area);
                     let msg = Paragraph::new(Line::from(vec![
-                        theme.muted("No assets yet. "),
-                        theme.accent("Press `o`"),
-                        theme.muted(" to receive funds."),
+                        theme.muted("No accounts yet. "),
+                        theme.accent("Press `a`"),
+                        theme.muted(" to add one."),
                     ]))
                     .centered()
                     .style(Style::new().bg(ui::BG));
@@ -257,79 +235,18 @@ impl HomeScreen {
                     return;
                 }
 
-                let block = theme.titled_block("Assets");
+                let block = theme.titled_block("Accounts");
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
 
-                if self.menu_open {
-                    let body_chunks =
-                        Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).split(inner);
-                    let list_area = body_chunks[0];
-                    let menu_area = body_chunks[1];
-
-                    self.list.render(
-                        frame,
-                        list_area.inner(Margin {
-                            horizontal: 1,
-                            vertical: 1,
-                        }),
-                    );
-
-                    let menu_items = [" Send ", " Receive "];
-                    let sel = self.menu.selected().unwrap_or(0);
-                    let spans: Vec<_> = menu_items
-                        .iter()
-                        .enumerate()
-                        .map(|(i, label)| {
-                            if i == sel {
-                                theme.accent(format!("▸{}◂", label))
-                            } else {
-                                theme.muted(label.to_string())
-                            }
-                        })
-                        .collect();
-                    let menu_para =
-                        Paragraph::new(Line::from(spans)).style(Style::new().bg(ui::SURFACE));
-                    frame.render_widget(
-                        menu_para,
-                        menu_area.inner(Margin {
-                            horizontal: 2,
-                            vertical: 0,
-                        }),
-                    );
-                } else {
-                    self.list.render(
-                        frame,
-                        area.inner(Margin {
-                            horizontal: 2,
-                            vertical: 1,
-                        }),
-                    );
-                }
+                self.list.render(
+                    frame,
+                    inner.inner(Margin {
+                        horizontal: 1,
+                        vertical: 1,
+                    }),
+                );
             }
         }
-    }
-
-    fn render_footer(&self, frame: &mut Frame, area: Rect) {
-        let theme = ui::theme();
-        let line = theme.help_line([
-            ("↑↓", "Select"),
-            ("s", "Send"),
-            ("o", "Receive"),
-            ("r", "Refresh"),
-            ("t", "Settings"),
-            ("l", "Lock"),
-            ("q", "Quit"),
-            ("?", "Help"),
-        ]);
-        let block = Block::new().style(Style::new().bg(ui::SURFACE));
-        frame.render_widget(block, area);
-        frame.render_widget(
-            Paragraph::new(line).style(Style::new().bg(ui::SURFACE)),
-            area.inner(Margin {
-                vertical: 0,
-                horizontal: 1,
-            }),
-        );
     }
 }

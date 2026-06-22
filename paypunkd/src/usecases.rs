@@ -1,7 +1,6 @@
 use keypunkd::services::KeypunkService;
 use paypunk_types::{Account, Balance, Intent, ProtocolId};
 use rand::Rng;
-use std::collections::HashMap;
 
 use crate::database::{AccountsRepository, Database};
 use crate::protocol_service::ProtocolService;
@@ -143,12 +142,12 @@ pub fn validate_address(protocols: &ProtocolService, protocol: ProtocolId, addre
 
 // ── Account operations ──────────────────────────────────────────────────────
 
-/// Create a new account from a pre-derived viewing key (no keypunkd call).
+/// Create a new account from a pre-derived viewing key stored in the database.
 /// Accounts must be pre-derived via unlock (indices 0-29).
 pub async fn create_account(
     db: &Database,
+    protocols: &ProtocolService,
     repo: &dyn AccountsRepository,
-    pre_derived_keys: &HashMap<(ProtocolId, u32), Vec<u8>>,
     protocol: ProtocolId,
     derivation_path: String,
     account_index: u32,
@@ -164,7 +163,6 @@ pub async fn create_account(
     {
         return Err("account already exists".to_string());
     }
-    drop(conn);
 
     if account_index > 29 {
         return Err(format!(
@@ -173,10 +171,13 @@ pub async fn create_account(
         ));
     }
 
-    let viewing_key = pre_derived_keys
-        .get(&(protocol, account_index))
-        .cloned()
-        .ok_or_else(|| {
+    let viewing_key: Vec<u8> = conn
+        .query_row(
+            "SELECT viewing_key FROM pre_derived_keys WHERE protocol = ?1 AND account_index = ?2",
+            rusqlite::params![format!("{:?}", protocol), account_index],
+            |row| row.get(0),
+        )
+        .map_err(|_| {
             format!(
                 "no pre-derived viewing key found for {protocol:?} account {account_index}. \
                  Generate seed and unlock first."
@@ -190,11 +191,87 @@ pub async fn create_account(
         })
         .collect();
 
+    let address = derive_address(protocols, protocol, &viewing_key, 0)?;
+
     let account = Account {
         id,
         protocol,
         derivation_path,
         name,
+        address,
+        viewing_key,
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    };
+
+    repo.save(&conn, &account)?;
+    Ok(account)
+}
+
+/// Save a pre-derived viewing key to the database.
+pub fn save_pre_derived_key(
+    db: &Database,
+    protocol: ProtocolId,
+    account_index: u32,
+    viewing_key: &[u8],
+) -> Result<(), String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT OR REPLACE INTO pre_derived_keys (protocol, account_index, viewing_key) VALUES (?1, ?2, ?3)",
+        rusqlite::params![format!("{:?}", protocol), account_index, viewing_key],
+    ).map_err(|e| format!("failed to save pre-derived key: {e}"))?;
+    Ok(())
+}
+
+/// Get a pre-derived viewing key from the database.
+pub fn get_pre_derived_key(
+    db: &Database,
+    protocol: ProtocolId,
+    account_index: u32,
+) -> Result<Vec<u8>, String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+    conn.query_row(
+        "SELECT viewing_key FROM pre_derived_keys WHERE protocol = ?1 AND account_index = ?2",
+        rusqlite::params![format!("{:?}", protocol), account_index],
+        |row| row.get(0),
+    ).map_err(|e| format!("pre-derived key not found: {e}"))
+}
+
+/// Create Ethereum Account 0 from pre-derived viewing key.
+pub fn create_ethereum_account_0(
+    db: &Database,
+    repo: &dyn AccountsRepository,
+    protocols: &ProtocolService,
+) -> Result<Account, String> {
+    // Check if Ethereum account 0 already exists
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+    let existing = repo.find_by_protocol(&conn, &ProtocolId::Ethereum)?;
+    drop(conn);
+
+    if existing.iter().any(|a| a.derivation_path == "m/44'/60'/0'") {
+        return Err("Ethereum account 0 already exists".to_string());
+    }
+
+    let viewing_key = get_pre_derived_key(db, ProtocolId::Ethereum, 0)?;
+    let address = derive_address(protocols, ProtocolId::Ethereum, &viewing_key, 0)?;
+
+    let id: String = (0..16)
+        .map(|_| {
+            let hex = rand::thread_rng().gen_range(0..16);
+            format!("{hex:x}")
+        })
+        .collect();
+    let account = Account {
+        id,
+        protocol: ProtocolId::Ethereum,
+        derivation_path: "m/44'/60'/0'".to_string(),
+        name: "Ethereum Account 0".to_string(),
+        address,
         viewing_key,
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -211,18 +288,19 @@ pub async fn create_account(
 /// Bulk-derive accounts for all registered protocols.
 pub async fn bulk_derive_accounts(
     keypunk_service: &KeypunkService,
+    protocols: &ProtocolService,
     db: &Database,
     repo: &dyn AccountsRepository,
     encrypted_password: Vec<u8>,
     client_public_key: [u8; 32],
-    protocols: Vec<ProtocolId>,
+    protocol_ids: Vec<ProtocolId>,
     count: u32,
 ) -> Result<Vec<Account>, String> {
     let keys = keypunk_service
         .bulk_export_viewing_keys(
             encrypted_password,
             client_public_key,
-            protocols.clone(),
+            protocol_ids.clone(),
             0,
             count,
         )
@@ -245,11 +323,14 @@ pub async fn bulk_derive_accounts(
             ProtocolId::Solana => 501,
         };
 
+        let address = derive_address(protocols, protocol, &viewing_key, 0)?;
+
         let account = Account {
             id,
             protocol,
             derivation_path: format!("m/44'/{coin_type}'/{account_index}'"),
             name: format!("{protocol:?} Account {account_index}"),
+            address,
             viewing_key,
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

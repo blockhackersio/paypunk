@@ -1,4 +1,5 @@
 use argon2::Argon2;
+use bip39::{Language, Mnemonic};
 use keypunkd::crypto::Keypair;
 use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
 use zeroize::Zeroizing;
@@ -16,6 +17,14 @@ pub async fn check_wallet_exists(
     service: &paypunkd::services::PaypunkService,
 ) -> Result<bool, String> {
     service.has_seed().await
+}
+
+/// Generate a random 12-word BIP39 mnemonic phrase without persisting anything.
+/// The mnemonic is wrapped in `Zeroizing` so it is zeroed from memory on drop.
+pub fn generate_mnemonic() -> Zeroizing<String> {
+    let mnemonic = Mnemonic::generate_in(Language::English, 12)
+        .expect("12-word mnemonic generation is infallible");
+    Zeroizing::new(mnemonic.to_string())
 }
 
 /// Unlock the wallet by decrypting the DB and deriving initial accounts.

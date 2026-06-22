@@ -13,28 +13,19 @@ use ratatui::Frame;
 use ratatui_cheese::fieldset::{Fieldset, FieldsetFill};
 
 pub struct ReceiveScreen {
-    selected_chain: usize,
-    chains: Vec<(String, String)>,
+    account_id: String,
+    account_name: String,
+    chain_id: String,
     copied_feedback: Option<String>,
     receive_data: ApiState<ReceiveData>,
 }
 
 impl ReceiveScreen {
-    pub fn new(initial_chain: &str) -> Self {
-        let chains = vec![
-            ("eip155:1".into(), "Ethereum".into()),
-            (
-                "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                "Zcash".into(),
-            ),
-        ];
-        let sel = chains
-            .iter()
-            .position(|(id, _)| id == initial_chain)
-            .unwrap_or(0);
+    pub fn new(account: AccountInfo) -> Self {
         Self {
-            selected_chain: sel,
-            chains,
+            account_id: account.account_id,
+            account_name: account.name,
+            chain_id: account.chain_id,
             copied_feedback: None,
             receive_data: ApiState::Loading,
         }
@@ -48,14 +39,12 @@ impl Screen for ReceiveScreen {
     }
 
     async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
-        let chain = &self.chains[self.selected_chain].0;
-        api.refresh_receive(chain).await;
-        self.receive_data = api.receive_state(chain).await;
+        api.refresh_receive(&self.account_id).await;
+        self.receive_data = api.receive_state(&self.account_id).await;
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {
-        let chain = &self.chains[self.selected_chain].0;
-        self.receive_data = api.receive_state(chain).await;
+        self.receive_data = api.receive_state(&self.account_id).await;
     }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
@@ -71,7 +60,7 @@ impl Screen for ReceiveScreen {
         let body = chunks[1];
         let footer = chunks[2];
 
-        let title = theme.title(" Receive Funds ").centered();
+        let title = theme.title(format!(" Receive — {} ", self.account_name)).centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
         match &self.receive_data {
@@ -99,9 +88,8 @@ impl Screen for ReceiveScreen {
                 );
             }
             ApiState::Loaded(ref data) => {
-                let chain_title = format!(" on {}", self.chains[self.selected_chain].1);
                 let fieldset = Fieldset::new()
-                    .title(&chain_title)
+                    .title("")
                     .fill(FieldsetFill::Dash)
                     .top_alignment(ratatui::layout::Alignment::Left);
                 let inner = fieldset.inner(body);
@@ -182,10 +170,8 @@ impl Screen for ReceiveScreen {
         }
 
         let footer_text = theme.help_line([
-            ("←/→", "Chain"),
             ("c", "Copy Address"),
             ("Esc", "Back"),
-            ("?", "Help"),
         ]);
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
@@ -201,32 +187,10 @@ impl Screen for ReceiveScreen {
     async fn handle_input(
         &mut self,
         key: crossterm::event::KeyEvent,
-        api: &mut dyn WalletApi,
+        _api: &mut dyn WalletApi,
     ) -> Nav {
         use crossterm::event::KeyCode;
         match key.code {
-            KeyCode::Left | KeyCode::Char('1') => {
-                self.selected_chain = 0;
-                let chain = &self.chains[0].0;
-                let _ = api
-                    .submit_receive(ReceiveInput {
-                        selected_chain_id: chain.clone(),
-                    })
-                    .await;
-                api.refresh_receive(chain).await;
-                self.receive_data = api.receive_state(chain).await;
-            }
-            KeyCode::Right | KeyCode::Char('2') => {
-                self.selected_chain = 1;
-                let chain = &self.chains[1].0;
-                let _ = api
-                    .submit_receive(ReceiveInput {
-                        selected_chain_id: chain.clone(),
-                    })
-                    .await;
-                api.refresh_receive(chain).await;
-                self.receive_data = api.receive_state(chain).await;
-            }
             KeyCode::Char('c') => {
                 if let ApiState::Loaded(ref data) = &self.receive_data {
                     let mut cb = arboard::Clipboard::new().ok();

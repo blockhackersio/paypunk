@@ -37,6 +37,12 @@ impl Client {
         crate::functions::generate_seed(&self.service, password).await
     }
 
+    /// Generate a random 12-word BIP39 mnemonic phrase without persisting anything.
+    /// The returned value is wrapped in `Zeroizing` for memory safety.
+    pub fn generate_mnemonic(&self) -> Zeroizing<String> {
+        crate::functions::generate_mnemonic()
+    }
+
     /// Restore a wallet from an existing BIP39 mnemonic seed phrase and password.
     pub async fn restore_seed(
         &self,

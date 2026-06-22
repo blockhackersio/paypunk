@@ -1,7 +1,6 @@
 use keypunkd::crypto::Keypair;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{caip, ProtocolId};
-use std::collections::HashMap;
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
@@ -17,7 +16,6 @@ pub struct Paypunkd {
     db: Database,
     accounts_repo: Box<dyn AccountsRepository>,
     keystore: Keypair,
-    pre_derived_keys: HashMap<(ProtocolId, u32), Vec<u8>>,
 }
 
 impl Paypunkd {
@@ -33,7 +31,6 @@ impl Paypunkd {
             db,
             accounts_repo: Box::new(SqliteAccountsRepository),
             keystore,
-            pre_derived_keys: HashMap::new(),
         }
     }
 
@@ -218,8 +215,8 @@ impl Paypunkd {
             "create_account",
             usecases::create_account(
                 &self.db,
+                &self.protocols,
                 self.accounts_repo.as_ref(),
-                &self.pre_derived_keys,
                 protocol,
                 derivation_path,
                 account_index,
@@ -325,10 +322,23 @@ impl Paypunkd {
 
             match keys {
                 Ok(derived) => {
+                    // Store pre-derived keys in the database
                     for (protocol, account_index, viewing_key) in &derived {
-                        self.pre_derived_keys
-                            .insert((*protocol, *account_index), viewing_key.clone());
+                        let _ = usecases::save_pre_derived_key(
+                            &self.db,
+                            *protocol,
+                            *account_index,
+                            viewing_key,
+                        );
                     }
+
+                    // Create Ethereum Account 0 automatically
+                    let _ = usecases::create_ethereum_account_0(
+                        &self.db,
+                        self.accounts_repo.as_ref(),
+                        &self.protocols,
+                    );
+
                     info!(count = derived.len(), "cached pre-derived viewing keys");
                     PaypunkdResponse::UnlockSuccess {
                         accounts_count: derived.len() as u32,
@@ -355,6 +365,7 @@ impl Paypunkd {
             "bulk_derive_accounts",
             usecases::bulk_derive_accounts(
                 &self.keypunk_service,
+                &self.protocols,
                 &self.db,
                 self.accounts_repo.as_ref(),
                 encrypted_password,

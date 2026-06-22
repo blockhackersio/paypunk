@@ -1,11 +1,9 @@
 pub mod asset_item;
-pub mod balance_item;
 pub mod button;
 pub mod demo;
 pub mod flex_box;
 pub mod list;
 pub mod text_field;
-pub mod wallet_item;
 
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;

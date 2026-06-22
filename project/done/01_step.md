@@ -1,192 +1,42 @@
-# Step 1: Extract daemon run() functions and remove standalone binary targets
+# Step 1: Add `address` field to Account struct
 
 ## Context
 
-The `keypunkd` and `paypunkd` crates currently produce standalone binaries (via `[[bin]]` in their Cargo.toml) with `main.rs` files that parse CLI args, init tracing, and run the daemon. We want these crates to be library-only, exposing a `run()` function that the CLI can call directly (in-process) or via child process spawning.
+The `Account` struct in `paypunk-types` needs an `address` field so the TUI can display addresses without additional RPC calls. This field will be populated during account creation by deriving the address from the viewing key.
 
 ## Changes
 
-### 1. `keypunkd/src/run.rs` (new file)
+### `types/src/lib.rs`
+- Add `pub address: String` field to the `Account` struct (between `name` and `viewing_key`)
+- Add `pub nonce: u64` field to the `ArtifactSummary` struct (between `fee` and `memo`)
 
-Create a public `run` module with a `Config` struct and an async `run()` function that encapsulates the current `main.rs` logic:
+### `paypunkd/src/database/migration.rs`
+- Add a new `AddAddressToAccounts` migration (version 3):
+  ```sql
+  ALTER TABLE accounts ADD COLUMN address TEXT NOT NULL DEFAULT '';
+  ```
+- Register it in `Database::run_migrations()` after `AccountsMigration`
 
-```rust
-use paypunk_ipc::IpcReceiver;
-use paypunk_types::ProtocolId;
-use tactix::Actor;
-use tracing::info;
-use tracing_subscriber::EnvFilter;
+### `paypunkd/src/database/repository.rs`
+- Update `save()` SQL to include `address` column: `INSERT INTO accounts (id, protocol, derivation_path, name, address, viewing_key, created_at)`
+- Update `find_all()` SELECT to include `address`
+- Update `find_by_id()` SELECT to include `address`
+- Update `find_by_protocol()` SELECT to include `address`
 
-pub struct Config {
-    pub socket_path: String,
-    pub data_dir: String,
-}
+### `paypunkd/src/usecases.rs`
+- In `create_account()`: set `address: String::new()` (temporary — will be populated in Step 3)
+- In `bulk_derive_accounts()`: set `address: String::new()` (temporary)
 
-pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .try_init();
+## Acceptance Criteria
 
-    let keystore = keypunkd::crypto::Keypair::new();
-    let (secret, public) = keystore.keypair();
-    let seed_store = keypunkd::seed_store::FilesystemSeedStore::new(
-        std::path::PathBuf::from(&config.data_dir)
-            .join("seed.enc")
-            .into_boxed_path(),
-    );
+- [ ] `Account` struct has `address: String` field
+- [ ] Database schema includes `address` column
+- [ ] Repository reads/writes the `address` column
+- [ ] `cargo build` succeeds across the workspace
+- [ ] `cargo test` passes
 
-    let mut protocols = keypunkd::protocol::ProtocolService::new();
-    protocols.register(
-        ProtocolId::Zcash,
-        Box::new(paypunk_chains_zcash::protocol::ZcashProtocol {
-            params: zcash_protocol::consensus::Network::MainNetwork,
-        }),
-    );
-    protocols.register(
-        ProtocolId::Ethereum,
-        Box::new(paypunk_chains_ethereum::protocol::EthereumProtocol::new(())),
-    );
-    info!("registered protocols: Zcash, Ethereum");
+## Tests
 
-    let keypunkd = keypunkd::Keypunkd::new(keystore, seed_store, protocols).start();
-
-    let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;
-    info!("keypunkd listening on {}", config.socket_path);
-
-    let serve = tokio::spawn(async move {
-        if let Err(e) = server.serve(keypunkd).await {
-            tracing::error!(error = %e, "server error");
-        }
-    });
-
-    tokio::signal::ctrl_c().await?;
-    info!("shutting down");
-    serve.abort();
-    Ok(())
-}
-```
-
-Note: uses `try_init()` instead of `init()` so tracing is not double-initialized when called in-process from the CLI.
-
-### 2. `keypunkd/src/lib.rs`
-
-Add `pub mod run;`
-
-### 3. `keypunkd/Cargo.toml`
-
-Remove the `[[bin]]` section:
-```toml
-# DELETE these 3 lines:
-# [[bin]]
-# name = "keypunkd"
-# path = "src/main.rs"
-```
-
-### 4. `keypunkd/src/main.rs` — DELETE this file
-
-### 5. `paypunkd/src/run.rs` (new file)
-
-Create a public `run` module:
-
-```rust
-use keypunkd::crypto::Keypair;
-use paypunk_ipc::{IpcReceiver, IpcSender};
-use paypunkd::config::{ConfigSource, TomlConfig};
-use paypunkd::database::Database;
-use paypunkd::protocol_service::ProtocolService;
-use paypunkd::Paypunkd;
-use tactix::{Actor, Sender};
-use tracing::info;
-use tracing_subscriber::EnvFilter;
-
-pub struct Config {
-    pub socket_path: String,
-    pub keypunkd_socket: String,
-    pub rpc_url: String,
-    pub data_dir: String,
-}
-
-pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .try_init();
-
-    let keystore = Keypair::new();
-    let (secret, public) = keystore.keypair();
-
-    info!("connecting to keypunkd");
-    let keypunkd = IpcSender::connect(&config.keypunkd_socket).await?;
-    let recipient = keypunkd.recipient();
-
-    let zcash = paypunk_chains_zcash::protocol::ZcashProtocol {
-        params: zcash_protocol::consensus::Network::MainNetwork,
-    };
-    let eth_client =
-        paypunk_chains_ethereum::rpc::HttpRpcClient::new(config.rpc_url.clone());
-    let ethereum = paypunk_chains_ethereum::protocol::EthereumProtocol::new(eth_client);
-    let mut protocols = ProtocolService::new();
-    protocols.register(Box::new(zcash));
-    protocols.register(Box::new(ethereum));
-    info!("registered protocols: Zcash, Ethereum");
-
-    let db = Database::open(std::path::Path::new(&config.data_dir))
-        .map_err(|e| format!("failed to open database: {e}"))?;
-    info!("database opened");
-
-    let paypunkd = Paypunkd::new(recipient, protocols, db, keystore).start();
-
-    let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;
-    info!("paypunkd listening on {}", config.socket_path);
-
-    let serve = tokio::spawn(async move {
-        if let Err(e) = server.serve(paypunkd).await {
-            tracing::error!(error = %e, "server error");
-        }
-    });
-
-    tokio::signal::ctrl_c().await?;
-    info!("shutting down");
-    serve.abort();
-    Ok(())
-}
-```
-
-### 6. `paypunkd/src/lib.rs`
-
-Add `pub mod run;`
-
-### 7. `paypunkd/Cargo.toml`
-
-Remove the `[[bin]]` section:
-```toml
-# DELETE these 3 lines:
-# [[bin]]
-# name = "paypunkd"
-# path = "src/main.rs"
-```
-
-### 8. `paypunkd/src/main.rs` — DELETE this file
-
-### 9. Check `paypunkd/Cargo.toml` dependencies
-
-The `paypunkd` crate currently depends on `clap` (for its own main.rs CLI parsing). After removing main.rs, check if `clap` is still needed by any lib module. If not, remove it from paypunkd's `[dependencies]`.
-
-Similarly check if `tracing-subscriber` is already in paypunkd's deps (it should be — it's used in the run function).
-
-## Verification
-
-- `cargo build` succeeds (no orphaned main.rs, no missing deps)
-- `cargo test` passes (integration tests wire actors in-process, don't use binary entry points)
-- The `keypunkd` and `paypunkd` library crates compile and expose `run::Config` and `run::run()`
-
-## Acceptance criteria
-
-- No standalone `keypunkd` or `paypunkd` binaries exist
-- Both crates compile as library-only crates
-- `keypunkd::run::run(config)` starts the key daemon
-- `paypunkd::run::run(config)` starts the app daemon
-- All existing tests pass
+- Existing `test_db_create_and_migrate` should still pass (migration v3 runs)
+- Existing `test_db_reopen_reads_data` should still pass (address column populated with '')
+- Run `cargo test` in workspace

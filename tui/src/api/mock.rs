@@ -4,8 +4,14 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+struct MockData {
+    accounts: Vec<AccountInfo>,
+    next_account_index: u32,
+}
+
 pub struct MockWalletApi {
     wallet_exists: bool,
+    data: Mutex<MockData>,
     home_cache: Mutex<Option<HomeData>>,
     send_cache: Mutex<HashMap<String, SendData>>,
     receive_cache: Mutex<HashMap<String, ReceiveData>>,
@@ -15,6 +21,25 @@ impl MockWalletApi {
     pub fn new() -> Self {
         Self {
             wallet_exists: false,
+            data: Mutex::new(MockData {
+                accounts: vec![
+                    AccountInfo {
+                        account_id: "acc_1".into(),
+                        name: "Ethereum Wallet".into(),
+                        chain_id: "eip155:1".into(),
+                        address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                        protocol: "Ethereum".into(),
+                    },
+                    AccountInfo {
+                        account_id: "acc_2".into(),
+                        name: "Zcash Wallet".into(),
+                        chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
+                        address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
+                        protocol: "Zcash".into(),
+                    },
+                ],
+                next_account_index: 3,
+            }),
             home_cache: Mutex::new(None),
             send_cache: Mutex::new(HashMap::new()),
             receive_cache: Mutex::new(HashMap::new()),
@@ -59,39 +84,8 @@ impl WalletApi for MockWalletApi {
         Ok(())
     }
 
-    async fn get_wallets(&self) -> WalletsData {
-        WalletsData {
-            wallets: vec![
-                WalletDerivation {
-                    index: 0,
-                    address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-                    chain_id: "eip155:1".into(),
-                    chain_name: "Ethereum".into(),
-                },
-                WalletDerivation {
-                    index: 1,
-                    address: "0x8f3E8A8e8b8C8d8E8f8A8b8C8d8E8f8A8b8C8d8E".into(),
-                    chain_id: "eip155:1".into(),
-                    chain_name: "Ethereum".into(),
-                },
-                WalletDerivation {
-                    index: 2,
-                    address: "0x1a2B3c4D5e6F7a8B9c0D1e2F3a4B5c6D7e8F9a0B".into(),
-                    chain_id: "eip155:1".into(),
-                    chain_name: "Ethereum".into(),
-                },
-                WalletDerivation {
-                    index: 3,
-                    address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
-                    chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                    chain_name: "Zcash".into(),
-                },
-            ],
-        }
-    }
-
-    async fn get_assets(&self, chain_id: &str) -> AssetsData {
-        if chain_id.contains("bip122") {
+    async fn get_assets(&self, account_id: &str) -> AssetsData {
+        if account_id.contains("bip122") {
             AssetsData {
                 assets: vec![AssetRow {
                     name: "Zcash".into(),
@@ -101,7 +95,7 @@ impl WalletApi for MockWalletApi {
                     price_change_up: true,
                     holdings_value: "$142.50".into(),
                     holdings_amount: "5 ZEC".into(),
-                    chain_id: chain_id.into(),
+                    chain_id: account_id.into(),
                 }],
             }
         } else {
@@ -115,7 +109,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: true,
                         holdings_value: "$4,000.00".into(),
                         holdings_amount: "2 ETH".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                     AssetRow {
                         name: "Wrapped Bitcoin".into(),
@@ -125,7 +119,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: false,
                         holdings_value: "$1,000.00".into(),
                         holdings_amount: "0.0001 WBTC".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                     AssetRow {
                         name: "USD Coin".into(),
@@ -135,7 +129,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: true,
                         holdings_value: "$500.00".into(),
                         holdings_amount: "500 USDC".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                     AssetRow {
                         name: "Chainlink".into(),
@@ -145,7 +139,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: false,
                         holdings_value: "$285.00".into(),
                         holdings_amount: "20 LINK".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                     AssetRow {
                         name: "Uniswap".into(),
@@ -155,7 +149,7 @@ impl WalletApi for MockWalletApi {
                         price_change_up: true,
                         holdings_value: "$156.00".into(),
                         holdings_amount: "20 UNI".into(),
-                        chain_id: chain_id.into(),
+                        chain_id: account_id.into(),
                     },
                 ],
             }
@@ -163,44 +157,10 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn get_home(&self) -> HomeData {
+        let data = self.data.lock().unwrap();
         HomeData {
-            accounts: vec![
-                AccountInfo {
-                    account_id: "acc_1".into(),
-                    chain_id: "eip155:1".into(),
-                    address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-                },
-                AccountInfo {
-                    account_id: "acc_2".into(),
-                    chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                    address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
-                },
-            ],
-            balances: vec![
-                BalanceInfo {
-                    token_id: "eth-native".into(),
-                    chain_id: "eip155:1".into(),
-                    symbol: "ETH".into(),
-                    decimals: 18,
-                    raw_balance: "1420000000000000000".into(),
-                    fiat_value: 4956.20,
-                },
-                BalanceInfo {
-                    token_id: "zec-native".into(),
-                    chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                    symbol: "ZEC".into(),
-                    decimals: 8,
-                    raw_balance: "500000000".into(),
-                    fiat_value: 142.50,
-                },
-            ],
-            total_fiat_value: 5098.70,
+            accounts: data.accounts.clone(),
             fiat_currency: "USD".into(),
-            pending_tx: Some(PendingTx {
-                tx_hash: "0x4a7db3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2".into(),
-                status: "pending".into(),
-                block_explorer_url: "https://etherscan.io/tx/0x4a7db3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2".into(),
-            }),
         }
     }
 
@@ -208,12 +168,73 @@ impl WalletApi for MockWalletApi {
         self.get_home().await
     }
 
-    async fn get_receive(&self, _chain_id: &str) -> ReceiveData {
-        ReceiveData {
-            address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-            chain_id: "eip155:1".into(),
-            address_format: "hex".into(),
-            qr_payload: "ethereum:0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+    async fn list_accounts(&self) -> Result<Vec<AccountInfo>, ApiError> {
+        let data = self.data.lock().unwrap();
+        Ok(data.accounts.clone())
+    }
+
+    async fn add_account(&self) -> Result<(), ApiError> {
+        let mut data = self.data.lock().unwrap();
+        let index = data.next_account_index;
+        data.next_account_index += 1;
+
+        let account_id = format!("acc_{}", index);
+        let is_eth = index % 2 == 0;
+        let (name, chain_id, address, protocol) = if is_eth {
+            (
+                format!("Ethereum Account {}", index),
+                "eip155:1".into(),
+                format!("0x{:040x}", index),
+                "Ethereum".into(),
+            )
+        } else {
+            (
+                format!("Zcash Account {}", index),
+                "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
+                format!("t1{:33}", index),
+                "Zcash".into(),
+            )
+        };
+
+        data.accounts.push(AccountInfo {
+            account_id,
+            name,
+            chain_id,
+            address,
+            protocol,
+        });
+        Ok(())
+    }
+
+    async fn get_receive(&self, account_id: &str) -> ReceiveData {
+        let data = self.data.lock().unwrap();
+        let account = data
+            .accounts
+            .iter()
+            .find(|a| a.account_id == account_id);
+
+        match account {
+            Some(acc) if acc.protocol == "Zcash" => ReceiveData {
+                address: acc.address.clone(),
+                chain_id: acc.chain_id.clone(),
+                address_format: "transparent".into(),
+                qr_payload: format!("zcash:{}", acc.address),
+                account_id: account_id.to_string(),
+            },
+            Some(acc) => ReceiveData {
+                address: acc.address.clone(),
+                chain_id: acc.chain_id.clone(),
+                address_format: "hex".into(),
+                qr_payload: format!("ethereum:{}", acc.address),
+                account_id: account_id.to_string(),
+            },
+            None => ReceiveData {
+                address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                chain_id: "eip155:1".into(),
+                address_format: "hex".into(),
+                qr_payload: "ethereum:0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                account_id: account_id.to_string(),
+            },
         }
     }
 
@@ -224,61 +245,44 @@ impl WalletApi for MockWalletApi {
                 chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
                 address_format: "transparent".into(),
                 qr_payload: "zcash:t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
+                account_id: "acc_2".into(),
             }
         } else {
-            self.get_receive("").await
+            self.get_receive("acc_1").await
         }
     }
 
-    async fn get_send(&self, chain_id: &str) -> SendData {
-        if chain_id.contains("bip122") {
-            SendData {
-                from_address: "t1YhnKpPk6KxqGHgK7LKzK5qLpK5qLpK5qL".into(),
+    async fn get_send(&self, account_id: &str) -> SendData {
+        let data = self.data.lock().unwrap();
+        let account = data.accounts.iter().find(|a| a.account_id == account_id);
+
+        match account {
+            Some(acc) if acc.protocol == "Zcash" => SendData {
+                account_id: account_id.to_string(),
+                from_address: acc.address.clone(),
                 spendable_balance: "500000000".into(),
                 decimals: 8,
-                chain_id: "bip122:00040fe8ec8471911baa1f7c215a71e9".into(),
-                fee_data: FeeData::Zec(FeeRates {
-                    slow: 8,
-                    medium: 21,
-                    fast: 45,
-                }),
-                nonce: None,
-                utxos: Some(vec![
-                    UtxoInfo {
-                        txid: "3f8c...d29a".into(),
-                        vout: 0,
-                        value: "300000000".into(),
-                    },
-                    UtxoInfo {
-                        txid: "7b1e...44f0".into(),
-                        vout: 1,
-                        value: "200000000".into(),
-                    },
-                ]),
-            }
-        } else {
-            SendData {
+                chain_id: acc.chain_id.clone(),
+            },
+            Some(acc) => SendData {
+                account_id: account_id.to_string(),
+                from_address: acc.address.clone(),
+                spendable_balance: "1420000000000000000".into(),
+                decimals: 18,
+                chain_id: acc.chain_id.clone(),
+            },
+            None => SendData {
+                account_id: account_id.to_string(),
                 from_address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
                 spendable_balance: "1420000000000000000".into(),
                 decimals: 18,
                 chain_id: "eip155:1".into(),
-                fee_data: FeeData::Eth(FeeDataEth {
-                    base_fee_per_gas: "18000000000".into(),
-                    max_priority_fee_per_gas: "1500000000".into(),
-                    gas_limit_estimate: "21000".into(),
-                }),
-                nonce: Some(42),
-                utxos: None,
-            }
+            },
         }
     }
 
     async fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData {
-        let fee_est = match &input.fee_selection.tier[..] {
-            "slow" => "300000000000000",
-            "fast" => "500000000000000",
-            _ => "409500000000000",
-        };
+        let fee_est = "409500000000000";
         let total = format!(
             "{}",
             input.amount.parse::<u128>().unwrap_or(0) + fee_est.parse::<u128>().unwrap_or(0)
@@ -289,6 +293,7 @@ impl WalletApi for MockWalletApi {
             fee_estimate: fee_est.to_string(),
             total_amount: total,
             chain_id: input.chain_id,
+            nonce: 42,
         }
     }
 
@@ -305,7 +310,6 @@ impl WalletApi for MockWalletApi {
     async fn get_lock(&self) -> LockData {
         LockData {
             auth_methods: LockAuthMethods {
-                biometric_available: true,
                 password_set: true,
             },
             failed_attempts: 0,
@@ -319,7 +323,6 @@ impl WalletApi for MockWalletApi {
     async fn get_settings(&self) -> SettingsData {
         SettingsData {
             security: SecuritySettings {
-                biometric_enabled: true,
                 auto_lock_minutes: 5,
             },
             fiat_currency: "USD".into(),
@@ -372,43 +375,43 @@ impl WalletApi for MockWalletApi {
         *self.home_cache.lock().unwrap() = None;
     }
 
-    async fn receive_state(&self, chain_id: &str) -> ApiState<ReceiveData> {
+    async fn receive_state(&self, account_id: &str) -> ApiState<ReceiveData> {
         let data = {
             let cache = self.receive_cache.lock().unwrap();
-            cache.get(chain_id).cloned()
+            cache.get(account_id).cloned()
         };
         if let Some(data) = data {
             return ApiState::Loaded(data);
         }
-        let real = self.get_receive(chain_id).await;
+        let real = self.get_receive(account_id).await;
         self.receive_cache
             .lock()
             .unwrap()
-            .insert(chain_id.to_string(), real.clone());
+            .insert(account_id.to_string(), real.clone());
         ApiState::Loaded(real)
     }
 
-    async fn refresh_receive(&self, chain_id: &str) {
-        self.receive_cache.lock().unwrap().remove(chain_id);
+    async fn refresh_receive(&self, account_id: &str) {
+        self.receive_cache.lock().unwrap().remove(account_id);
     }
 
-    async fn send_state(&self, chain_id: &str) -> ApiState<SendData> {
+    async fn send_state(&self, account_id: &str) -> ApiState<SendData> {
         let data = {
             let cache = self.send_cache.lock().unwrap();
-            cache.get(chain_id).cloned()
+            cache.get(account_id).cloned()
         };
         if let Some(data) = data {
             return ApiState::Loaded(data);
         }
-        let real = self.get_send(chain_id).await;
+        let real = self.get_send(account_id).await;
         self.send_cache
             .lock()
             .unwrap()
-            .insert(chain_id.to_string(), real.clone());
+            .insert(account_id.to_string(), real.clone());
         ApiState::Loaded(real)
     }
 
-    async fn refresh_send(&self, chain_id: &str) {
-        self.send_cache.lock().unwrap().remove(chain_id);
+    async fn refresh_send(&self, account_id: &str) {
+        self.send_cache.lock().unwrap().remove(account_id);
     }
 }

@@ -62,6 +62,7 @@ pub struct ArtifactSummary {
     pub to: String,
     pub amount: String,
     pub fee: String,
+    pub nonce: u64,
     pub memo: Option<String>,
     pub protocol: ProtocolId,
 }
@@ -100,6 +101,7 @@ pub struct Account {
     pub protocol: ProtocolId,
     pub derivation_path: String,
     pub name: String,
+    pub address: String,
     pub viewing_key: Vec<u8>,
     pub created_at: u64,
 }
@@ -110,7 +112,7 @@ pub struct Account {
 pub struct Address(pub String);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Amount(pub u64);
+pub struct Amount(pub u128);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TransferId(pub String);

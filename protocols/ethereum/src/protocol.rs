@@ -122,7 +122,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             caip::AssetId::parse(asset).map_err(|e| format!("invalid CAIP-19 asset: {e}"))?;
         let asset_id = parsed.to_asset_enum("60");
 
-        let balance = self
+        let balance: u128 = self
             .client
             .get_balance(&account.account_address, &asset_id)
             .await?;
@@ -216,6 +216,7 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
             to,
             amount,
             fee,
+            nonce: tx.nonce,
             memo: None,
             protocol: ProtocolId::Ethereum,
         };
@@ -299,12 +300,12 @@ mod tests {
 
     /// A mock RPC client that returns fixed balances for testing.
     struct MockRpcClient {
-        eth_balance: u64,
-        erc20_balance: u64,
+        eth_balance: u128,
+        erc20_balance: u128,
     }
 
     impl MockRpcClient {
-        fn new(eth_balance: u64, erc20_balance: u64) -> Self {
+        fn new(eth_balance: u128, erc20_balance: u128) -> Self {
             Self {
                 eth_balance,
                 erc20_balance,
@@ -318,7 +319,7 @@ mod tests {
             &self,
             _address: &str,
             asset: &paypunk_types::AssetId,
-        ) -> Result<u64, String> {
+        ) -> Result<u128, String> {
             match asset {
                 paypunk_types::AssetId::Native => Ok(self.eth_balance),
                 paypunk_types::AssetId::Token(_) => Ok(self.erc20_balance),

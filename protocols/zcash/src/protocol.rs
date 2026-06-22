@@ -66,6 +66,7 @@ impl SignerProtocol for ZcashProtocol {
             to,
             amount,
             fee,
+            nonce: 0,
             memo,
             protocol: ProtocolId::Zcash,
         };
