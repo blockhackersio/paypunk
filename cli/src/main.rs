@@ -3,10 +3,8 @@ use blake2::{Blake2b, Digest};
 use clap::{Parser, Subcommand};
 use paypunk_api::Client;
 use paypunk_config::ConfigLoader;
-use paypunk_types::{
-    ArtifactSummary, AssetId, EthereumIntent, Intent, ProtocolId, ZcashIntent,
-};
 use paypunk_tui::run_tui;
+use paypunk_types::{ArtifactSummary, AssetId, EthereumIntent, Intent, ProtocolId, ZcashIntent};
 use std::path::Path;
 use std::process::{exit, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -124,15 +122,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("Failed to get current exe path: {e}"))?;
             let paypunkd_socket = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
             let keypunkd_socket = config.keypunkd_socket_path.clone();
-            let data_dir = config.data_dir.clone();
-            let rpc_url = config.rpc_url.clone();
 
             let mut keypunkd_child = Command::new(&exe)
                 .arg("keypunkd")
-                .arg("--socket-path")
-                .arg(&keypunkd_socket)
-                .arg("--data-dir")
-                .arg(&data_dir)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -140,14 +132,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut paypunkd_child = Command::new(&exe)
                 .arg("paypunkd")
-                .arg("--socket-path")
-                .arg(&paypunkd_socket)
-                .arg("--keypunkd-socket")
-                .arg(&keypunkd_socket)
-                .arg("--rpc-url")
-                .arg(&rpc_url)
-                .arg("--data-dir")
-                .arg(&data_dir)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -183,9 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             tui_result.map_err(|e| e.into())
         }
-        Some(Commands::Tui) => {
-            run_tui(&socket_path, None).await.map_err(|e| e.into())
-        }
+        Some(Commands::Tui) => run_tui(&socket_path, None).await.map_err(|e| e.into()),
         Some(Commands::Keypunkd {
             socket_path,
             data_dir,
@@ -343,9 +325,7 @@ async fn submit_intent_flow(
             println!("  Raw artifact: {} bytes", raw_artifact.len());
 
             // Try to deserialize the parsed summary
-            if let Ok(summary) =
-                postcard::from_bytes::<ArtifactSummary>(&parsed_summary)
-            {
+            if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
                 println!("  To: {}", summary.to);
                 println!("  Amount: {}", summary.amount);
                 println!("  Fee: {}", summary.fee);

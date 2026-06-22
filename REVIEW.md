@@ -1,3 +1,10 @@
-- ~~all branches in main cli.command are async why use block_on? Why not have a single async switch?~~ Fixed: single `rt.block_on` wrapping an async match
-- ~~cli.command None should NOT be the same as cli.command = Commands::Tui `paypunk tui` should assume the background daemons are running already~~ Fixed: `None` spawns daemons + TUI; `paypunk tui` assumes daemons are running
-
+- fix the edge case where my password has a q in it so that typing in a password will not quit?
+- add a cli to uninstall `paypunk uninstall` that basically is `rm -rf ~/.local/share/paypunk`
+- Hitting enter after entering in a password post seed phrase check takes quite a long time - it would be good to be more responsive or show a spinner during generation.
+- add support that runs a local anvil instance. set this up in support/ethereum
+- importing a wallet
+    - No cursor makes it hard to know what is happening
+    - After entering in all the words it is impossible to go to the password field
+    - split the password to the next page so it is similar to create
+    - reuse the password/confirm password screen from the generation flow
+    - Ensure that this saves the seed correctly
