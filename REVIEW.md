@@ -1,10 +1,12 @@
-- fix the edge case where my password has a q in it so that typing in a password will not quit?
-- add a cli to uninstall `paypunk uninstall` that basically is `rm -rf ~/.local/share/paypunk`
-- Hitting enter after entering in a password post seed phrase check takes quite a long time - it would be good to be more responsive or show a spinner during generation.
-- add support that runs a local anvil instance. set this up in support/ethereum
-- importing a wallet
-    - No cursor makes it hard to know what is happening
-    - After entering in all the words it is impossible to go to the password field
-    - split the password to the next page so it is similar to create
-    - reuse the password/confirm password screen from the generation flow
-    - Ensure that this saves the seed correctly
+- Shift+Tab should work everywhere that Tab does
+- Balance does not appear to work correctly:
+    ```bash
+    ❯ ./get_balance.sh 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+    10000000000000000000000 wei
+    ```
+    However when building and running ./target/debug/paypunk using 
+    "test test test test test test test test test test test junk"
+
+    The address appears correct however the balance remains 0
+
+- We should use the wallet address and name at every page it makes sense.
