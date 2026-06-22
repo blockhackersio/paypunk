@@ -110,17 +110,12 @@ impl Screen for SendScreen {
             SendStep::Confirm => "Send — Confirmed",
         };
 
-        let addr_short = if self.account_address.len() > 12 {
-            format!("{}...{}", &self.account_address[..6], &self.account_address[self.account_address.len() - 5..])
-        } else {
-            self.account_address.clone()
-        };
         let title_text = format!(" {} — {} ", step_name, self.account_name);
         let title = theme.title(&title_text).centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
         let addr_line = Paragraph::new(
-            Line::from(vec![theme.muted(format!("{}", addr_short))]).centered(),
+            Line::from(vec![theme.muted(&self.account_address)]).centered(),
         )
         .style(Style::new().bg(ui::BG));
         frame.render_widget(

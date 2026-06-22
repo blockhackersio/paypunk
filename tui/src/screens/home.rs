@@ -34,11 +34,7 @@ impl HomeScreen {
             .accounts
             .iter()
             .map(|a| {
-                let addr = if a.address.len() > 12 {
-                    format!("{}...{}", &a.address[..6], &a.address[a.address.len() - 5..])
-                } else {
-                    a.address.clone()
-                };
+                let addr = a.address.clone();
                 let label = format!("{} — {}", a.name, addr);
                 Box::new(LabelItem::new(label)) as Box<dyn Component<()>>
             })

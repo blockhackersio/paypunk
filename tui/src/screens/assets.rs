@@ -81,15 +81,10 @@ impl Screen for AssetsScreen {
         } else {
             "Zcash"
         };
-        let addr_short = if self.account.address.len() > 12 {
-            format!("{}...{}", &self.account.address[..6], &self.account.address[self.account.address.len() - 5..])
-        } else {
-            self.account.address.clone()
-        };
         let subtitle = Paragraph::new(
             Line::from(format!(
                 "{} — {} ({}) — {}",
-                self.account.name, chain_label, self.account.chain_id, addr_short
+                self.account.name, chain_label, self.account.chain_id, self.account.address
             ))
             .centered(),
         )
