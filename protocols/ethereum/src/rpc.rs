@@ -11,7 +11,7 @@ pub trait EthRpcClient: Send + Sync {
     ///
     /// - `AssetId::Native` → ETH balance (wei)
     /// - `AssetId::Token(contract)` → ERC-20 token balance (smallest unit)
-    async fn get_balance(&self, address: &str, asset: &AssetId) -> Result<u64, String>;
+    async fn get_balance(&self, address: &str, asset: &AssetId) -> Result<u128, String>;
 
     /// Return the current nonce (transaction count) for the given address.
     async fn get_transaction_count(&self, address: &str) -> Result<u64, String>;
@@ -54,7 +54,7 @@ pub struct TxReceipt {
 /// (e.g. keypunkd where balance queries are never called).
 #[async_trait]
 impl EthRpcClient for () {
-    async fn get_balance(&self, _address: &str, _asset: &AssetId) -> Result<u64, String> {
+    async fn get_balance(&self, _address: &str, _asset: &AssetId) -> Result<u128, String> {
         Err("no RPC client configured".to_string())
     }
     async fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
@@ -158,13 +158,13 @@ impl HttpRpcClient {
 
 #[async_trait]
 impl EthRpcClient for HttpRpcClient {
-    async fn get_balance(&self, address: &str, asset: &AssetId) -> Result<u64, String> {
+    async fn get_balance(&self, address: &str, asset: &AssetId) -> Result<u128, String> {
         match asset {
             AssetId::Native => {
                 let result = self
                     .call("eth_getBalance", serde_json::json!([address, "latest"]))
                     .await?;
-                Self::hex_u64(&result)
+                Self::hex_u128(&result)
             }
             AssetId::Token(contract) => {
                 // ERC-20 balanceOf(address) selector: 0x70a08231
@@ -179,7 +179,7 @@ impl EthRpcClient for HttpRpcClient {
                 }, "latest"]),
                     )
                     .await?;
-                Self::hex_u128(&result).map(|v| v as u64)
+                Self::hex_u128(&result)
             }
         }
     }
@@ -278,7 +278,7 @@ pub struct UnimplementedRpcClient;
 
 #[async_trait]
 impl EthRpcClient for UnimplementedRpcClient {
-    async fn get_balance(&self, _address: &str, _asset: &AssetId) -> Result<u64, String> {
+    async fn get_balance(&self, _address: &str, _asset: &AssetId) -> Result<u128, String> {
         Err("balance query not yet implemented — needs RPC endpoint".to_string())
     }
     async fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {
@@ -318,7 +318,7 @@ mod tests {
 
     #[async_trait]
     impl EthRpcClient for MockRpcClient {
-        async fn get_balance(&self, _address: &str, _asset: &AssetId) -> Result<u64, String> {
+        async fn get_balance(&self, _address: &str, _asset: &AssetId) -> Result<u128, String> {
             Ok(10_000_000_000_000_000_000)
         }
         async fn get_transaction_count(&self, _address: &str) -> Result<u64, String> {

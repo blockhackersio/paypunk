@@ -17,12 +17,12 @@ use zeroize::Zeroizing;
 
 /// A mock RPC client that returns fixed balances for testing.
 struct MockRpcClient {
-    eth_balance: u64,
-    erc20_balance: u64,
+    eth_balance: u128,
+    erc20_balance: u128,
 }
 
 impl MockRpcClient {
-    fn new(eth_balance: u64, erc20_balance: u64) -> Self {
+    fn new(eth_balance: u128, erc20_balance: u128) -> Self {
         Self {
             eth_balance,
             erc20_balance,
@@ -36,7 +36,7 @@ impl EthRpcClient for MockRpcClient {
         &self,
         _address: &str,
         asset: &paypunk_types::AssetId,
-    ) -> Result<u64, String> {
+    ) -> Result<u128, String> {
         match asset {
             paypunk_types::AssetId::Native => Ok(self.eth_balance),
             paypunk_types::AssetId::Token(_) => Ok(self.erc20_balance),
@@ -86,12 +86,12 @@ impl TestBuilder {
         }
     }
 
-    fn with_eth_balance(mut self, wei: u64) -> Self {
+    fn with_eth_balance(mut self, wei: u128) -> Self {
         self.eth_mock = MockRpcClient::new(wei, 0);
         self
     }
 
-    fn with_erc20_balance(mut self, amount: u64) -> Self {
+    fn with_erc20_balance(mut self, amount: u128) -> Self {
         self.eth_mock = MockRpcClient::new(0, amount);
         self
     }

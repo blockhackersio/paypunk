@@ -112,7 +112,7 @@ pub struct Account {
 pub struct Address(pub String);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Amount(pub u64);
+pub struct Amount(pub u128);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TransferId(pub String);

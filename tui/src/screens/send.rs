@@ -23,6 +23,8 @@ enum SendStep {
 
 pub struct SendScreen {
     account_id: String,
+    account_name: String,
+    account_address: String,
     chain_id: String,
     step: SendStep,
     to_field: TextField,
@@ -39,6 +41,8 @@ impl SendScreen {
     pub fn new(account: AccountInfo) -> Self {
         Self {
             account_id: account.account_id,
+            account_name: account.name,
+            account_address: account.address,
             chain_id: account.chain_id,
             step: SendStep::Form,
             to_field: TextField::new(TextFieldConfig {
@@ -90,7 +94,7 @@ impl Screen for SendScreen {
         let theme = ui::theme();
         let area = frame.area();
         let chunks = Layout::vertical([
-            Constraint::Length(3),
+            Constraint::Length(5),
             Constraint::Min(5),
             Constraint::Length(3),
         ])
@@ -106,8 +110,26 @@ impl Screen for SendScreen {
             SendStep::Confirm => "Send — Confirmed",
         };
 
-        let title = theme.title(format!(" {} ", step_name)).centered();
+        let addr_short = if self.account_address.len() > 12 {
+            format!("{}...{}", &self.account_address[..6], &self.account_address[self.account_address.len() - 5..])
+        } else {
+            self.account_address.clone()
+        };
+        let title_text = format!(" {} — {} ", step_name, self.account_name);
+        let title = theme.title(&title_text).centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
+
+        let addr_line = Paragraph::new(
+            Line::from(vec![theme.muted(format!("{}", addr_short))]).centered(),
+        )
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            addr_line,
+            header.inner(Margin {
+                vertical: 2,
+                horizontal: 0,
+            }),
+        );
 
         match self.step {
             SendStep::Form => self.render_form(frame, body),
@@ -159,7 +181,7 @@ impl Screen for SendScreen {
                     KeyCode::Tab | KeyCode::Down => {
                         self.focus = (self.focus + 1).min(max_focus);
                     }
-                    KeyCode::Up => {
+                    KeyCode::BackTab | KeyCode::Up => {
                         self.focus = self.focus.saturating_sub(1);
                     }
                     _ => {

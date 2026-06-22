@@ -14,6 +14,7 @@ use ratatui_cheese::fieldset::{Fieldset, FieldsetFill};
 
 pub struct ReceiveScreen {
     account_id: String,
+    account_name: String,
     chain_id: String,
     copied_feedback: Option<String>,
     receive_data: ApiState<ReceiveData>,
@@ -23,6 +24,7 @@ impl ReceiveScreen {
     pub fn new(account: AccountInfo) -> Self {
         Self {
             account_id: account.account_id,
+            account_name: account.name,
             chain_id: account.chain_id,
             copied_feedback: None,
             receive_data: ApiState::Loading,
@@ -58,7 +60,7 @@ impl Screen for ReceiveScreen {
         let body = chunks[1];
         let footer = chunks[2];
 
-        let title = theme.title(" Receive Funds ").centered();
+        let title = theme.title(format!(" Receive — {} ", self.account_name)).centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
         match &self.receive_data {

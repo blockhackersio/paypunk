@@ -255,7 +255,7 @@ impl Screen for SetupScreen {
                 KeyCode::Tab | KeyCode::Down => {
                     self.verify_focus = (self.verify_focus + 1).min(2);
                 }
-                KeyCode::Up => {
+                KeyCode::BackTab | KeyCode::Up => {
                     self.verify_focus = self.verify_focus.saturating_sub(1);
                 }
                 _ => {
@@ -316,7 +316,7 @@ impl Screen for SetupScreen {
                             self.pw_focus = 0;
                         }
                     }
-                    KeyCode::Up => {
+                    KeyCode::BackTab | KeyCode::Up => {
                         self.pw_focus = 0;
                     }
                     _ => {
@@ -371,7 +371,7 @@ impl Screen for SetupScreen {
                 }
             }
             SetupStep::ImportMnemonic => match key.code {
-                KeyCode::Up => {
+                KeyCode::BackTab | KeyCode::Up => {
                     if self.import_focus >= 3 {
                         self.import_focus -= 3;
                     }
@@ -433,7 +433,7 @@ impl Screen for SetupScreen {
                             self.import_pw_focus = 0;
                         }
                     }
-                    KeyCode::Up => {
+                    KeyCode::BackTab | KeyCode::Up => {
                         self.import_pw_focus = 0;
                     }
                     KeyCode::Esc => {
