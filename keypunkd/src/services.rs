@@ -71,7 +71,7 @@ impl KeypunkService {
         &self,
         raw_artifact: Vec<u8>,
         protocol: ProtocolId,
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     ) -> Result<KeypunkdResponse, String> {
         self.send(KeypunkdRequest::PreviewArtifact {
             raw_artifact,
@@ -85,7 +85,7 @@ impl KeypunkService {
         &self,
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     ) -> Result<Vec<u8>, String> {
         match self
             .send(KeypunkdRequest::AuthorizeArtifact {
@@ -106,14 +106,14 @@ impl KeypunkService {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         protocol: ProtocolId,
-        account: u32,
+        derivation_path: String,
     ) -> Result<Vec<u8>, String> {
         match self
             .send(KeypunkdRequest::ExportViewingKey {
                 encrypted_password,
                 client_public_key,
                 protocol,
-                account,
+                derivation_path,
             })
             .await?
         {
@@ -135,17 +135,13 @@ impl KeypunkService {
         &self,
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
-        protocols: Vec<ProtocolId>,
-        start_account: u32,
-        count: u32,
-    ) -> Result<Vec<(ProtocolId, u32, Vec<u8>)>, String> {
+        paths: Vec<(ProtocolId, String)>,
+    ) -> Result<Vec<(ProtocolId, String, Vec<u8>)>, String> {
         match self
             .send(KeypunkdRequest::BulkExportViewingKeys {
                 encrypted_password,
                 client_public_key,
-                protocols,
-                start_account,
-                count,
+                paths,
             })
             .await?
         {

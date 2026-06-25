@@ -187,13 +187,13 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
         }
     }
 
-    fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String> {
-        if path.len() < 4 {
-            return Err("path must be at least 4 bytes (account)".to_string());
-        }
-        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
-        let secret_key = derive_ethereum_key(seed, account, 0);
-        Ok(secret_key
+    fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
+        let parsed = bip32::DerivationPath::from_str(path)
+            .map_err(|e| format!("invalid derivation path: {e}"))?;
+        let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
+            .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
+        Ok(key
+            .private_key()
             .verifying_key()
             .to_encoded_point(false)
             .as_bytes()
@@ -224,12 +224,8 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
         postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
     }
 
-    fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String> {
-        if path.len() < 4 {
-            return Err("path must be at least 4 bytes (account)".to_string());
-        }
-        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
-        self.sign_transaction_inner(seed, account, artifact)
+    fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String> {
+        self.sign_transaction_inner(seed, path, artifact)
     }
 }
 
@@ -237,12 +233,11 @@ impl<T: EthRpcClient> EthereumProtocol<T> {
     fn sign_transaction_inner(
         &self,
         seed: &[u8; 64],
-        account: u32,
+        path: &str,
         transaction: &[u8],
     ) -> Result<Vec<u8>, String> {
-        let path = format!("m/44'/60'/{account}'/0/0");
         let parsed =
-            bip32::DerivationPath::from_str(&path).map_err(|e| format!("invalid path: {e}"))?;
+            bip32::DerivationPath::from_str(path).map_err(|e| format!("invalid path: {e}"))?;
         let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
             .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
         let sk = key.private_key();
@@ -278,15 +273,6 @@ impl<T: EthRpcClient> EthereumProtocol<T> {
         signed.eip2718_encode(&mut out);
         Ok(out)
     }
-}
-
-/// Derive a k256 ECDSA signing key from a BIP39 seed at the given BIP44 path.
-fn derive_ethereum_key(seed: &[u8; 64], account: u32, index: u32) -> SigningKey {
-    let path = format!("m/44'/60'/{account}'/0/{index}");
-    let parsed = bip32::DerivationPath::from_str(&path).expect("valid BIP44 path");
-    let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
-        .expect("BIP32 derivation");
-    key.private_key().clone()
 }
 
 #[cfg(test)]
@@ -406,8 +392,8 @@ mod tests {
         let unsigned = protocol.build(&intent).await.unwrap();
         assert!(!unsigned.is_empty());
 
-        let path = 0u32.to_le_bytes();
-        let signed = protocol.sign(&seed, &path, &unsigned).unwrap();
+        let path = "m/44'/60'/0'/0/0";
+        let signed = protocol.sign(&seed, path, &unsigned).unwrap();
         assert!(!signed.is_empty());
 
         let finalized = protocol.finalize(&signed).unwrap();

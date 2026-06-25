@@ -16,6 +16,7 @@ use ratatui_bubbletea_components::Progress;
 
 enum SendStep {
     Form,
+    AddressBook,
     Review,
     Sending,
     Confirm,
@@ -35,6 +36,8 @@ pub struct SendScreen {
     focus: usize,
     copied_feedback: Option<String>,
     send_data: ApiState<SendData>,
+    address_book: Vec<AddressBookEntry>,
+    address_book_selection: usize,
 }
 
 impl SendScreen {
@@ -71,6 +74,8 @@ impl SendScreen {
             focus: 0,
             copied_feedback: None,
             send_data: ApiState::Loading,
+            address_book: Vec::new(),
+            address_book_selection: 0,
         }
     }
 }
@@ -105,6 +110,7 @@ impl Screen for SendScreen {
 
         let step_name = match self.step {
             SendStep::Form => "Send — Enter Details",
+            SendStep::AddressBook => "Send — Address Book",
             SendStep::Review => "Send — Review",
             SendStep::Sending => "Send — Broadcasting",
             SendStep::Confirm => "Send — Confirmed",
@@ -128,6 +134,7 @@ impl Screen for SendScreen {
 
         match self.step {
             SendStep::Form => self.render_form(frame, body),
+            SendStep::AddressBook => self.render_address_book(frame, body),
             SendStep::Review => self.render_review(frame, body),
             SendStep::Sending => self.render_sending(frame, body),
             SendStep::Confirm => self.render_confirm(frame, body),
@@ -137,8 +144,14 @@ impl Screen for SendScreen {
             SendStep::Form => theme.help_line([
                 ("Tab/↓", "Focus"),
                 ("Enter", "Review"),
+                ("b", "Address Book"),
                 ("Esc", "Back"),
                 ("?", "Help"),
+            ]),
+            SendStep::AddressBook => theme.help_line([
+                ("↑↓", "Select"),
+                ("Enter", "Pick Address"),
+                ("Esc", "Back"),
             ]),
             SendStep::Review => {
                 theme.help_line([("Enter", "Send"), ("Esc", "Edit"), ("?", "Help")])
@@ -192,6 +205,10 @@ impl Screen for SendScreen {
                                 .await;
                             self.review_data = Some(review);
                             self.step = SendStep::Review;
+                        } else if key.code == KeyCode::Char('b') && self.focus == 0 {
+                            self.address_book = api.get_address_book().await.entries;
+                            self.address_book_selection = 0;
+                            self.step = SendStep::AddressBook;
                         } else if key.code == KeyCode::Esc {
                             return Nav::Pop;
                         } else {
@@ -208,6 +225,27 @@ impl Screen for SendScreen {
                     }
                 }
             }
+            SendStep::AddressBook => match key.code {
+                KeyCode::Up => {
+                    self.address_book_selection =
+                        self.address_book_selection.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    let max = self.address_book.len().saturating_sub(1);
+                    self.address_book_selection =
+                        (self.address_book_selection + 1).min(max);
+                }
+                KeyCode::Enter => {
+                    if let Some(entry) = self.address_book.get(self.address_book_selection) {
+                        self.to_field.set_value(&entry.address);
+                    }
+                    self.step = SendStep::Form;
+                }
+                KeyCode::Esc => {
+                    self.step = SendStep::Form;
+                }
+                _ => {}
+            },
             SendStep::Review => match key.code {
                 KeyCode::Enter => {
                     self.step = SendStep::Sending;
@@ -365,6 +403,7 @@ impl SendScreen {
 
         if let Some(ref review) = self.review_data {
             let is_ethereum = self.chain_id.contains("eip155");
+            let ticker = if is_ethereum { "ETH" } else { "ZEC" };
 
             let decimals = if let ApiState::Loaded(ref data) = &self.send_data {
                 data.decimals
@@ -377,23 +416,23 @@ impl SendScreen {
                 String::new()
             };
 
-            let amount_display = if is_ethereum {
-                format_eth_amount(&review.amount, decimals)
-            } else {
-                review.amount.clone()
-            };
+            let amount_display = format!(
+                "{} {}",
+                format_eth_amount(&review.amount, decimals),
+                ticker
+            );
 
-            let fee_display = if is_ethereum {
-                format_eth_amount(&review.fee_estimate, decimals)
-            } else {
-                review.fee_estimate.clone()
-            };
+            let fee_display = format!(
+                "{} {}",
+                format_eth_amount(&review.fee_estimate, decimals),
+                ticker
+            );
 
-            let total_display = if is_ethereum {
-                format_eth_amount(&review.total_amount, decimals)
-            } else {
-                review.total_amount.clone()
-            };
+            let total_display = format!(
+                "{} {}",
+                format_eth_amount(&review.total_amount, decimals),
+                ticker
+            );
 
             let chain_display = if is_ethereum {
                 "Ethereum Mainnet".to_string()
@@ -488,6 +527,54 @@ impl SendScreen {
         );
     }
 
+    fn render_address_book(&self, frame: &mut Frame, area: Rect) {
+        let theme = ui::theme();
+        let block = theme.titled_block("Address Book — Select a recipient");
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if self.address_book.is_empty() {
+            let msg = Paragraph::new(Line::from(vec![
+                theme.muted("No contacts yet. "),
+                theme.accent("Add contacts by sending to new addresses."),
+            ]))
+            .centered()
+            .style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                msg,
+                inner.inner(Margin {
+                    vertical: 3,
+                    horizontal: 2,
+                }),
+            );
+            return;
+        }
+
+        let mut lines = Vec::new();
+        for (i, entry) in self.address_book.iter().enumerate() {
+            let selected = i == self.address_book_selection;
+            let prefix = if selected { " \u{25B6} " } else { "   " };
+            let name_text = format!("{}{}", prefix, entry.name);
+            let addr_text = format!("     {}", entry.address);
+            let name_line = if selected {
+                Line::from(vec![theme.accent(name_text)])
+            } else {
+                Line::from(vec![theme.span(name_text)])
+            };
+            lines.push(name_line);
+            lines.push(Line::from(vec![theme.muted(addr_text)]));
+        }
+
+        let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            para,
+            inner.inner(Margin {
+                vertical: 2,
+                horizontal: 3,
+            }),
+        );
+    }
+
     fn render_confirm(&self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
         let block = theme.titled_block("Transaction Sent");
@@ -527,5 +614,5 @@ impl SendScreen {
 fn format_eth_amount(amount: &str, decimals: u8) -> String {
     let divisor = 10u128.pow(decimals as u32) as f64;
     let value = amount.parse::<f64>().unwrap_or(0.0) / divisor;
-    format!("{:.6} ETH", value)
+    format!("{:.6}", value)
 }

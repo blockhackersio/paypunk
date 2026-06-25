@@ -88,9 +88,9 @@ pub trait Protocol: Send + Sync {
 #[async_trait::async_trait]
 pub trait SignerProtocol: Send + Sync {
     async fn chain(&self) -> ChainId;
-    fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String>;
+    fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String>;
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String>;
-    fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String>;
+    fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String>;
 }
 
 // ── Account ──────────────────────────────────────────────────────────────────

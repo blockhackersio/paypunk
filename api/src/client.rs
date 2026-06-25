@@ -52,7 +52,7 @@ impl Client {
         crate::functions::restore_seed(&self.service, mnemonic, password).await
     }
 
-    /// Derive an address for the given protocol, CAIP-10 account, and diversifier index.
+    /// Derive an address for the given protocol, account index, and diversifier index.
     ///
     /// Fetches the viewing key from keypunkd (using the wallet password) and derives
     /// the address locally via the protocol implementation.
@@ -60,7 +60,7 @@ impl Client {
         &self,
         password: Zeroizing<String>,
         protocol: ProtocolId,
-        account: String,
+        account: u32,
         index: u32,
     ) -> Result<String, String> {
         crate::functions::derive_address(&self.service, password, protocol, account, index).await
@@ -73,7 +73,7 @@ impl Client {
     pub async fn submit_intent(
         &self,
         intent: Intent,
-        derivation_path: &[u8],
+        derivation_path: &str,
     ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
         crate::functions::submit_intent(&self.service, intent, derivation_path).await
     }
@@ -87,7 +87,7 @@ impl Client {
         raw_artifact: &[u8],
         keypunkd_signature: &[u8],
         password: Zeroizing<String>,
-        derivation_path: &[u8],
+        derivation_path: &str,
     ) -> Result<Vec<u8>, String> {
         crate::functions::approve_signature(
             &self.service,
@@ -150,6 +150,15 @@ impl Client {
     /// Get a single account by ID.
     pub async fn get_account(&self, id: String) -> Result<Option<Account>, String> {
         crate::functions::get_account(&self.service, id).await
+    }
+
+    /// Return the standard derivation path for the given protocol and account index.
+    ///
+    /// Delegates to the protocol crate's own derivation logic:
+    /// - Zcash: `m/44'/133'/{account}'`
+    /// - Ethereum (Metamask): `m/44'/60'/{account}'/0/0`
+    pub fn derivation_path(&self, protocol: ProtocolId, account: u32) -> String {
+        crate::functions::derivation_path(protocol, account)
     }
 
     /// Check whether a wallet seed exists on keypunkd.

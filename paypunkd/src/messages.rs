@@ -15,18 +15,18 @@ pub enum PaypunkdRequest {
     },
     SubmitIntent {
         intent: Intent,
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     },
     ApproveSignature {
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     },
     DeriveAddress {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         protocol: ProtocolId,
-        account: String,
+        derivation_path: String,
         index: u32,
     },
     GetBalance {
@@ -49,16 +49,18 @@ pub enum PaypunkdRequest {
     },
     GetPaypunkdEncryptionKey,
     HasSeed,
+    GetSupportedProtocols,
     Unlock {
         encrypted_db_password: Vec<u8>,
         ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
     },
     BulkDeriveAccounts {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
-        count: u32,
+        paths: Vec<(ProtocolId, String)>,
     },
 }
 
@@ -103,6 +105,9 @@ pub enum PaypunkdResponse {
     },
     HasSeed {
         exists: bool,
+    },
+    SupportedProtocols {
+        protocols: Vec<ProtocolId>,
     },
     UnlockSuccess {
         accounts_count: u32,

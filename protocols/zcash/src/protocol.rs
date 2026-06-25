@@ -30,6 +30,19 @@ impl ZcashProtocol {
             },
         }
     }
+
+    /// Extract the account index from a BIP44-style derivation path.
+    /// Expects format like `m/44'/133'/{account}'` and returns `{account}`.
+    fn account_from_path(path: &str) -> Result<u32, String> {
+        let account_str = path
+            .rsplit('\'')
+            .nth(1)
+            .and_then(|s| s.split('/').last())
+            .ok_or_else(|| format!("invalid derivation path: {path}"))?;
+        account_str
+            .parse()
+            .map_err(|_| format!("invalid account index in path: {path}"))
+    }
 }
 
 #[async_trait]
@@ -38,11 +51,8 @@ impl SignerProtocol for ZcashProtocol {
         self.chain_id()
     }
 
-    fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String> {
-        if path.len() < 4 {
-            return Err("path must be at least 4 bytes (account)".to_string());
-        }
-        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
+    fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
+        let account = Self::account_from_path(path)?;
         let account_id = zip32::AccountId::try_from(account)
             .map_err(|_| format!("invalid account: {account}"))?;
         let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
@@ -74,11 +84,8 @@ impl SignerProtocol for ZcashProtocol {
         postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
     }
 
-    fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String> {
-        if path.len() < 4 {
-            return Err("path must be at least 4 bytes (account)".to_string());
-        }
-        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
+    fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String> {
+        let account = Self::account_from_path(path)?;
         self.sign_transaction_inner(seed, account, artifact)
     }
 }

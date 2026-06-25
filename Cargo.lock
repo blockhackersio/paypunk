@@ -3533,6 +3533,8 @@ dependencies = [
  "bip39",
  "hex",
  "keypunkd",
+ "paypunk-chains-ethereum",
+ "paypunk-chains-zcash",
  "paypunk-ipc",
  "paypunk-types",
  "paypunkd",

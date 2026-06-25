@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 paypunkd.workspace = true
 paypunk-types.workspace = true
+paypunk-chains-zcash.workspace = true
+paypunk-chains-ethereum.workspace = true
 keypunkd.workspace = true
 paypunk-ipc.workspace = true
 tactix.workspace = true

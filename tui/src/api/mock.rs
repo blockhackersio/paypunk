@@ -7,6 +7,7 @@ use std::sync::Mutex;
 struct MockData {
     accounts: Vec<AccountInfo>,
     next_account_index: u32,
+    address_book: Vec<AddressBookEntry>,
 }
 
 pub struct MockWalletApi {
@@ -39,6 +40,18 @@ impl MockWalletApi {
                     },
                 ],
                 next_account_index: 3,
+                address_book: vec![
+                    AddressBookEntry {
+                        name: "Alice (Ethereum)".into(),
+                        address: "0x1234567890abcdef1234567890abcdef12345678".into(),
+                        protocol: "Ethereum".into(),
+                    },
+                    AddressBookEntry {
+                        name: "Bob (Zcash)".into(),
+                        address: "t1BobAddress33charsLongxxxxxxxxxxxxxxx".into(),
+                        protocol: "Zcash".into(),
+                    },
+                ],
             }),
             home_cache: Mutex::new(None),
             send_cache: Mutex::new(HashMap::new()),
@@ -297,7 +310,15 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    async fn submit_send_confirm(&self, _input: SendConfirmInput) -> SendResult {
+    async fn submit_send_confirm(&self, input: SendConfirmInput) -> SendResult {
+        // Save recipient to address book
+        let to_addr = input.reviewed.to_address.clone();
+        self.add_address_book_entry(
+            format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
+            to_addr,
+            "Ethereum".into(),
+        ).await;
+
         let tx_hash: String =
             "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b".into();
         SendResult {
@@ -413,5 +434,36 @@ impl WalletApi for MockWalletApi {
 
     async fn refresh_send(&self, account_id: &str) {
         self.send_cache.lock().unwrap().remove(account_id);
+    }
+
+    async fn get_address_book(&self) -> AddressBookData {
+        let data = self.data.lock().unwrap();
+        let mut entries = data.address_book.clone();
+
+        // Include all wallet accounts
+        for acc in &data.accounts {
+            let exists = entries.iter().any(|e| e.address == acc.address);
+            if !exists {
+                entries.push(AddressBookEntry {
+                    name: format!("{} (my {})", acc.name, acc.protocol),
+                    address: acc.address.clone(),
+                    protocol: acc.protocol.clone(),
+                });
+            }
+        }
+
+        AddressBookData { entries }
+    }
+
+    async fn add_address_book_entry(&self, name: String, address: String, protocol: String) {
+        let mut data = self.data.lock().unwrap();
+        let exists = data.address_book.iter().any(|e| e.address == address);
+        if !exists {
+            data.address_book.push(AddressBookEntry {
+                name,
+                address,
+                protocol,
+            });
+        }
     }
 }

@@ -7,11 +7,111 @@ use paypunk_tui::run_tui;
 use paypunk_types::{ArtifactSummary, AssetId, EthereumIntent, Intent, ProtocolId, ZcashIntent};
 use std::fs;
 use std::path::Path;
-use std::process::{exit, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
+
+/// Holds spawned daemon child processes and kills them on drop.
+struct DaemonGuard {
+    keypunkd: Option<Child>,
+    paypunkd: Option<Child>,
+}
+
+impl DaemonGuard {
+    fn new() -> Self {
+        Self {
+            keypunkd: None,
+            paypunkd: None,
+        }
+    }
+}
+
+impl Drop for DaemonGuard {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.keypunkd.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(mut child) = self.paypunkd.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// Spawn keypunkd and paypunkd if the paypunkd socket doesn't already exist
+/// with a live daemon. Returns a guard that kills the daemons on drop.
+async fn ensure_daemons(
+    paypunkd_socket: &str,
+    keypunkd_socket: &str,
+) -> Result<DaemonGuard, Box<dyn std::error::Error>> {
+    // If socket exists, try a quick connect to see if it's live
+    if Path::new(paypunkd_socket).exists() {
+        match tokio::time::timeout(
+            Duration::from_millis(500),
+            Client::connect(paypunkd_socket),
+        )
+        .await
+        {
+            Ok(Ok(_client)) => return Ok(DaemonGuard::new()),
+            _ => {
+                // Stale socket — clean it and proceed to spawn
+                let _ = fs::remove_file(keypunkd_socket);
+                let _ = fs::remove_file(paypunkd_socket);
+            }
+        }
+    }
+
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current exe path: {e}"))?;
+
+    // Clean stale sockets before spawning
+    let _ = fs::remove_file(keypunkd_socket);
+    let _ = fs::remove_file(paypunkd_socket);
+
+    println!("Starting keypunkd...");
+    let mut keypunkd = Command::new(&exe)
+        .arg("keypunkd")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
+
+    let keypunkd_wait =
+        tokio::time::timeout(Duration::from_secs(30), wait_for_sockets(&[keypunkd_socket])).await;
+    if keypunkd_wait.is_err() {
+        let _ = keypunkd.kill();
+        let _ = keypunkd.wait();
+        return Err("Timed out waiting for keypunkd socket".into());
+    }
+
+    println!("Starting paypunkd...");
+    let mut paypunkd = Command::new(&exe)
+        .arg("paypunkd")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
+
+    let paypunkd_wait =
+        tokio::time::timeout(Duration::from_secs(30), wait_for_sockets(&[paypunkd_socket])).await;
+    if paypunkd_wait.is_err() {
+        let _ = keypunkd.kill();
+        let _ = paypunkd.kill();
+        let _ = keypunkd.wait();
+        let _ = paypunkd.wait();
+        return Err("Timed out waiting for paypunkd socket".into());
+    }
+
+    println!("Daemons ready.");
+
+    Ok(DaemonGuard {
+        keypunkd: Some(keypunkd),
+        paypunkd: Some(paypunkd),
+    })
+}
 
 #[derive(Parser)]
 #[command(
@@ -105,7 +205,13 @@ enum Commands {
         #[arg(short, long)]
         data_dir: Option<String>,
     },
-    /// Remove all wallet data (seed, database, config)
+    /// Remove all wallet data (seed, database, accounts) — resets to clean state
+    Reset,
+    /// Unlock the wallet and derive accounts
+    Unlock {
+        #[arg(short, long)]
+        password: String,
+    },
     Uninstall {
         /// Skip confirmation prompt
         #[arg(short, long)]
@@ -130,12 +236,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let paypunkd_socket = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
             let keypunkd_socket = config.keypunkd_socket_path.clone();
 
+            // Clean stale sockets before spawning daemons
+            for path in [&keypunkd_socket, &paypunkd_socket] {
+                let _ = fs::remove_file(path);
+            }
+
             let mut keypunkd_child = Command::new(&exe)
                 .arg("keypunkd")
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
                 .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
+
+            let keypunkd_wait = tokio::time::timeout(
+                Duration::from_secs(30),
+                wait_for_sockets(&[&keypunkd_socket]),
+            )
+            .await;
+            if keypunkd_wait.is_err() {
+                let _ = keypunkd_child.kill();
+                let _ = keypunkd_child.wait();
+                return Err("Timed out waiting for keypunkd socket".into());
+            }
 
             let mut paypunkd_child = Command::new(&exe)
                 .arg("paypunkd")
@@ -144,18 +266,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .spawn()
                 .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
 
-            let wait_result = tokio::time::timeout(
+            let paypunkd_wait = tokio::time::timeout(
                 Duration::from_secs(30),
-                wait_for_sockets(&[&keypunkd_socket, &paypunkd_socket]),
+                wait_for_sockets(&[&paypunkd_socket]),
             )
             .await;
-
-            if wait_result.is_err() {
+            if paypunkd_wait.is_err() {
                 let _ = keypunkd_child.kill();
                 let _ = paypunkd_child.kill();
                 let _ = keypunkd_child.wait();
                 let _ = paypunkd_child.wait();
-                return Err("Timed out waiting for daemon sockets to appear".into());
+                return Err("Timed out waiting for paypunkd socket".into());
             }
 
             let shutdown = Arc::new(AtomicBool::new(false));
@@ -209,6 +330,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .await
         }
+        Some(Commands::Reset) => {
+            let config = ConfigLoader::load_or_default();
+            let data_dir = &config.data_dir;
+            if Path::new(data_dir).exists() {
+                fs::remove_dir_all(data_dir)
+                    .map_err(|e| format!("Failed to remove {data_dir}: {e}"))?;
+                println!("Removed: {data_dir}");
+            } else {
+                println!("No data found at {data_dir}");
+            }
+            Ok(())
+        }
         Some(Commands::Uninstall { force }) => {
             let config = ConfigLoader::load_or_default();
             let data_dir = &config.data_dir;
@@ -255,7 +388,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Some(command) => {
-            let client = Client::connect(&socket_path).await?;
+            let config = ConfigLoader::load_or_default();
+            let paypunkd_socket = cli
+                .socket_path
+                .clone()
+                .unwrap_or(config.paypunkd_socket_path);
+            let keypunkd_socket = config.keypunkd_socket_path;
+
+            let _guard = ensure_daemons(&paypunkd_socket, &keypunkd_socket).await?;
+            let client = Client::connect(&paypunkd_socket).await?;
 
             match command {
                 Commands::GenerateSeed { password } => {
@@ -284,7 +425,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         asset,
                         memo,
                     });
-                    let path = account.to_le_bytes();
+                    let path = client.derivation_path(ProtocolId::Zcash, account);
                     submit_intent_flow(&client, intent, &path).await?;
                 }
                 Commands::SubmitEthTransfer {
@@ -302,14 +443,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         asset,
                         data,
                     });
-                    let path = account.to_le_bytes();
+                    let path = client.derivation_path(ProtocolId::Ethereum, account);
                     submit_intent_flow(&client, intent, &path).await?;
                 }
                 Commands::ApproveSignature {
                     password: _password,
                     account,
                 } => {
-                    let _path = account.to_le_bytes();
+                    let _path = client.derivation_path(ProtocolId::Ethereum, account);
                     println!("Approving signature for account {account}...");
                     println!("ApproveSignature must be used interactively after SubmitIntent");
                     println!("Re-run with a Submit* command first");
@@ -321,10 +462,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "ethereum" => ProtocolId::Ethereum,
                         "monero" => ProtocolId::Monero,
                         "solana" => ProtocolId::Solana,
-                        _ => {
-                            eprintln!("Unknown protocol: {protocol}");
-                            exit(1);
-                        }
+                        _ => return Err(format!("Unknown protocol: {protocol}").into()),
                     };
                     let asset = AssetId::Native;
                     let balance = client
@@ -336,6 +474,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         balance.pending.0,
                         balance.total.0,
                     );
+                }
+                Commands::Reset => unreachable!(),
+                Commands::Unlock { password } => {
+                    let password = Zeroizing::new(password);
+                    let count = client.unlock(password).await?;
+                    println!("Unlocked. {count} accounts derived.");
                 }
                 Commands::Tui => unreachable!(),
                 Commands::Keypunkd { .. } => unreachable!(),
@@ -361,23 +505,21 @@ async fn wait_for_sockets(paths: &[&str]) {
 async fn submit_intent_flow(
     client: &Client,
     intent: Intent,
-    derivation_path: &[u8],
+    derivation_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Submitting intent for preview...");
     match client.submit_intent(intent, derivation_path).await {
         Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
             // Verify the signature: H(raw, parsed, path) should match
-            // In a production build, we'd verify against keypunkd's public key
             let mut to_verify = Vec::new();
             to_verify.extend_from_slice(&raw_artifact);
             to_verify.extend_from_slice(&parsed_summary);
-            to_verify.extend_from_slice(derivation_path);
+            to_verify.extend_from_slice(derivation_path.as_bytes());
             let _hash = Blake2b::<U32>::digest(&to_verify);
 
             println!("Artifact preview received:");
             println!("  Raw artifact: {} bytes", raw_artifact.len());
 
-            // Try to deserialize the parsed summary
             if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
                 println!("  To: {}", summary.to);
                 println!("  Amount: {}", summary.amount);
@@ -393,16 +535,10 @@ async fn submit_intent_flow(
             println!("  Signature: {} bytes", keypunkd_signature.len());
             println!("  Keypunkd public key: {:?}", keypunkd_public_key);
 
-            // Store the preview data for approval (in a real app, we'd use state)
-            // For now, prompt the user to approve
             println!();
             println!("To approve, run: paypunk approve-signature --password <your-password>");
-            println!("(In a future version, this will be an interactive prompt)");
             Ok(())
         }
-        Err(e) => {
-            eprintln!("Error: {e}");
-            exit(1);
-        }
+        Err(e) => Err(format!("Error: {e}").into()),
     }
 }

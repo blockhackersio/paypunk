@@ -229,7 +229,7 @@ async fn test_derive_address() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             0,
         )
         .await
@@ -250,7 +250,7 @@ async fn test_derive_different_indexes() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             0,
         )
         .await
@@ -259,7 +259,7 @@ async fn test_derive_different_indexes() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             1,
         )
         .await
@@ -268,7 +268,7 @@ async fn test_derive_different_indexes() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             2,
         )
         .await
@@ -291,7 +291,7 @@ async fn test_derive_address_is_deterministic() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             0,
         )
         .await
@@ -302,7 +302,7 @@ async fn test_derive_address_is_deterministic() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             0,
         )
         .await
@@ -329,7 +329,7 @@ async fn test_eth_balance_via_mock_rpc() {
         .derive_address(
             password.clone(),
             ProtocolId::Ethereum,
-            "eip155:1:0".to_string(),
+            0,
             0,
         )
         .await
@@ -357,7 +357,7 @@ async fn test_eth_balance_zero() {
         .derive_address(
             password.clone(),
             ProtocolId::Ethereum,
-            "eip155:1:0".to_string(),
+            0,
             0,
         )
         .await
@@ -387,7 +387,7 @@ async fn test_eth_send_full_flow() {
         .derive_address(
             password.clone(),
             ProtocolId::Ethereum,
-            "eip155:1:0".to_string(),
+            0,
             0,
         )
         .await
@@ -400,10 +400,10 @@ async fn test_eth_send_full_flow() {
         asset: "eip155:1/slip44:60".to_string(),
         data: None,
     });
-    let path = 0u32.to_le_bytes();
+    let path = "m/44'/60'/0'/0/0";
 
     let (raw_artifact, parsed_summary, signature, _keypunkd_pk) = client
-        .submit_intent(intent, &path)
+        .submit_intent(intent, path)
         .await
         .expect("submit_intent should succeed");
 
@@ -420,7 +420,7 @@ async fn test_eth_send_full_flow() {
     assert_eq!(summary.to, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
 
     let signed_artifact = client
-        .approve_signature(&raw_artifact, &signature, password.clone(), &path)
+        .approve_signature(&raw_artifact, &signature, password.clone(), path)
         .await
         .expect("approve_signature should succeed");
 

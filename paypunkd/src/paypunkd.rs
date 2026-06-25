@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use keypunkd::crypto::Keypair;
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{caip, ProtocolId};
+use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
@@ -95,7 +97,7 @@ impl Paypunkd {
     async fn submit_intent(
         &self,
         intent: paypunk_types::Intent,
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     ) -> PaypunkdResponse {
         info!("handling SubmitIntent");
         self.respond(
@@ -122,7 +124,7 @@ impl Paypunkd {
         &self,
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     ) -> PaypunkdResponse {
         info!("handling ApproveSignature");
         self.respond(
@@ -161,18 +163,10 @@ impl Paypunkd {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         protocol: ProtocolId,
-        account: String,
+        derivation_path: String,
         index: u32,
     ) -> PaypunkdResponse {
-        info!(?protocol, account, index, "deriving address");
-        let account_num = match caip::AccountId::parse(&account).and_then(|a| a.account_number()) {
-            Ok(n) => n,
-            Err(e) => {
-                return PaypunkdResponse::Error {
-                    message: format!("invalid CAIP-10 account: {e}"),
-                }
-            }
-        };
+        info!(?protocol, derivation_path, index, "deriving address");
         self.respond(
             "derive_address",
             usecases::export_viewing_key(
@@ -180,11 +174,14 @@ impl Paypunkd {
                 encrypted_password,
                 client_public_key,
                 protocol,
-                account_num,
+                derivation_path,
             )
             .await
             .and_then(|viewing_key| {
-                usecases::derive_address(&self.protocols, protocol, &viewing_key, index)
+                let addr =
+                    usecases::derive_address(&self.protocols, protocol, &viewing_key, index)?;
+                info!("derive_address -> {addr}");
+                Ok(addr)
             }),
             |address| PaypunkdResponse::AddressDerived { address },
         )
@@ -245,6 +242,13 @@ impl Paypunkd {
         )
     }
 
+    fn get_supported_protocols(&self) -> PaypunkdResponse {
+        info!("handling GetSupportedProtocols");
+        PaypunkdResponse::SupportedProtocols {
+            protocols: self.protocols.protocols(),
+        }
+    }
+
     fn get_paypunkd_encryption_key(&self) -> PaypunkdResponse {
         info!("handling GetPaypunkdEncryptionKey");
         PaypunkdResponse::PaypunkdEncryptionKey {
@@ -267,12 +271,12 @@ impl Paypunkd {
         ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
     ) -> PaypunkdResponse {
         info!("handling Unlock");
 
         // 1. If DB is already unlocked (fresh, no .enc file), skip decryption
         if self.db.is_locked() {
-            // Decrypt the DB password using paypunkd's own keypair
             let decrypted_password = match self
                 .keystore
                 .decrypt(&encrypted_db_password, &ephemeral_public_key)
@@ -285,7 +289,6 @@ impl Paypunkd {
                 }
             };
 
-            // 2. Unlock the database
             if let Err(e) = self.db.unlock(&decrypted_password) {
                 return PaypunkdResponse::Error {
                     message: format!("failed to unlock database: {e}"),
@@ -302,32 +305,31 @@ impl Paypunkd {
                 }
             }
         };
-
+        info!("list_accounts {accounts:?}");
         let accounts_count = accounts.len() as u32;
 
         // 4. If no accounts, bulk-derive from keypunkd and cache viewing keys
         if accounts.is_empty() {
             info!("no accounts found, bulk-deriving from keypunkd");
-            let protocols = self.protocols.protocols();
+
             let keys = self
                 .keypunk_service
-                .bulk_export_viewing_keys(
-                    encrypted_keypunkd_password,
-                    keypunkd_client_pk,
-                    protocols.clone(),
-                    0,
-                    30,
-                )
+                .bulk_export_viewing_keys(encrypted_keypunkd_password, keypunkd_client_pk, paths)
                 .await;
 
             match keys {
                 Ok(derived) => {
+                    let mut indexes: HashMap<&ProtocolId, i32> = HashMap::new();
                     // Store pre-derived keys in the database
-                    for (protocol, account_index, viewing_key) in &derived {
+                    for (protocol, path, viewing_key) in &derived {
+                        *indexes.entry(protocol).or_insert(-1) += 1;
+                        let account_index = *indexes.get(protocol).unwrap_or(&0);
+                        info!("key returned: {path}");
+                        info!("key: account_index={account_index}, path={path}");
                         let _ = usecases::save_pre_derived_key(
                             &self.db,
                             *protocol,
-                            *account_index,
+                            u32::try_from(account_index).unwrap(),
                             viewing_key,
                         );
                     }
@@ -357,10 +359,9 @@ impl Paypunkd {
         &self,
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
-        count: u32,
+        paths: Vec<(ProtocolId, String)>,
     ) -> PaypunkdResponse {
         info!("handling BulkDeriveAccounts");
-        let protocols = self.protocols.protocols();
         self.respond(
             "bulk_derive_accounts",
             usecases::bulk_derive_accounts(
@@ -370,8 +371,7 @@ impl Paypunkd {
                 self.accounts_repo.as_ref(),
                 encrypted_password,
                 client_public_key,
-                protocols,
-                count,
+                paths,
             )
             .await,
             |accounts| PaypunkdResponse::AccountsBulkDerived { accounts },
@@ -424,14 +424,14 @@ impl Handler<IpcMessage> for Paypunkd {
                 encrypted_password,
                 client_public_key,
                 protocol,
-                account,
+                derivation_path,
                 index,
             } => {
                 self.derive_address(
                     encrypted_password,
                     client_public_key,
                     protocol,
-                    account,
+                    derivation_path,
                     index,
                 )
                 .await
@@ -452,26 +452,29 @@ impl Handler<IpcMessage> for Paypunkd {
             PaypunkdRequest::GetAccount { id } => self.get_account(id).await,
             PaypunkdRequest::GetPaypunkdEncryptionKey => self.get_paypunkd_encryption_key(),
             PaypunkdRequest::HasSeed => self.has_seed().await,
+            PaypunkdRequest::GetSupportedProtocols => self.get_supported_protocols(),
             PaypunkdRequest::Unlock {
                 encrypted_db_password,
                 ephemeral_public_key,
                 encrypted_keypunkd_password,
                 keypunkd_client_pk,
+                paths,
             } => {
                 self.unlock(
                     encrypted_db_password,
                     ephemeral_public_key,
                     encrypted_keypunkd_password,
                     keypunkd_client_pk,
+                    paths,
                 )
                 .await
             }
             PaypunkdRequest::BulkDeriveAccounts {
                 encrypted_password,
                 client_public_key,
-                count,
+                paths,
             } => {
-                self.bulk_derive_accounts(encrypted_password, client_public_key, count)
+                self.bulk_derive_accounts(encrypted_password, client_public_key, paths)
                     .await
             }
         };

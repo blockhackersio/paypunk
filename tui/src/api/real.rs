@@ -11,13 +11,14 @@ struct PendingSend {
     raw_artifact: Vec<u8>,
     keypunkd_signature: Vec<u8>,
     keypunkd_public_key: [u8; 32],
-    derivation_path: Vec<u8>,
+    derivation_path: String,
 }
 
 pub struct RealWalletApi {
     client: Client,
     pending: Mutex<Option<PendingSend>>,
     pending_mnemonic: Mutex<Option<Zeroizing<String>>>,
+    address_book_entries: Mutex<Vec<AddressBookEntry>>,
 }
 
 impl RealWalletApi {
@@ -27,6 +28,7 @@ impl RealWalletApi {
             client,
             pending: Mutex::new(None),
             pending_mnemonic: Mutex::new(None),
+            address_book_entries: Mutex::new(Vec::new()),
         })
     }
 
@@ -35,16 +37,23 @@ impl RealWalletApi {
             client,
             pending: Mutex::new(None),
             pending_mnemonic: Mutex::new(None),
+            address_book_entries: Mutex::new(Vec::new()),
         }
     }
 }
 
-fn parse_account_index(path: &str) -> u32 {
-    path.rsplit('\'')
-        .nth(1)
-        .and_then(|s| s.split('/').last())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
+fn format_balance(raw: &str, decimals: u8, ticker: &str) -> String {
+    let divisor = 10u128.pow(decimals as u32) as f64;
+    let value = raw.parse::<f64>().unwrap_or(0.0) / divisor;
+    format!("{:.8} {}", value, ticker)
+}
+
+fn protocol_chain_asset(protocol: &ProtocolId) -> (&'static str, &'static str, u8, &'static str) {
+    match protocol {
+        ProtocolId::Ethereum => ("eip155:1", "eip155:1/slip44:60", 18, "ETH"),
+        ProtocolId::Zcash => ("zcash:mainnet", "zcash:mainnet/slip44:133", 8, "ZEC"),
+        _ => ("eip155:1", "eip155:1/slip44:60", 18, "ETH"),
+    }
 }
 
 #[async_trait(?Send)]
@@ -98,23 +107,26 @@ impl WalletApi for RealWalletApi {
     async fn get_assets(&self, account_id: &str) -> AssetsData {
         match self.client.get_account(account_id.to_string()).await {
             Ok(Some(account)) => {
-                let caip10 = format!("eip155:1:{}", account.address);
+                let (chain, asset, decimals, ticker) =
+                    protocol_chain_asset(&account.protocol);
+                let caip10 = format!("{}:{}", chain, account.address);
                 let balance = self
                     .client
-                    .get_balance(caip10, "eip155:1/slip44:60".to_string())
+                    .get_balance(caip10, asset.to_string())
                     .await
                     .map(|b| b.spendable.0.to_string())
                     .unwrap_or_else(|_| "0".to_string());
+                let holdings = format_balance(&balance, decimals, ticker);
                 AssetsData {
                     assets: vec![AssetRow {
-                        name: "Ethereum".into(),
-                        ticker: "ETH".into(),
+                        name: ticker.to_string(),
+                        ticker: ticker.to_string(),
                         price: "\u{2014}".into(),
                         price_change: "\u{2014}".into(),
                         price_change_up: true,
                         holdings_value: "\u{2014}".into(),
-                        holdings_amount: balance,
-                        chain_id: "eip155:1".into(),
+                        holdings_amount: holdings,
+                        chain_id: chain.to_string(),
                     }],
                 }
             }
@@ -128,15 +140,13 @@ impl WalletApi for RealWalletApi {
                 let account_rows: Vec<AccountInfo> = accounts
                     .iter()
                     .map(|a| {
-                        let chain_id = match a.protocol {
-                            ProtocolId::Ethereum => "eip155:1".to_string(),
-                            _ => format!("{}:0", format!("{:?}", a.protocol).to_lowercase()),
-                        };
+                        let (chain, _asset, _decimals, _ticker) =
+                            protocol_chain_asset(&a.protocol);
                         AccountInfo {
                             account_id: a.id.clone(),
                             name: a.name.clone(),
                             address: a.address.clone(),
-                            chain_id,
+                            chain_id: chain.to_string(),
                             protocol: format!("{:?}", a.protocol),
                         }
                     })
@@ -167,12 +177,16 @@ impl WalletApi for RealWalletApi {
         let accounts = self.client.list_accounts().await.map_err(ApiError)?;
         Ok(accounts
             .iter()
-            .map(|a| AccountInfo {
-                account_id: a.id.clone(),
-                name: a.name.clone(),
-                address: a.address.clone(),
-                chain_id: "eip155:1".to_string(),
-                protocol: format!("{:?}", a.protocol),
+            .map(|a| {
+                let (chain, _asset, _decimals, _ticker) =
+                    protocol_chain_asset(&a.protocol);
+                AccountInfo {
+                    account_id: a.id.clone(),
+                    name: a.name.clone(),
+                    address: a.address.clone(),
+                    chain_id: chain.to_string(),
+                    protocol: format!("{:?}", a.protocol),
+                }
             })
             .collect())
     }
@@ -184,11 +198,12 @@ impl WalletApi for RealWalletApi {
             .filter(|a| a.protocol == ProtocolId::Ethereum)
             .collect();
         let next_index = eth_accounts.len() as u32;
+        let path = self.client.derivation_path(ProtocolId::Ethereum, next_index);
         let _ = self
             .client
             .create_account(
                 ProtocolId::Ethereum,
-                format!("m/44'/60'/{next_index}'"),
+                path,
                 next_index,
                 format!("Ethereum Account {next_index}"),
             )
@@ -199,13 +214,17 @@ impl WalletApi for RealWalletApi {
 
     async fn get_receive(&self, account_id: &str) -> ReceiveData {
         match self.client.get_account(account_id.to_string()).await {
-            Ok(Some(account)) => ReceiveData {
-                address: account.address.clone(),
-                chain_id: "eip155:1".to_string(),
-                address_format: "hex".to_string(),
-                qr_payload: account.address,
-                account_id: account_id.to_string(),
-            },
+            Ok(Some(account)) => {
+                let (chain, _asset, _decimals, _ticker) =
+                    protocol_chain_asset(&account.protocol);
+                ReceiveData {
+                    address: account.address.clone(),
+                    chain_id: chain.to_string(),
+                    address_format: "hex".to_string(),
+                    qr_payload: account.address,
+                    account_id: account_id.to_string(),
+                }
+            }
             _ => ReceiveData {
                 address: "unknown".into(),
                 chain_id: "eip155:1".into(),
@@ -229,10 +248,12 @@ impl WalletApi for RealWalletApi {
     async fn get_send(&self, account_id: &str) -> SendData {
         match self.client.get_account(account_id.to_string()).await {
             Ok(Some(account)) => {
-                let caip10 = format!("eip155:1:{}", account.address);
+                let (chain, asset, decimals, _ticker) =
+                    protocol_chain_asset(&account.protocol);
+                let caip10 = format!("{}:{}", chain, account.address);
                 let balance = self
                     .client
-                    .get_balance(caip10, "eip155:1/slip44:60".to_string())
+                    .get_balance(caip10, asset.to_string())
                     .await
                     .map(|b| b.spendable.0.to_string())
                     .unwrap_or_else(|_| "0".to_string());
@@ -240,8 +261,8 @@ impl WalletApi for RealWalletApi {
                     account_id: account_id.to_string(),
                     from_address: account.address,
                     spendable_balance: balance,
-                    decimals: 18,
-                    chain_id: "eip155:1".to_string(),
+                    decimals,
+                    chain_id: chain.to_string(),
                 }
             }
             _ => SendData {
@@ -262,29 +283,42 @@ impl WalletApi for RealWalletApi {
             .ok()
             .flatten();
 
-        let (from_address, derivation_path) = match &account {
-            Some(a) => (a.address.clone(), a.derivation_path.clone()),
-            None => (String::new(), String::new()),
+        let (from_address, derivation_path, protocol) = match &account {
+            Some(a) => (a.address.clone(), a.derivation_path.clone(), a.protocol),
+            None => (String::new(), String::new(), ProtocolId::Ethereum),
         };
 
-        let intent = Intent::Ethereum(EthereumIntent::Transfer {
-            to: input.to_address.clone(),
-            amount: input.amount.clone(),
-            from: from_address,
-            asset: "eip155:1/slip44:60".into(),
-            data: None,
-        });
+        let intent = match protocol {
+            ProtocolId::Ethereum => Intent::Ethereum(EthereumIntent::Transfer {
+                to: input.to_address.clone(),
+                amount: input.amount.clone(),
+                from: from_address,
+                asset: "eip155:1/slip44:60".into(),
+                data: None,
+            }),
+            ProtocolId::Zcash => Intent::Zcash(paypunk_types::ZcashIntent::Transfer {
+                to: input.to_address.clone(),
+                amount: input.amount.clone(),
+                from: from_address,
+                asset: "zcash:mainnet/slip44:133".into(),
+                memo: None,
+            }),
+            _ => Intent::Ethereum(EthereumIntent::Transfer {
+                to: input.to_address.clone(),
+                amount: input.amount.clone(),
+                from: from_address,
+                asset: "eip155:1/slip44:60".into(),
+                data: None,
+            }),
+        };
 
-        let account_index = parse_account_index(&derivation_path);
-        let path_bytes = account_index.to_le_bytes();
-
-        match self.client.submit_intent(intent, &path_bytes).await {
+        match self.client.submit_intent(intent, &derivation_path).await {
             Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
                 let pending = PendingSend {
                     raw_artifact,
                     keypunkd_signature,
                     keypunkd_public_key,
-                    derivation_path: path_bytes.to_vec(),
+                    derivation_path: derivation_path,
                 };
                 *self.pending.lock().unwrap() = Some(pending);
 
@@ -322,6 +356,14 @@ impl WalletApi for RealWalletApi {
     async fn submit_send_confirm(&self, input: SendConfirmInput) -> SendResult {
         let pending = self.pending.lock().unwrap().take();
         let password = input.auth_confirmation.value.clone();
+
+        // Save recipient to address book
+        let to_addr = input.reviewed.to_address.clone();
+        let _ = self.add_address_book_entry(
+            format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
+            to_addr,
+            "Ethereum".into(),
+        ).await;
         match pending {
             Some(p) => {
                 match self
@@ -419,5 +461,39 @@ impl WalletApi for RealWalletApi {
             .await
             .map(|accounts_count| UnlockData { accounts_count })
             .map_err(|e| ApiError(e))
+    }
+
+    async fn get_address_book(&self) -> AddressBookData {
+        let mut entries = self.address_book_entries.lock().unwrap().clone();
+
+        // Populate from wallet accounts
+        if let Ok(accounts) = self.client.list_accounts().await {
+            for acc in &accounts {
+                let (_chain, _asset, _decimals, ticker) =
+                    protocol_chain_asset(&acc.protocol);
+                let exists = entries.iter().any(|e| e.address == acc.address);
+                if !exists {
+                    entries.push(AddressBookEntry {
+                        name: format!("{} ({})", acc.name, ticker),
+                        address: acc.address.clone(),
+                        protocol: format!("{:?}", acc.protocol),
+                    });
+                }
+            }
+        }
+
+        AddressBookData { entries }
+    }
+
+    async fn add_address_book_entry(&self, name: String, address: String, protocol: String) {
+        let mut entries = self.address_book_entries.lock().unwrap();
+        let exists = entries.iter().any(|e| e.address == address);
+        if !exists {
+            entries.push(AddressBookEntry {
+                name,
+                address,
+                protocol,
+            });
+        }
     }
 }

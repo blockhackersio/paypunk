@@ -1,6 +1,6 @@
 use bip39::Mnemonic;
 use paypunk_types::ProtocolId;
-use tracing::debug;
+use tracing::{debug, info};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -99,34 +99,30 @@ pub fn validate_mnemonic(phrase: &str) -> bool {
     Mnemonic::parse_in(bip39::Language::English, phrase).is_ok()
 }
 
-/// Export viewing key material for the given protocol and account.
+/// Export viewing key material for the given protocol and derivation path.
 pub fn export_viewing_key(
     seed: &[u8; 64],
     registry: &ProtocolService,
-    protocol: ProtocolId,
-    account: u32,
+    protocol_id: ProtocolId,
+    path: &str,
 ) -> Result<Vec<u8>, String> {
-    let path = account.to_le_bytes();
-    let deriver = registry
-        .get(protocol)
-        .ok_or_else(|| format!("unknown protocol: {protocol:?}"))?;
-    deriver.export_viewing(seed, &path)
+    let protocol = registry
+        .get(protocol_id)
+        .ok_or_else(|| format!("unknown protocol: {protocol_id:?}"))?;
+    protocol.export_viewing(seed, path)
 }
 
-/// Bulk-export viewing keys for multiple protocols and account indices.
+/// Bulk-export viewing keys for multiple (protocol, path) pairs.
 pub fn bulk_export_viewing_keys(
     seed: &[u8; 64],
     registry: &ProtocolService,
-    protocols: &[ProtocolId],
-    start_account: u32,
-    count: u32,
-) -> Result<Vec<(ProtocolId, u32, Vec<u8>)>, String> {
+    paths: &[(ProtocolId, String)],
+) -> Result<Vec<(ProtocolId, String, Vec<u8>)>, String> {
     let mut keys = Vec::new();
-    for &protocol in protocols {
-        for account in start_account..start_account + count {
-            let key = export_viewing_key(seed, registry, protocol, account)?;
-            keys.push((protocol, account, key));
-        }
+    for (protocol, path) in paths {
+        info!("bulk_export_viewing_keys -> path: {path}");
+        let key = export_viewing_key(seed, registry, *protocol, path)?;
+        keys.push((*protocol, path.clone(), key));
     }
     Ok(keys)
 }
@@ -147,7 +143,7 @@ pub fn preview_artifact(
 pub fn sign_artifact(
     seed: &[u8; 64],
     registry: &ProtocolService,
-    path: &[u8],
+    path: &str,
     raw_artifact: &[u8],
 ) -> Result<Vec<u8>, String> {
     // Find the protocol by trying each one until we find one that accepts the artifact
