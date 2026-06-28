@@ -8,10 +8,6 @@ use ratatui::widgets::Block;
 use ratatui::Frame;
 use std::marker::PhantomData;
 
-// TODO: when selected the dropdown should simply fill the value into the textfield.
-// TODO: the test "masked" content in the demo is not masked at all and is visible instead of being concealed by
-// the dropdown
-
 pub trait Searchable {
     fn search_text(&self) -> String;
 }
@@ -114,9 +110,16 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
                 height: visible_count as u16,
             };
 
+            // Render background that extends to max_visible height to mask content below
+            let mask_area = Rect {
+                x: area.x,
+                y: area.y + 3,
+                width: area.width,
+                height: self.max_visible as u16,
+            };
             frame.render_widget(
                 Block::new().style(Style::new().bg(ui::SURFACE)),
-                dropdown_area,
+                mask_area,
             );
 
             let row_heights: Vec<Constraint> =
@@ -164,6 +167,8 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
                 KeyCode::Enter => {
                     if !self.filtered.is_empty() {
                         let idx = self.filtered[self.selected];
+                        let text = self.items[idx].search_text();
+                        self.text_field.set_value(&text);
                         self.open = false;
                         return Some(DropdownAction::Selected(idx));
                     }
@@ -188,6 +193,8 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
                 TextFieldAction::Submitted => {
                     if self.open && !self.filtered.is_empty() {
                         let idx = self.filtered[self.selected];
+                        let text = self.items[idx].search_text();
+                        self.text_field.set_value(&text);
                         self.open = false;
                         return Some(DropdownAction::Selected(idx));
                     }
