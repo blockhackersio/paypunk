@@ -142,15 +142,24 @@ impl Paypunkd {
 
     async fn get_balance(&self, address: String, asset: String) -> PaypunkdResponse {
         info!("querying balance");
-        let protocol = match address.split(':').next().unwrap_or("") {
-            "zcash" => ProtocolId::Zcash,
-            "eip155" => ProtocolId::Ethereum,
-            _ => {
-                return PaypunkdResponse::Error {
-                    message: format!("unknown chain in address: {address}"),
-                }
-            }
-        };
+        let protocol = self
+            .protocols
+            .protocols()
+            .iter()
+            .find_map(|&pid| {
+                self.protocols
+                    .get(pid)
+                    .ok()
+                    .and_then(|p| {
+                        let chain = p.chain_id();
+                        if address.starts_with(&format!("{}:", chain.namespace)) {
+                            Some(pid)
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .unwrap_or(ProtocolId::Ethereum); // fallback shouldn't happen in practice
         self.respond(
             "get_balance",
             usecases::get_balance(&self.protocols, protocol, &address, &asset).await,
@@ -178,8 +187,8 @@ impl Paypunkd {
             )
             .await
             .and_then(|viewing_key| {
-                let addr =
-                    usecases::derive_address(&self.protocols, protocol, &viewing_key, index)?;
+                let proto = self.protocols.get(protocol)?;
+                let addr = proto.derive_address_from_viewing_key(&viewing_key, index)?;
                 info!("derive_address -> {addr}");
                 Ok(addr)
             }),
@@ -246,6 +255,7 @@ impl Paypunkd {
         info!("handling GetSupportedProtocols");
         PaypunkdResponse::SupportedProtocols {
             protocols: self.protocols.protocols(),
+            metadata: self.protocols.protocol_metadata(),
         }
     }
 
@@ -337,12 +347,27 @@ impl Paypunkd {
                         );
                     }
 
-                    // Create Ethereum Account 0 automatically
-                    let _ = usecases::create_ethereum_account_0(
-                        &self.db,
-                        self.accounts_repo.as_ref(),
-                        &self.protocols,
-                    );
+                    // Create the first account for each registered protocol automatically
+                    for pid in self.protocols.protocols() {
+                        let proto = match self.protocols.get(pid) {
+                            Ok(p) => p,
+                            Err(_) => continue,
+                        };
+                        let path = proto.default_derivation_path(0);
+                        let account_index = 0;
+                        let name = proto.default_account_name(0);
+
+                        let _ = usecases::create_account(
+                            &self.db,
+                            &self.protocols,
+                            self.accounts_repo.as_ref(),
+                            pid,
+                            path,
+                            account_index,
+                            name,
+                        )
+                        .await;
+                    }
 
                     info!(count = derived.len(), "cached pre-derived viewing keys");
                     PaypunkdResponse::UnlockSuccess {

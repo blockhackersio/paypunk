@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -205,7 +205,15 @@ impl PaypunkService {
 
     pub async fn get_supported_protocols(&self) -> Result<Vec<ProtocolId>, String> {
         match self.send(PaypunkdRequest::GetSupportedProtocols).await? {
-            PaypunkdResponse::SupportedProtocols { protocols } => Ok(protocols),
+            PaypunkdResponse::SupportedProtocols { protocols, .. } => Ok(protocols),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_protocol_metadata(&self) -> Result<Vec<ProtocolMetadata>, String> {
+        match self.send(PaypunkdRequest::GetSupportedProtocols).await? {
+            PaypunkdResponse::SupportedProtocols { metadata, .. } => Ok(metadata),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }

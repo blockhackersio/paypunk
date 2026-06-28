@@ -22,11 +22,6 @@ impl<T: EthRpcClient> EthereumProtocol<T> {
     pub fn new(client: T) -> Self {
         Self { client }
     }
-
-    fn address_from_pubkey(&self, public_key: &[u8]) -> Result<String, String> {
-        let addr = address::derive_from_pubkey(public_key).map_err(|e| e.to_string())?;
-        Ok(addr.to_string())
-    }
 }
 
 #[async_trait]
@@ -135,6 +130,46 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
 
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
         self.client.send_raw_transaction(finalized_tx).await
+    }
+
+    // ── Protocol metadata ───────────────────────────────────────────────────
+
+    fn chain_id(&self) -> ChainId {
+        ChainId {
+            namespace: "eip155".to_string(),
+            reference: "1".to_string(),
+        }
+    }
+
+    fn native_asset(&self) -> String {
+        "eip155:1/slip44:60".to_string()
+    }
+
+    fn ticker(&self) -> &str {
+        "ETH"
+    }
+
+    fn decimals(&self) -> u8 {
+        18
+    }
+
+    fn block_explorer_url(&self, tx_hash: &str) -> String {
+        format!("https://etherscan.io/tx/{}", tx_hash)
+    }
+
+    fn default_derivation_path(&self, account: u32) -> String {
+        crate::derivation_path(account)
+    }
+
+    fn default_account_name(&self, account_index: u32) -> String {
+        format!("Ethereum Account {account_index}")
+    }
+
+    // ── Key operations ──────────────────────────────────────────────────────
+
+    fn derive_address_from_viewing_key(&self, vk: &[u8], _index: u32) -> Result<String, String> {
+        let addr = address::derive_from_pubkey(vk).map_err(|e| e.to_string())?;
+        Ok(addr.to_string())
     }
 }
 

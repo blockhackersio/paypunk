@@ -1,6 +1,6 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
-use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -104,16 +104,6 @@ impl Client {
         crate::functions::get_balance(&self.service, address, asset).await
     }
 
-    /// Legacy balance query using protocol + account + AssetId.
-    pub async fn get_balance_legacy(
-        &self,
-        protocol: ProtocolId,
-        account: u32,
-        asset: AssetId,
-    ) -> Result<Balance, String> {
-        crate::functions::get_balance_legacy(&self.service, protocol, account, asset).await
-    }
-
     /// Broadcast a finalized, signed transaction to the network.
     pub async fn broadcast_transaction(
         &self,
@@ -174,5 +164,10 @@ impl Client {
     /// Get paypunkd's public encryption key.
     pub async fn get_paypunkd_encryption_key(&self) -> Result<[u8; 32], String> {
         self.service.get_paypunkd_encryption_key().await
+    }
+
+    /// Get protocol metadata from the daemon.
+    pub async fn get_protocol_metadata(&self) -> Result<Vec<ProtocolMetadata>, String> {
+        self.service.get_protocol_metadata().await
     }
 }

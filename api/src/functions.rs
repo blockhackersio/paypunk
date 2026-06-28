@@ -1,7 +1,7 @@
 use argon2::Argon2;
 use bip39::{Language, Mnemonic};
 use keypunkd::crypto::Keypair;
-use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId};
 use zeroize::Zeroizing;
 
 fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
@@ -208,30 +208,6 @@ pub async fn get_balance(
     asset: String,
 ) -> Result<Balance, String> {
     service.get_balance(address, asset).await
-}
-
-/// Legacy balance query using protocol + account + AssetId.
-pub async fn get_balance_legacy(
-    service: &paypunkd::services::PaypunkService,
-    protocol: ProtocolId,
-    account: u32,
-    asset: AssetId,
-) -> Result<Balance, String> {
-    // Convert to CAIP format
-    let address = match protocol {
-        ProtocolId::Ethereum => format!("eip155:1:{account}"),
-        ProtocolId::Zcash => format!("zcash:mainnet:{account}"),
-        _ => return Err("unsupported protocol".to_string()),
-    };
-    let asset_str = match asset {
-        AssetId::Native => match protocol {
-            ProtocolId::Ethereum => "eip155:1/slip44:60".to_string(),
-            ProtocolId::Zcash => "zcash:mainnet/slip44:133".to_string(),
-            _ => return Err("unsupported protocol".to_string()),
-        },
-        AssetId::Token(addr) => addr,
-    };
-    get_balance(service, address, asset_str).await
 }
 
 /// Broadcast a finalized, signed transaction to the network.
