@@ -258,15 +258,29 @@ impl Screen for SendScreen {
             SendStep::Form => {
                 let max_focus = 1;
                 match key.code {
-                    KeyCode::Tab | KeyCode::Down => {
+                    KeyCode::Tab => {
                         if self.focus == 0 && self.to_picker.is_open() {
                             self.to_picker.handle_event(key);
                         } else {
                             self.focus = (self.focus + 1).min(max_focus);
                         }
                     }
-                    KeyCode::BackTab | KeyCode::Up => {
+                    KeyCode::Down => {
+                        if self.focus == 0 {
+                            self.to_picker.handle_event(key);
+                        } else {
+                            self.focus = (self.focus + 1).min(max_focus);
+                        }
+                    }
+                    KeyCode::BackTab => {
                         if self.focus == 0 && self.to_picker.is_open() {
+                            self.to_picker.handle_event(key);
+                        } else {
+                            self.focus = self.focus.saturating_sub(1);
+                        }
+                    }
+                    KeyCode::Up => {
+                        if self.focus == 0 {
                             self.to_picker.handle_event(key);
                         } else {
                             self.focus = self.focus.saturating_sub(1);
@@ -435,6 +449,15 @@ impl SendScreen {
                     frame,
                     inner.inner(Margin {
                         vertical: 6,
+                        horizontal: 2,
+                    }),
+                );
+
+                // Render dropdown overlay last so it appears on top of all fields
+                self.to_picker.render_overlay(
+                    frame,
+                    inner.inner(Margin {
+                        vertical: 3,
                         horizontal: 2,
                     }),
                 );

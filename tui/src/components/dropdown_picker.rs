@@ -118,6 +118,58 @@ impl<T: Searchable + Component<A> + 'static, A> DropdownPicker<T, A> {
             self.selected = self.filtered.len().saturating_sub(1);
         }
     }
+
+    /// Renders the dropdown list overlay on top of everything else.
+    /// Must be called **after** all other components in the same area have been
+    /// rendered so the list appears above them.
+    pub fn render_overlay(&mut self, frame: &mut Frame, area: Rect) {
+        if !self.open || self.filtered.is_empty() {
+            return;
+        }
+
+        let visible_count = self.filtered.len().min(self.max_visible);
+        let dropdown_area = Rect {
+            x: area.x,
+            y: area.y + 3,
+            width: area.width,
+            height: visible_count as u16,
+        };
+
+        // Render background that extends to max_visible height to mask content below
+        let mask_area = Rect {
+            x: area.x,
+            y: area.y + 3,
+            width: area.width,
+            height: self.max_visible as u16,
+        };
+        frame.render_widget(
+            Fill::new(" ").style(Style::new().bg(ui::SURFACE)),
+            mask_area,
+        );
+
+        let row_heights: Vec<Constraint> =
+            (0..visible_count).map(|_| Constraint::Length(1)).collect();
+        let rows = Layout::vertical(row_heights).split(dropdown_area);
+
+        for (display_idx, &item_idx) in self.filtered.iter().enumerate().take(self.max_visible) {
+            if let Some(&row_area) = rows.get(display_idx) {
+                let is_selected = display_idx == self.selected;
+                let item = &mut self.items[item_idx];
+                item.set_focused(is_selected);
+
+                let bg = if is_selected {
+                    ui::palette().primary
+                } else {
+                    ui::SURFACE
+                };
+                frame.render_widget(
+                    Fill::new(" ").style(Style::new().bg(bg)),
+                    row_area,
+                );
+                item.render(frame, row_area);
+            }
+        }
+    }
 }
 
 impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
@@ -132,52 +184,6 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
         };
 
         self.text_field.render(frame, text_field_area);
-
-        if self.open && !self.filtered.is_empty() {
-            let visible_count = self.filtered.len().min(self.max_visible);
-            let dropdown_area = Rect {
-                x: area.x,
-                y: area.y + 3,
-                width: area.width,
-                height: visible_count as u16,
-            };
-
-            // Render background that extends to max_visible height to mask content below
-            let mask_area = Rect {
-                x: area.x,
-                y: area.y + 3,
-                width: area.width,
-                height: self.max_visible as u16,
-            };
-            frame.render_widget(
-                Fill::new(" ").style(Style::new().bg(ui::SURFACE)),
-                mask_area,
-            );
-
-            let row_heights: Vec<Constraint> =
-                (0..visible_count).map(|_| Constraint::Length(1)).collect();
-            let rows = Layout::vertical(row_heights).split(dropdown_area);
-
-            for (display_idx, &item_idx) in self.filtered.iter().enumerate().take(self.max_visible)
-            {
-                if let Some(&row_area) = rows.get(display_idx) {
-                    let is_selected = display_idx == self.selected;
-                    let item = &mut self.items[item_idx];
-                    item.set_focused(is_selected);
-
-                    let bg = if is_selected {
-                        ui::palette().primary
-                    } else {
-                        ui::SURFACE
-                    };
-                    frame.render_widget(
-                        Fill::new(" ").style(Style::new().bg(bg)),
-                        row_area,
-                    );
-                    item.render(frame, row_area);
-                }
-            }
-        }
     }
 
     fn handle_event(&mut self, key: KeyEvent) -> Option<DropdownAction<A>> {

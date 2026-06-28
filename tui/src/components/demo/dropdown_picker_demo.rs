@@ -143,6 +143,7 @@ impl Component<Nav> for DropdownPickerDemo {
         }));
 
         self.picker.render(frame, chunks[0]);
+        self.picker.render_overlay(frame, chunks[0]);
 
         if self.selection.is_some() {
             let msg = Paragraph::new(Line::from(vec![theme.success(&self.message)]))
