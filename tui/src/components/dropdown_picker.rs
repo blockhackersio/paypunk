@@ -82,6 +82,11 @@ impl<T: Searchable + Component<A> + 'static, A> DropdownPicker<T, A> {
         self.text_field.value()
     }
 
+    pub fn set_value(&mut self, value: &str) {
+        self.text_field.set_value(value);
+        self.filter();
+    }
+
     pub fn set_items(&mut self, items: Vec<T>) {
         self.items = items;
         self.filter();
@@ -92,6 +97,10 @@ impl<T: Searchable + Component<A> + 'static, A> DropdownPicker<T, A> {
 
     pub fn selected_index(&self) -> Option<usize> {
         self.filtered.get(self.selected).copied()
+    }
+
+    pub fn get_item(&self, index: usize) -> Option<&T> {
+        self.items.get(index)
     }
 
     fn filter(&mut self) {

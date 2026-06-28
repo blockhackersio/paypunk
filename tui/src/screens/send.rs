@@ -1,7 +1,7 @@
 use crate::api::types::*;
 use crate::api::WalletApi;
 use crate::app::Nav;
-use crate::components::dropdown_picker::{DropdownPicker, Searchable};
+use crate::components::dropdown_picker::{DropdownAction, DropdownPicker, Searchable};
 use crate::components::text_field::{TextField, TextFieldConfig};
 use crate::components::Component;
 use crate::screens::help::HelpScreen;
@@ -239,7 +239,17 @@ impl Screen for SendScreen {
                     }
                     KeyCode::Enter => {
                         if self.focus == 0 && self.to_picker.is_open() {
-                            self.to_picker.handle_event(key);
+                            if let Some(DropdownAction::Selected(idx)) =
+                                self.to_picker.handle_event(key)
+                            {
+                                let addr = self
+                                    .to_picker
+                                    .get_item(idx)
+                                    .map(|item| item.entry.address.clone());
+                                if let Some(address) = addr {
+                                    self.to_picker.set_value(&address);
+                                }
+                            }
                         } else {
                             let review = api
                                 .submit_send_review(SendReviewInput {
