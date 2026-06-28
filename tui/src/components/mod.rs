@@ -1,6 +1,7 @@
 pub mod asset_item;
 pub mod button;
 pub mod demo;
+pub mod dropdown_picker;
 pub mod flex_box;
 pub mod list;
 pub mod text_field;
