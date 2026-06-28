@@ -8,6 +8,10 @@ use ratatui::widgets::Block;
 use ratatui::Frame;
 use std::marker::PhantomData;
 
+// TODO: when selected the dropdown should simply fill the value into the textfield.
+// TODO: the test "masked" content in the demo is not masked at all and is visible instead of being concealed by
+// the dropdown
+
 pub trait Searchable {
     fn search_text(&self) -> String;
 }
@@ -35,11 +39,7 @@ pub struct DropdownPicker<T, A> {
 }
 
 impl<T: Searchable + Component<A> + 'static, A> DropdownPicker<T, A> {
-    pub fn new(
-        label: impl Into<String>,
-        placeholder: impl Into<String>,
-        items: Vec<T>,
-    ) -> Self {
+    pub fn new(label: impl Into<String>, placeholder: impl Into<String>, items: Vec<T>) -> Self {
         let text_field = TextField::new(TextFieldConfig {
             label: label.into(),
             placeholder: placeholder.into(),
@@ -119,13 +119,11 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
                 dropdown_area,
             );
 
-            let row_heights: Vec<Constraint> = (0..visible_count)
-                .map(|_| Constraint::Length(1))
-                .collect();
+            let row_heights: Vec<Constraint> =
+                (0..visible_count).map(|_| Constraint::Length(1)).collect();
             let rows = Layout::vertical(row_heights).split(dropdown_area);
 
-            for (display_idx, &item_idx) in
-                self.filtered.iter().enumerate().take(self.max_visible)
+            for (display_idx, &item_idx) in self.filtered.iter().enumerate().take(self.max_visible)
             {
                 if let Some(&row_area) = rows.get(display_idx) {
                     let is_selected = display_idx == self.selected;
