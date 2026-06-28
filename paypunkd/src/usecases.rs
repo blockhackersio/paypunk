@@ -246,6 +246,8 @@ pub async fn bulk_derive_accounts(
 
     let mut accounts = Vec::new();
     for (protocol, path, viewing_key) in keys {
+        // TODO: account_index_from_path is fragile — custom derivations and Metamask keys use
+        // different path formats. Consider making account_index an explicit parameter.
         let account_index: u32 = path
             .rsplit('\'')
             .nth(1)

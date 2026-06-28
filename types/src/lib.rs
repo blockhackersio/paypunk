@@ -94,6 +94,11 @@ pub trait Protocol: Send + Sync {
     fn default_account_name(&self, account_index: u32) -> String;
 
     // ── Key operations ──────────────────────────────────────────────────────
+    /// Derive an address from a viewing key.
+    ///
+    /// `index` is the address index within the account. For Ethereum this is
+    /// typically ignored (one address per account); for Zcash it selects which
+    /// diversifier to use within the account.
     fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String>;
 }
 
