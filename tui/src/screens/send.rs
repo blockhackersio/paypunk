@@ -126,8 +126,8 @@ impl Screen for SendScreen {
     }
 
     async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
-        api.refresh_send(&self.chain_id).await;
-        self.send_data = api.send_state(&self.chain_id).await;
+        api.refresh_send(&self.account_id).await;
+        self.send_data = api.send_state(&self.account_id).await;
         let book = api.get_address_book().await;
         self.to_picker.set_items(
             book.entries
@@ -138,7 +138,7 @@ impl Screen for SendScreen {
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {
-        self.send_data = api.send_state(&self.chain_id).await;
+        self.send_data = api.send_state(&self.account_id).await;
         let book = api.get_address_book().await;
         self.to_picker.set_items(
             book.entries
