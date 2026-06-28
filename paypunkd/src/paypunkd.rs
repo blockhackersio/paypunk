@@ -319,6 +319,9 @@ impl Paypunkd {
 
             match keys {
                 Ok(derived) => {
+                    // TODO: the following is messy. is there a neater way to handle this? can index
+                    // be derived a different way? Also we need to fix the other instances where
+                    // index is extracted from the derivation path.
                     let mut indexes: HashMap<&ProtocolId, i32> = HashMap::new();
                     // Store pre-derived keys in the database
                     for (protocol, path, viewing_key) in &derived {

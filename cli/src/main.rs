@@ -49,11 +49,8 @@ async fn ensure_daemons(
 ) -> Result<DaemonGuard, Box<dyn std::error::Error>> {
     // If socket exists, try a quick connect to see if it's live
     if Path::new(paypunkd_socket).exists() {
-        match tokio::time::timeout(
-            Duration::from_millis(500),
-            Client::connect(paypunkd_socket),
-        )
-        .await
+        match tokio::time::timeout(Duration::from_millis(500), Client::connect(paypunkd_socket))
+            .await
         {
             Ok(Ok(_client)) => return Ok(DaemonGuard::new()),
             _ => {
@@ -64,8 +61,8 @@ async fn ensure_daemons(
         }
     }
 
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("Failed to get current exe path: {e}"))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Failed to get current exe path: {e}"))?;
 
     // Clean stale sockets before spawning
     let _ = fs::remove_file(keypunkd_socket);
@@ -79,8 +76,11 @@ async fn ensure_daemons(
         .spawn()
         .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
 
-    let keypunkd_wait =
-        tokio::time::timeout(Duration::from_secs(30), wait_for_sockets(&[keypunkd_socket])).await;
+    let keypunkd_wait = tokio::time::timeout(
+        Duration::from_secs(30),
+        wait_for_sockets(&[keypunkd_socket]),
+    )
+    .await;
     if keypunkd_wait.is_err() {
         let _ = keypunkd.kill();
         let _ = keypunkd.wait();
@@ -95,8 +95,11 @@ async fn ensure_daemons(
         .spawn()
         .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
 
-    let paypunkd_wait =
-        tokio::time::timeout(Duration::from_secs(30), wait_for_sockets(&[paypunkd_socket])).await;
+    let paypunkd_wait = tokio::time::timeout(
+        Duration::from_secs(30),
+        wait_for_sockets(&[paypunkd_socket]),
+    )
+    .await;
     if paypunkd_wait.is_err() {
         let _ = keypunkd.kill();
         let _ = paypunkd.kill();
@@ -410,6 +413,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     client.restore_seed(mnemonic, password).await?;
                     println!("Seed restored successfully");
                 }
+                // TODO: Remove one of these commands the protocol should be derived from the asset type
                 Commands::SubmitZcashTransfer {
                     to,
                     amount,
@@ -428,6 +432,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let path = client.derivation_path(ProtocolId::Zcash, account);
                     submit_intent_flow(&client, intent, &path).await?;
                 }
+                // TODO: See above
                 Commands::SubmitEthTransfer {
                     to,
                     amount,
@@ -446,6 +451,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let path = client.derivation_path(ProtocolId::Ethereum, account);
                     submit_intent_flow(&client, intent, &path).await?;
                 }
+                // TODO:
                 Commands::ApproveSignature {
                     password: _password,
                     account,

@@ -124,7 +124,8 @@ pub fn derive_address(
     _protocols: &ProtocolService,
     protocol: ProtocolId,
     viewing_key: &[u8],
-    index: u32,
+    index: u32, // TODO: this appears as if it is required for zcash - is it posisble to encode this
+                // into the derivation path?
 ) -> Result<String, String> {
     match protocol {
         ProtocolId::Zcash => paypunk_chains_zcash::address::derive_from_fvk(viewing_key, index)
@@ -249,6 +250,8 @@ pub fn get_pre_derived_key(
 }
 
 /// Extract the account index from a BIP44-style derivation path.
+// TODO: this is problematic as index can be defined in many ways with different protocols
+//       we should consider removing this and doing this another way
 fn account_index_from_path(path: &str) -> u32 {
     path.rsplit('\'')
         .nth(1)
@@ -258,6 +261,8 @@ fn account_index_from_path(path: &str) -> u32 {
 }
 
 /// Create Ethereum Account 0 from pre-derived viewing key.
+/// We prederive a batch of keys and then completely derive the
+/// address for the first account here.
 pub fn create_ethereum_account_0(
     db: &Database,
     repo: &dyn AccountsRepository,
@@ -322,6 +327,10 @@ pub async fn bulk_derive_accounts(
 
     let mut accounts = Vec::new();
     for (protocol, path, viewing_key) in keys {
+        // TODO: see note about account_index_from_path as this will likely lead to bugs unless we
+        // can standardise to take into account custom derivations and metamask keys alongside
+        // traditional account info etc. It might be better to consider account_index a data point
+        // given when the account is created.
         let account_index = account_index_from_path(&path);
 
         let id: String = (0..16)
@@ -373,8 +382,6 @@ pub fn get_account(
     repo.find_by_id(&conn, id)
 }
 
-// ── Stubs: depend on future work ───────────────────────────────────────────
-
 /// Query the spendable, pending, and total balance for the given address and asset.
 pub async fn get_balance(
     protocols: &ProtocolService,
@@ -385,8 +392,9 @@ pub async fn get_balance(
     protocols.get(protocol)?.get_balance(address, asset).await
 }
 
+// ── Stubs: depend on future work ───────────────────────────────────────────
+
 /// Create a transfer for the given protocol and account.
-/// TODO: Requires PCZT pipeline — not yet implemented.
 pub async fn create_transfer(
     _service: &KeypunkService,
     _protocols: &ProtocolService,
@@ -400,7 +408,6 @@ pub async fn create_transfer(
 }
 
 /// Fetch transaction history for the given protocol and account.
-/// TODO: Requires Page/HistoryEntry types and chain backend — not yet implemented.
 pub async fn get_history(
     _protocol: ProtocolId,
     _account: u32,
@@ -411,9 +418,8 @@ pub async fn get_history(
 }
 
 /// Sync the wallet state with the blockchain for the given protocol and account.
-/// TODO: Requires LSP/lightwalletd connection — not yet implemented.
 pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), String> {
-    todo!("sync_wallet: needs LSP/lightwalletd connection")
+    todo!("sync_wallet")
 }
 
 /// Finalize and broadcast a signed transaction to the network.
