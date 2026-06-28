@@ -8,6 +8,7 @@ struct MockData {
     accounts: Vec<AccountInfo>,
     next_account_index: u32,
     address_book: Vec<AddressBookEntry>,
+    balances: HashMap<String, String>, // account_id → raw spendable balance
 }
 
 pub struct MockWalletApi {
@@ -16,6 +17,7 @@ pub struct MockWalletApi {
     home_cache: Mutex<Option<HomeData>>,
     send_cache: Mutex<HashMap<String, SendData>>,
     receive_cache: Mutex<HashMap<String, ReceiveData>>,
+    pending_account_id: Mutex<Option<String>>,
 }
 
 impl MockWalletApi {
@@ -52,10 +54,15 @@ impl MockWalletApi {
                         protocol: "Zcash".into(),
                     },
                 ],
+                balances: HashMap::from([
+                    ("acc_1".into(), "1420000000000000000".into()),
+                    ("acc_2".into(), "500000000".into()),
+                ]),
             }),
             home_cache: Mutex::new(None),
             send_cache: Mutex::new(HashMap::new()),
             receive_cache: Mutex::new(HashMap::new()),
+            pending_account_id: Mutex::new(None),
         }
     }
 
@@ -98,74 +105,42 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn get_assets(&self, account_id: &str) -> AssetsData {
-        if account_id.contains("bip122") {
+        let data = self.data.lock().unwrap();
+        let raw_balance = data.balances.get(account_id).cloned();
+        drop(data);
+
+        if let Some(bal_str) = raw_balance {
+            let (decimals, ticker, name) = if account_id.contains("bip122") {
+                (8u8, "ZEC", "Zcash")
+            } else {
+                (18u8, "ETH", "Ethereum")
+            };
+            let divisor = 10u128.pow(decimals as u32) as f64;
+            let value = bal_str.parse::<f64>().unwrap_or(0.0) / divisor;
+            let holdings = format!("{:.8} {}", value, ticker);
+
             AssetsData {
                 assets: vec![AssetRow {
-                    name: "Zcash".into(),
-                    ticker: "ZEC".into(),
-                    price: "$28.50".into(),
-                    price_change: "▲ 1.25%".into(),
+                    name: name.into(),
+                    ticker: ticker.into(),
+                    price: if account_id.contains("bip122") {
+                        "$28.50".into()
+                    } else {
+                        "$2,000.00".into()
+                    },
+                    price_change: if account_id.contains("bip122") {
+                        "▲ 1.25%".into()
+                    } else {
+                        "▲ 5.45%".into()
+                    },
                     price_change_up: true,
-                    holdings_value: "$142.50".into(),
-                    holdings_amount: "5 ZEC".into(),
+                    holdings_value: "\u{2014}".into(),
+                    holdings_amount: holdings,
                     chain_id: account_id.into(),
                 }],
             }
         } else {
-            AssetsData {
-                assets: vec![
-                    AssetRow {
-                        name: "Ethereum".into(),
-                        ticker: "ETH".into(),
-                        price: "$2,000.00".into(),
-                        price_change: "▲ 5.45%".into(),
-                        price_change_up: true,
-                        holdings_value: "$4,000.00".into(),
-                        holdings_amount: "2 ETH".into(),
-                        chain_id: account_id.into(),
-                    },
-                    AssetRow {
-                        name: "Wrapped Bitcoin".into(),
-                        ticker: "WBTC".into(),
-                        price: "$60,000.00".into(),
-                        price_change: "▼ 0.15%".into(),
-                        price_change_up: false,
-                        holdings_value: "$1,000.00".into(),
-                        holdings_amount: "0.0001 WBTC".into(),
-                        chain_id: account_id.into(),
-                    },
-                    AssetRow {
-                        name: "USD Coin".into(),
-                        ticker: "USDC".into(),
-                        price: "$1.00".into(),
-                        price_change: "▲ 0.01%".into(),
-                        price_change_up: true,
-                        holdings_value: "$500.00".into(),
-                        holdings_amount: "500 USDC".into(),
-                        chain_id: account_id.into(),
-                    },
-                    AssetRow {
-                        name: "Chainlink".into(),
-                        ticker: "LINK".into(),
-                        price: "$14.25".into(),
-                        price_change: "▼ 2.10%".into(),
-                        price_change_up: false,
-                        holdings_value: "$285.00".into(),
-                        holdings_amount: "20 LINK".into(),
-                        chain_id: account_id.into(),
-                    },
-                    AssetRow {
-                        name: "Uniswap".into(),
-                        ticker: "UNI".into(),
-                        price: "$7.80".into(),
-                        price_change: "▲ 1.20%".into(),
-                        price_change_up: true,
-                        holdings_value: "$156.00".into(),
-                        holdings_amount: "20 UNI".into(),
-                        chain_id: account_id.into(),
-                    },
-                ],
-            }
+            AssetsData { assets: vec![] }
         }
     }
 
@@ -268,26 +243,31 @@ impl WalletApi for MockWalletApi {
     async fn get_send(&self, account_id: &str) -> SendData {
         let data = self.data.lock().unwrap();
         let account = data.accounts.iter().find(|a| a.account_id == account_id);
+        let balance = data
+            .balances
+            .get(account_id)
+            .cloned()
+            .unwrap_or_else(|| "0".into());
 
         match account {
             Some(acc) if acc.protocol == "Zcash" => SendData {
                 account_id: account_id.to_string(),
                 from_address: acc.address.clone(),
-                spendable_balance: "500000000".into(),
+                spendable_balance: balance,
                 decimals: 8,
                 chain_id: acc.chain_id.clone(),
             },
             Some(acc) => SendData {
                 account_id: account_id.to_string(),
                 from_address: acc.address.clone(),
-                spendable_balance: "1420000000000000000".into(),
+                spendable_balance: balance,
                 decimals: 18,
                 chain_id: acc.chain_id.clone(),
             },
             None => SendData {
                 account_id: account_id.to_string(),
                 from_address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
-                spendable_balance: "1420000000000000000".into(),
+                spendable_balance: balance,
                 decimals: 18,
                 chain_id: "eip155:1".into(),
             },
@@ -295,6 +275,7 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData {
+        *self.pending_account_id.lock().unwrap() = Some(input.account_id.clone());
         let fee_est = "409500000000000";
         let total = format!(
             "{}",
@@ -318,6 +299,22 @@ impl WalletApi for MockWalletApi {
             to_addr,
             "Ethereum".into(),
         ).await;
+
+        // Deduct from balance
+        let total = input.reviewed.total_amount.parse::<u128>().unwrap_or(0);
+        {
+            let mut data = self.data.lock().unwrap();
+            let account_id = self.pending_account_id.lock().unwrap().clone();
+            if let Some(ref aid) = account_id {
+                if let Some(bal) = data.balances.get_mut(aid) {
+                    let current = bal.parse::<u128>().unwrap_or(0);
+                    *bal = current.saturating_sub(total).to_string();
+                }
+            }
+        }
+
+        // Invalidate caches so next fetch returns fresh data
+        self.send_cache.lock().unwrap().clear();
 
         let tx_hash: String =
             "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b".into();

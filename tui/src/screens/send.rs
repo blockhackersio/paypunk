@@ -14,7 +14,6 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
-use ratatui_bubbletea_components::Progress;
 
 struct AddressBookEntryItem {
     entry: AddressBookEntry,
@@ -71,6 +70,11 @@ enum SendStep {
     Confirm,
 }
 
+struct PendingSend {
+    review: ReviewedDetails,
+    password: String,
+}
+
 pub struct SendScreen {
     account_id: String,
     account_name: String,
@@ -85,6 +89,8 @@ pub struct SendScreen {
     focus: usize,
     copied_feedback: Option<String>,
     send_data: ApiState<SendData>,
+    pending_send: Option<PendingSend>,
+    spinner_frame: u32,
 }
 
 impl SendScreen {
@@ -115,6 +121,8 @@ impl SendScreen {
             focus: 0,
             copied_feedback: None,
             send_data: ApiState::Loading,
+            pending_send: None,
+            spinner_frame: 0,
         }
     }
 }
@@ -135,6 +143,25 @@ impl Screen for SendScreen {
                 .map(AddressBookEntryItem::new)
                 .collect(),
         );
+    }
+
+    async fn tick(&mut self, api: &mut dyn WalletApi) {
+        if matches!(self.step, SendStep::Sending) {
+            if let Some(pending) = self.pending_send.take() {
+                let result = api
+                    .submit_send_confirm(SendConfirmInput {
+                        reviewed: pending.review,
+                        auth_confirmation: AuthConfirmation {
+                            auth_type: "password".into(),
+                            value: pending.password,
+                        },
+                        signed_tx: String::new(),
+                    })
+                    .await;
+                self.result = Some(result);
+                self.step = SendStep::Confirm;
+            }
+        }
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {
@@ -232,10 +259,18 @@ impl Screen for SendScreen {
                 let max_focus = 1;
                 match key.code {
                     KeyCode::Tab | KeyCode::Down => {
-                        self.focus = (self.focus + 1).min(max_focus);
+                        if self.focus == 0 && self.to_picker.is_open() {
+                            self.to_picker.handle_event(key);
+                        } else {
+                            self.focus = (self.focus + 1).min(max_focus);
+                        }
                     }
                     KeyCode::BackTab | KeyCode::Up => {
-                        self.focus = self.focus.saturating_sub(1);
+                        if self.focus == 0 && self.to_picker.is_open() {
+                            self.to_picker.handle_event(key);
+                        } else {
+                            self.focus = self.focus.saturating_sub(1);
+                        }
                     }
                     KeyCode::Enter => {
                         if self.focus == 0 && self.to_picker.is_open() {
@@ -284,25 +319,17 @@ impl Screen for SendScreen {
             SendStep::Review => match key.code {
                 KeyCode::Enter => {
                     self.step = SendStep::Sending;
+                    self.spinner_frame = 0;
                     if let Some(ref review) = self.review_data {
-                        let password = self.password_field.value().to_string();
-                        let result = api
-                            .submit_send_confirm(SendConfirmInput {
-                                reviewed: ReviewedDetails {
-                                    to_address: review.to_address.clone(),
-                                    amount: review.amount.clone(),
-                                    fee_estimate: review.fee_estimate.clone(),
-                                    total_amount: review.total_amount.clone(),
-                                },
-                                auth_confirmation: AuthConfirmation {
-                                    auth_type: "password".into(),
-                                    value: password,
-                                },
-                                signed_tx: String::new(),
-                            })
-                            .await;
-                        self.result = Some(result);
-                        self.step = SendStep::Confirm;
+                        self.pending_send = Some(PendingSend {
+                            review: ReviewedDetails {
+                                to_address: review.to_address.clone(),
+                                amount: review.amount.clone(),
+                                fee_estimate: review.fee_estimate.clone(),
+                                total_amount: review.total_amount.clone(),
+                            },
+                            password: self.password_field.value().to_string(),
+                        });
                     }
                 }
                 KeyCode::Esc => {
@@ -526,37 +553,34 @@ impl SendScreen {
         }
     }
 
-    fn render_sending(&self, frame: &mut Frame, area: Rect) {
+    fn render_sending(&mut self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
         let block = theme.titled_block("Broadcasting");
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let progress = Progress::from_percent(65)
-            .width(20)
-            .label("Broadcasting")
-            .theme(theme);
-        frame.render_widget(
-            &progress,
-            inner.inner(Margin {
-                vertical: 2,
-                horizontal: 4,
-            }),
-        );
+        self.spinner_frame += 1;
+        let spinner = match self.spinner_frame % 4 {
+            0 => "◐",
+            1 => "◓",
+            2 => "◑",
+            3 => "◒",
+            _ => "◐",
+        };
 
         let lines = vec![
-            Line::from(vec![theme.accent(" Sending transaction... ")]).centered(),
+            Line::from(vec![theme.accent(format!(" {} Broadcasting transaction... ", spinner))])
+                .centered(),
             Line::from(""),
-            Line::from(vec![
-                theme.muted("Please wait while your transaction is broadcast")
-            ])
-            .centered(),
+            Line::from(vec![theme.muted("Please wait while your transaction is sent")]).centered(),
+            Line::from(""),
+            Line::from(vec![theme.muted("This may take a moment...")]).centered(),
         ];
         let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
         frame.render_widget(
             para,
             inner.inner(Margin {
-                vertical: 4,
+                vertical: 3,
                 horizontal: 2,
             }),
         );
