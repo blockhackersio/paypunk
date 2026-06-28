@@ -52,6 +52,7 @@ impl TextField {
 
     pub fn set_value(&mut self, value: &str) {
         self.input_state.set_value(value.to_string());
+        self.input_state.end();
     }
 
     pub fn set_feedback(&mut self, feedback: Option<Feedback>) {

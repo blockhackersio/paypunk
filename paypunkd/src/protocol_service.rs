@@ -1,7 +1,4 @@
-use paypunk_chains_ethereum::protocol::EthereumProtocol;
-use paypunk_chains_ethereum::rpc::EthRpcClient;
-use paypunk_chains_zcash::protocol::ZcashProtocol;
-use paypunk_types::{Protocol, ProtocolId};
+use paypunk_types::{Protocol, ProtocolId, ProtocolMetadata};
 use std::collections::HashMap;
 
 /// A registry of non-signer protocol implementations.
@@ -20,16 +17,6 @@ impl ProtocolService {
         }
     }
 
-    pub fn with_ethereum<T: EthRpcClient + 'static>(
-        zcash: ZcashProtocol,
-        ethereum: EthereumProtocol<T>,
-    ) -> Self {
-        let mut s = Self::new();
-        s.register(Box::new(zcash));
-        s.register(Box::new(ethereum));
-        s
-    }
-
     pub fn register(&mut self, protocol: Box<dyn Protocol>) {
         self.protocols.insert(protocol.protocol_id(), protocol);
     }
@@ -43,5 +30,19 @@ impl ProtocolService {
 
     pub fn protocols(&self) -> Vec<ProtocolId> {
         self.protocols.keys().copied().collect()
+    }
+
+    pub fn protocol_metadata(&self) -> Vec<ProtocolMetadata> {
+        self.protocols
+            .values()
+            .map(|p| ProtocolMetadata {
+                id: p.protocol_id(),
+                chain_id: format!("{}:{}", p.chain_id().namespace, p.chain_id().reference),
+                native_asset: p.native_asset(),
+                ticker: p.ticker().to_string(),
+                decimals: p.decimals(),
+                block_explorer_template: p.block_explorer_url("{tx_hash}"),
+            })
+            .collect()
     }
 }

@@ -58,6 +58,17 @@ impl Screen for AssetsScreen {
         self.data = Some(data);
     }
 
+    async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
+        let data = api.get_assets(&self.account.account_id).await;
+        let items: Vec<Box<dyn Component<AssetAction>>> = data
+            .assets
+            .iter()
+            .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
+            .collect();
+        self.list = List::new(items).row_height(2);
+        self.data = Some(data);
+    }
+
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
         let theme = ui::theme();
         let area = frame.area();

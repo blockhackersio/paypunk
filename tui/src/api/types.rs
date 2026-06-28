@@ -232,3 +232,17 @@ pub struct RevealPhraseInput {
 pub struct UnlockData {
     pub accounts_count: u32,
 }
+
+// ── Address Book ──
+
+#[derive(Debug, Clone)]
+pub struct AddressBookEntry {
+    pub name: String,
+    pub address: String,
+    pub protocol: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AddressBookData {
+    pub entries: Vec<AddressBookEntry>,
+}

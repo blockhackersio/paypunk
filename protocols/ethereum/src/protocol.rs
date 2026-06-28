@@ -22,11 +22,6 @@ impl<T: EthRpcClient> EthereumProtocol<T> {
     pub fn new(client: T) -> Self {
         Self { client }
     }
-
-    fn address_from_pubkey(&self, public_key: &[u8]) -> Result<String, String> {
-        let addr = address::derive_from_pubkey(public_key).map_err(|e| e.to_string())?;
-        Ok(addr.to_string())
-    }
 }
 
 #[async_trait]
@@ -66,7 +61,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
 
         let to_addr: Address = to.parse().map_err(|e| format!("invalid address: {e}"))?;
 
-        let amount_u64 = parse_amount(amount)?;
+        let amount_wei = parse_amount(amount)?;
         let chain_id = self.client.get_chain_id().await?;
         let nonce = self.client.get_transaction_count(from).await?;
         let gas_limit = 21_000u64;
@@ -87,7 +82,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             max_fee_per_gas: gas_price,
             max_priority_fee_per_gas: priority_fee,
             to: TxKind::Call(to_addr),
-            value: U256::from(amount_u64),
+            value: amount_wei,
             input,
             access_list: Default::default(),
         };
@@ -136,6 +131,46 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
         self.client.send_raw_transaction(finalized_tx).await
     }
+
+    // ── Protocol metadata ───────────────────────────────────────────────────
+
+    fn chain_id(&self) -> ChainId {
+        ChainId {
+            namespace: "eip155".to_string(),
+            reference: "1".to_string(),
+        }
+    }
+
+    fn native_asset(&self) -> String {
+        "eip155:1/slip44:60".to_string()
+    }
+
+    fn ticker(&self) -> &str {
+        "ETH"
+    }
+
+    fn decimals(&self) -> u8 {
+        18
+    }
+
+    fn block_explorer_url(&self, tx_hash: &str) -> String {
+        format!("https://etherscan.io/tx/{}", tx_hash)
+    }
+
+    fn default_derivation_path(&self, account: u32) -> String {
+        crate::derivation_path(account)
+    }
+
+    fn default_account_name(&self, account_index: u32) -> String {
+        format!("Ethereum Account {account_index}")
+    }
+
+    // ── Key operations ──────────────────────────────────────────────────────
+
+    fn derive_address_from_viewing_key(&self, vk: &[u8], _index: u32) -> Result<String, String> {
+        let addr = address::derive_from_pubkey(vk).map_err(|e| e.to_string())?;
+        Ok(addr.to_string())
+    }
 }
 
 /// Encode an ERC-20 `transfer(address,uint256)` call.
@@ -153,15 +188,16 @@ fn encode_erc20_transfer(recipient: &Address, amount: u64) -> alloy_primitives::
     alloy_primitives::Bytes::from(data)
 }
 
-fn parse_amount(amount: &str) -> Result<u64, String> {
+fn parse_amount(amount: &str) -> Result<U256, String> {
     // Parse human-readable amount string (e.g. "1.5", "0.05")
+    let wei_factor = U256::from(1_000_000_000_000_000_000u128);
     let parts: Vec<&str> = amount.split('.').collect();
     match parts.len() {
         1 => {
             let v: u64 = parts[0]
                 .parse()
                 .map_err(|e| format!("invalid amount: {e}"))?;
-            Ok(v * 1_000_000_000_000_000_000) // Convert to wei
+            Ok(wei_factor * U256::from(v))
         }
         2 => {
             let whole: u64 = parts[0]
@@ -171,7 +207,7 @@ fn parse_amount(amount: &str) -> Result<u64, String> {
             let fraction: u64 = fraction_str[..18]
                 .parse()
                 .map_err(|e| format!("invalid amount: {e}"))?;
-            Ok(whole * 1_000_000_000_000_000_000 + fraction)
+            Ok(wei_factor * U256::from(whole) + U256::from(fraction))
         }
         _ => Err("invalid amount format".to_string()),
     }
@@ -187,13 +223,13 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
         }
     }
 
-    fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String> {
-        if path.len() < 4 {
-            return Err("path must be at least 4 bytes (account)".to_string());
-        }
-        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
-        let secret_key = derive_ethereum_key(seed, account, 0);
-        Ok(secret_key
+    fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
+        let parsed = bip32::DerivationPath::from_str(path)
+            .map_err(|e| format!("invalid derivation path: {e}"))?;
+        let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
+            .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
+        Ok(key
+            .private_key()
             .verifying_key()
             .to_encoded_point(false)
             .as_bytes()
@@ -224,12 +260,8 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
         postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
     }
 
-    fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String> {
-        if path.len() < 4 {
-            return Err("path must be at least 4 bytes (account)".to_string());
-        }
-        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
-        self.sign_transaction_inner(seed, account, artifact)
+    fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String> {
+        self.sign_transaction_inner(seed, path, artifact)
     }
 }
 
@@ -237,12 +269,11 @@ impl<T: EthRpcClient> EthereumProtocol<T> {
     fn sign_transaction_inner(
         &self,
         seed: &[u8; 64],
-        account: u32,
+        path: &str,
         transaction: &[u8],
     ) -> Result<Vec<u8>, String> {
-        let path = format!("m/44'/60'/{account}'/0/0");
         let parsed =
-            bip32::DerivationPath::from_str(&path).map_err(|e| format!("invalid path: {e}"))?;
+            bip32::DerivationPath::from_str(path).map_err(|e| format!("invalid path: {e}"))?;
         let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
             .map_err(|e| format!("BIP32 derivation failed: {e}"))?;
         let sk = key.private_key();
@@ -278,15 +309,6 @@ impl<T: EthRpcClient> EthereumProtocol<T> {
         signed.eip2718_encode(&mut out);
         Ok(out)
     }
-}
-
-/// Derive a k256 ECDSA signing key from a BIP39 seed at the given BIP44 path.
-fn derive_ethereum_key(seed: &[u8; 64], account: u32, index: u32) -> SigningKey {
-    let path = format!("m/44'/60'/{account}'/0/{index}");
-    let parsed = bip32::DerivationPath::from_str(&path).expect("valid BIP44 path");
-    let key = bip32::ExtendedPrivateKey::<SigningKey>::derive_from_path(*seed, &parsed)
-        .expect("BIP32 derivation");
-    key.private_key().clone()
 }
 
 #[cfg(test)]
@@ -406,8 +428,8 @@ mod tests {
         let unsigned = protocol.build(&intent).await.unwrap();
         assert!(!unsigned.is_empty());
 
-        let path = 0u32.to_le_bytes();
-        let signed = protocol.sign(&seed, &path, &unsigned).unwrap();
+        let path = "m/44'/60'/0'/0/0";
+        let signed = protocol.sign(&seed, path, &unsigned).unwrap();
         assert!(!signed.is_empty());
 
         let finalized = protocol.finalize(&signed).unwrap();

@@ -1,42 +1,51 @@
-use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PaypunkdRequest {
+    // Get the public key for Keypunk to encrypt data to keypunk
     GetKeypunkEncryptionKey,
+    // Generate a new seed phrase and encrypt it with the given password
     GenerateSeed {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     },
+    // Restore the given seed phrase and encrypt it with the given password
     RestoreSeed {
         encrypted_mnemonic: Vec<u8>,
         encrypted_password: Vec<u8>,
-        client_public_key: [u8; 32],
+        client_public_key: [u8; 32], // Clients public key for further communication
     },
+    // Submit a intent that can be interpreted as a chain operation
     SubmitIntent {
         intent: Intent,
-        derivation_path: Vec<u8>,
+        derivation_path: String, // Define the account using the derivation path
     },
+    // Approve a signature request. User includes their password with the request - plus the raw article a signature and a hashed pasword
     ApproveSignature {
-        encrypted_payload: Vec<u8>,
+        encrypted_payload: Vec<u8>, // Encode payload: raw_len(4) + raw + sig_len(4) + sig + hashed_pw
         ephemeral_public_key: [u8; 32],
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     },
+    // Derive a new address from the given derivation path for the given protocol
     DeriveAddress {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         protocol: ProtocolId,
-        account: String,
-        index: u32,
+        derivation_path: String,
+        index: u32, // TODO: why do we need this index?
     },
+    // Request an address balance
     GetBalance {
         address: String,
         asset: String,
     },
+    // Broadcast a signed transaction
     BroadcastTransaction {
         protocol: ProtocolId,
         raw_tx: Vec<u8>,
     },
+    // Create an account in the database based on the derivation path and account index.
     CreateAccount {
         protocol: ProtocolId,
         derivation_path: String,
@@ -49,16 +58,18 @@ pub enum PaypunkdRequest {
     },
     GetPaypunkdEncryptionKey,
     HasSeed,
+    GetSupportedProtocols,
     Unlock {
         encrypted_db_password: Vec<u8>,
         ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
     },
     BulkDeriveAccounts {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
-        count: u32,
+        paths: Vec<(ProtocolId, String)>,
     },
 }
 
@@ -103,6 +114,10 @@ pub enum PaypunkdResponse {
     },
     HasSeed {
         exists: bool,
+    },
+    SupportedProtocols {
+        protocols: Vec<ProtocolId>,
+        metadata: Vec<ProtocolMetadata>,
     },
     UnlockSuccess {
         accounts_count: u32,

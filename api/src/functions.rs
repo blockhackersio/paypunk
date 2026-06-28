@@ -1,7 +1,7 @@
 use argon2::Argon2;
 use bip39::{Language, Mnemonic};
 use keypunkd::crypto::Keypair;
-use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId};
 use zeroize::Zeroizing;
 
 fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
@@ -12,7 +12,19 @@ fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
     Zeroizing::new(hex::encode(hash))
 }
 
-/// Check whether a wallet seed exists on keypunkd.
+/// Return the standard derivation path for the given protocol and account index.
+///
+/// Delegates to the protocol crate's own `derivation_path()` function so that
+/// each chain owns its path format. This also allows callers to bypass the
+/// dispatcher and call protocol-specific functions directly when a custom
+/// derivation is needed (e.g., disposable addresses).
+pub fn derivation_path(protocol: ProtocolId, account: u32) -> String {
+    match protocol {
+        ProtocolId::Zcash => paypunk_chains_zcash::derivation_path(account),
+        ProtocolId::Ethereum => paypunk_chains_ethereum::derivation_path(account),
+        _ => panic!("derivation_path not implemented for {protocol:?}"),
+    }
+}
 pub async fn check_wallet_exists(
     service: &paypunkd::services::PaypunkService,
 ) -> Result<bool, String> {
@@ -32,10 +44,12 @@ pub fn generate_mnemonic() -> Zeroizing<String> {
 /// 1. Creates ephemeral keypair
 /// 2. Fetches keypunkd's public key from paypunkd
 /// 3. Fetches paypunkd's public encryption key
-/// 4. Encrypts password to paypunkd's key (for DB unlock)
-/// 5. Encrypts password to keypunkd's key (for bulk derivation)
-/// 6. Sends Unlock to paypunkd with both encrypted payloads
-/// 7. Returns accounts count from UnlockSuccess
+/// 4. Queries paypunkd for supported protocols
+/// 5. Builds derivation paths for each supported protocol
+/// 6. Encrypts password to paypunkd's key (for DB unlock)
+/// 7. Encrypts password to keypunkd's key (for bulk derivation)
+/// 8. Sends Unlock to paypunkd with both encrypted payloads and paths
+/// 9. Returns accounts count from UnlockSuccess
 pub async fn unlock(
     service: &paypunkd::services::PaypunkService,
     password: Zeroizing<String>,
@@ -52,12 +66,22 @@ pub async fn unlock(
     let encrypted_db_password =
         client_keypair.encrypt(hash_for_domain(&password, b"paypunkd-db-key"), &paypunkd_pk);
 
+    // Query supported protocols and build derivation paths for each (accounts 0..30)
+    let protocols = service.get_supported_protocols().await?;
+    let mut paths = Vec::new();
+    for &protocol in &protocols {
+        for account in 0..30 {
+            paths.push((protocol, derivation_path(protocol, account)));
+        }
+    }
+
     service
         .unlock(
             encrypted_db_password,
             client_pk,
             encrypted_keypunkd_password,
             client_pk,
+            paths,
         )
         .await
 }
@@ -99,12 +123,12 @@ pub async fn restore_seed(
         .await
 }
 
-/// Derive an address for the given protocol, CAIP-10 account, and index.
+/// Derive an address for the given protocol, account index, and address index.
 pub async fn derive_address(
     service: &paypunkd::services::PaypunkService,
     password: Zeroizing<String>,
     protocol: ProtocolId,
-    account: String,
+    account: u32,
     index: u32,
 ) -> Result<String, String> {
     let client_keypair = Keypair::new();
@@ -112,9 +136,10 @@ pub async fn derive_address(
     let encrypted_password =
         client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
     let client_pk = client_keypair.public_key();
+    let derivation_path = derivation_path(protocol, account);
 
     service
-        .derive_address(encrypted_password, client_pk, protocol, account, index)
+        .derive_address(encrypted_password, client_pk, protocol, derivation_path, index)
         .await
 }
 
@@ -125,10 +150,10 @@ pub async fn derive_address(
 pub async fn submit_intent(
     service: &paypunkd::services::PaypunkService,
     intent: Intent,
-    derivation_path: &[u8],
+    derivation_path: &str,
 ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
     match service
-        .submit_intent(intent, derivation_path.to_vec())
+        .submit_intent(intent, derivation_path.to_string())
         .await?
     {
         paypunkd::messages::PaypunkdResponse::SignablePreview {
@@ -154,7 +179,7 @@ pub async fn approve_signature(
     raw_artifact: &[u8],
     keypunkd_signature: &[u8],
     password: Zeroizing<String>,
-    derivation_path: &[u8],
+    derivation_path: &str,
 ) -> Result<Vec<u8>, String> {
     let client_keypair = Keypair::new();
     let server_pk = service.get_keypunk_encryption_key().await?;
@@ -172,7 +197,7 @@ pub async fn approve_signature(
     let encrypted_payload = client_keypair.encrypt_bytes(&payload, &server_pk);
 
     service
-        .approve_signature(encrypted_payload, client_pk, derivation_path.to_vec())
+        .approve_signature(encrypted_payload, client_pk, derivation_path.to_string())
         .await
 }
 
@@ -183,30 +208,6 @@ pub async fn get_balance(
     asset: String,
 ) -> Result<Balance, String> {
     service.get_balance(address, asset).await
-}
-
-/// Legacy balance query using protocol + account + AssetId.
-pub async fn get_balance_legacy(
-    service: &paypunkd::services::PaypunkService,
-    protocol: ProtocolId,
-    account: u32,
-    asset: AssetId,
-) -> Result<Balance, String> {
-    // Convert to CAIP format
-    let address = match protocol {
-        ProtocolId::Ethereum => format!("eip155:1:{account}"),
-        ProtocolId::Zcash => format!("zcash:mainnet:{account}"),
-        _ => return Err("unsupported protocol".to_string()),
-    };
-    let asset_str = match asset {
-        AssetId::Native => match protocol {
-            ProtocolId::Ethereum => "eip155:1/slip44:60".to_string(),
-            ProtocolId::Zcash => "zcash:mainnet/slip44:133".to_string(),
-            _ => return Err("unsupported protocol".to_string()),
-        },
-        AssetId::Token(addr) => addr,
-    };
-    get_balance(service, address, asset_str).await
 }
 
 /// Broadcast a finalized, signed transaction to the network.

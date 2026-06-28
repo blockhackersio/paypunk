@@ -28,4 +28,7 @@ pub trait Screen {
     async fn handle_paste(&mut self, _text: &str, _api: &mut dyn WalletApi) -> Nav {
         Nav::None
     }
+    /// Called on every render tick (every ~50ms). Screens can use this for
+    /// polling async operations (e.g. checking if a background send completed).
+    async fn tick(&mut self, _api: &mut dyn WalletApi) {}
 }

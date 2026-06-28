@@ -2,6 +2,7 @@ use crate::api::WalletApi;
 use crate::app::Nav;
 use crate::components::demo::asset_list_demo::AssetListDemo;
 use crate::components::demo::button_demo::ButtonDemo;
+use crate::components::demo::dropdown_picker_demo::DropdownPickerDemo;
 use crate::components::demo::feedback_demo::FeedbackDemo;
 use crate::components::demo::list_demo::ListDemo;
 use crate::components::demo::password_demo::PasswordDemo;
@@ -25,6 +26,7 @@ const DEMO_LABELS: &[&str] = &[
     "Button",
     "List",
     "Asset List",
+    "Dropdown Picker",
 ];
 
 enum DemoVariant {
@@ -34,6 +36,7 @@ enum DemoVariant {
     Button(ButtonDemo),
     List(ListDemo),
     AssetList(AssetListDemo),
+    DropdownPicker(DropdownPickerDemo),
 }
 
 pub struct ComponentDemoScreen {
@@ -51,6 +54,7 @@ impl ComponentDemoScreen {
                 DemoVariant::Button(ButtonDemo::new()),
                 DemoVariant::List(ListDemo::new()),
                 DemoVariant::AssetList(AssetListDemo::new()),
+                DemoVariant::DropdownPicker(DropdownPickerDemo::new()),
             ],
             active: 0,
         }
@@ -64,6 +68,7 @@ impl ComponentDemoScreen {
             DemoVariant::Button(d) => f(d),
             DemoVariant::List(d) => f(d),
             DemoVariant::AssetList(d) => f(d),
+            DemoVariant::DropdownPicker(d) => f(d),
         }
     }
 

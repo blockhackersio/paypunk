@@ -1,6 +1,6 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
-use paypunk_types::{Account, AssetId, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -52,7 +52,7 @@ impl Client {
         crate::functions::restore_seed(&self.service, mnemonic, password).await
     }
 
-    /// Derive an address for the given protocol, CAIP-10 account, and diversifier index.
+    /// Derive an address for the given protocol, account index, and diversifier index.
     ///
     /// Fetches the viewing key from keypunkd (using the wallet password) and derives
     /// the address locally via the protocol implementation.
@@ -60,7 +60,7 @@ impl Client {
         &self,
         password: Zeroizing<String>,
         protocol: ProtocolId,
-        account: String,
+        account: u32,
         index: u32,
     ) -> Result<String, String> {
         crate::functions::derive_address(&self.service, password, protocol, account, index).await
@@ -73,7 +73,7 @@ impl Client {
     pub async fn submit_intent(
         &self,
         intent: Intent,
-        derivation_path: &[u8],
+        derivation_path: &str,
     ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
         crate::functions::submit_intent(&self.service, intent, derivation_path).await
     }
@@ -87,7 +87,7 @@ impl Client {
         raw_artifact: &[u8],
         keypunkd_signature: &[u8],
         password: Zeroizing<String>,
-        derivation_path: &[u8],
+        derivation_path: &str,
     ) -> Result<Vec<u8>, String> {
         crate::functions::approve_signature(
             &self.service,
@@ -102,16 +102,6 @@ impl Client {
     /// Query the balance for the given address and asset (CAIP-10 and CAIP-19).
     pub async fn get_balance(&self, address: String, asset: String) -> Result<Balance, String> {
         crate::functions::get_balance(&self.service, address, asset).await
-    }
-
-    /// Legacy balance query using protocol + account + AssetId.
-    pub async fn get_balance_legacy(
-        &self,
-        protocol: ProtocolId,
-        account: u32,
-        asset: AssetId,
-    ) -> Result<Balance, String> {
-        crate::functions::get_balance_legacy(&self.service, protocol, account, asset).await
     }
 
     /// Broadcast a finalized, signed transaction to the network.
@@ -152,6 +142,15 @@ impl Client {
         crate::functions::get_account(&self.service, id).await
     }
 
+    /// Return the standard derivation path for the given protocol and account index.
+    ///
+    /// Delegates to the protocol crate's own derivation logic:
+    /// - Zcash: `m/44'/133'/{account}'`
+    /// - Ethereum (Metamask): `m/44'/60'/{account}'/0/0`
+    pub fn derivation_path(&self, protocol: ProtocolId, account: u32) -> String {
+        crate::functions::derivation_path(protocol, account)
+    }
+
     /// Check whether a wallet seed exists on keypunkd.
     pub async fn check_wallet_exists(&self) -> Result<bool, String> {
         crate::functions::check_wallet_exists(&self.service).await
@@ -165,5 +164,10 @@ impl Client {
     /// Get paypunkd's public encryption key.
     pub async fn get_paypunkd_encryption_key(&self) -> Result<[u8; 32], String> {
         self.service.get_paypunkd_encryption_key().await
+    }
+
+    /// Get protocol metadata from the daemon.
+    pub async fn get_protocol_metadata(&self) -> Result<Vec<ProtocolMetadata>, String> {
+        self.service.get_protocol_metadata().await
     }
 }

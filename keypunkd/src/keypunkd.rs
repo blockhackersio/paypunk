@@ -96,7 +96,7 @@ impl<S: Storage> Keypunkd<S> {
         &self,
         raw_artifact: Vec<u8>,
         protocol: ProtocolId,
-        derivation_path: Vec<u8>,
+        derivation_path: String,
         msg: &IpcMessage,
     ) -> KeypunkdResponse {
         info!(?protocol, "handling PreviewArtifact");
@@ -111,7 +111,7 @@ impl<S: Storage> Keypunkd<S> {
         let mut to_sign = Vec::new();
         to_sign.extend_from_slice(&raw_artifact);
         to_sign.extend_from_slice(&parsed_summary);
-        to_sign.extend_from_slice(&derivation_path);
+        to_sign.extend_from_slice(derivation_path.as_bytes());
         let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_sign);
 
         // Encrypt the attestation to the client's public key so only they can decrypt it
@@ -130,7 +130,7 @@ impl<S: Storage> Keypunkd<S> {
         &self,
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
-        derivation_path: Vec<u8>,
+        derivation_path: String,
         sender_public_key: Option<[u8; 32]>,
     ) -> KeypunkdResponse {
         info!("handling AuthorizeArtifact");
@@ -185,7 +185,7 @@ impl<S: Storage> Keypunkd<S> {
             let mut to_verify = Vec::new();
             to_verify.extend_from_slice(raw_artifact);
             to_verify.extend_from_slice(summary);
-            to_verify.extend_from_slice(&derivation_path);
+            to_verify.extend_from_slice(derivation_path.as_bytes());
             let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&to_verify);
 
             let peer_pk = sender_public_key.unwrap_or([0u8; 32]);
@@ -270,11 +270,10 @@ impl<S: Storage> Keypunkd<S> {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         protocol: ProtocolId,
-        account: u32,
+        derivation_path: String,
     ) -> KeypunkdResponse {
-        info!(?protocol, account, "handling ExportViewingKey");
+        info!(?protocol, path = %derivation_path, "handling ExportViewingKey");
 
-        // Derive seed from store using the provided password
         let seed = match usecases::decrypt_seed(
             &encrypted_password,
             &client_public_key,
@@ -287,7 +286,7 @@ impl<S: Storage> Keypunkd<S> {
 
         self.respond(
             "export_viewing_key",
-            usecases::export_viewing_key(&seed, &self.protocols, protocol, account),
+            usecases::export_viewing_key(&seed, &self.protocols, protocol, &derivation_path),
             |key| KeypunkdResponse::ViewingKey { key },
         )
     }
@@ -302,14 +301,9 @@ impl<S: Storage> Keypunkd<S> {
         &self,
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
-        protocols: Vec<ProtocolId>,
-        start_account: u32,
-        count: u32,
+        paths: Vec<(ProtocolId, String)>,
     ) -> KeypunkdResponse {
-        info!(
-            ?protocols,
-            start_account, count, "handling BulkExportViewingKeys"
-        );
+        info!(path_count = paths.len(), "handling BulkExportViewingKeys");
 
         let seed = match usecases::decrypt_seed(
             &encrypted_password,
@@ -323,13 +317,7 @@ impl<S: Storage> Keypunkd<S> {
 
         self.respond(
             "bulk_export_viewing_keys",
-            usecases::bulk_export_viewing_keys(
-                &seed,
-                &self.protocols,
-                &protocols,
-                start_account,
-                count,
-            ),
+            usecases::bulk_export_viewing_keys(&seed, &self.protocols, &paths),
             |keys| KeypunkdResponse::ViewingKeys { keys },
         )
     }
@@ -374,22 +362,16 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 encrypted_password,
                 client_public_key,
                 protocol,
-                account,
-            } => self.export_viewing_key(encrypted_password, client_public_key, protocol, account),
+                derivation_path,
+            } => {
+                self.export_viewing_key(encrypted_password, client_public_key, protocol, derivation_path)
+            }
             KeypunkdRequest::HasSeed => self.has_seed(),
             KeypunkdRequest::BulkExportViewingKeys {
                 encrypted_password,
                 client_public_key,
-                protocols,
-                start_account,
-                count,
-            } => self.bulk_export_viewing_keys(
-                encrypted_password,
-                client_public_key,
-                protocols,
-                start_account,
-                count,
-            ),
+                paths,
+            } => self.bulk_export_viewing_keys(encrypted_password, client_public_key, paths),
         };
 
         let encoded =

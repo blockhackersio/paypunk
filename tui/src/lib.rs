@@ -93,7 +93,9 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
                 Event::Paste(text) => {
                     app.handle_paste(&text).await;
                 }
-                Event::Resize(_, _) => {}
+                Event::Resize(_, _) => {
+                    app.tick().await;
+                }
                 _ => {}
             }
         }

@@ -45,4 +45,8 @@ pub trait WalletApi {
 
     async fn check_wallet_exists(&self) -> bool;
     async fn unlock(&self, password: String) -> Result<UnlockData, ApiError>;
+
+    // Address book
+    async fn get_address_book(&self) -> AddressBookData;
+    async fn add_address_book_entry(&self, name: String, address: String, protocol: String);
 }

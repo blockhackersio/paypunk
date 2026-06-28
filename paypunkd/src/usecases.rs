@@ -1,11 +1,10 @@
 use keypunkd::services::KeypunkService;
 use paypunk_types::{Account, Balance, Intent, ProtocolId};
 use rand::Rng;
+use tracing::info;
 
 use crate::database::{AccountsRepository, Database};
 use crate::protocol_service::ProtocolService;
-
-// ── Keypunkd forwarding ────────────────────────────────────────────────────
 
 /// Forward a GetEncryptionKey request to keypunkd and return its X25519 public key.
 pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8; 32], String> {
@@ -42,16 +41,21 @@ pub async fn restore_seed(
 }
 
 /// Forward an ExportViewingKey request to keypunkd to derive viewing key material
-/// for the given protocol and account index.
+/// for the given protocol and derivation path.
 pub async fn export_viewing_key(
     service: &KeypunkService,
     encrypted_password: Vec<u8>,
     client_public_key: [u8; 32],
     protocol: ProtocolId,
-    account: u32,
+    derivation_path: String,
 ) -> Result<Vec<u8>, String> {
     service
-        .export_viewing_key(encrypted_password, client_public_key, protocol, account)
+        .export_viewing_key(
+            encrypted_password,
+            client_public_key,
+            protocol,
+            derivation_path,
+        )
         .await
 }
 
@@ -61,7 +65,7 @@ pub async fn submit_intent(
     keypunk_service: &KeypunkService,
     protocols: &ProtocolService,
     intent: &Intent,
-    derivation_path: &[u8],
+    derivation_path: &str,
 ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
     // Determine protocol from intent
     let protocol_id = match intent {
@@ -75,7 +79,7 @@ pub async fn submit_intent(
 
     // Forward to keypunkd for parsing and preview
     let preview = keypunk_service
-        .preview_artifact(raw_artifact, protocol_id, derivation_path.to_vec())
+        .preview_artifact(raw_artifact, protocol_id, derivation_path.to_string())
         .await?;
 
     match preview {
@@ -95,7 +99,7 @@ pub async fn approve_signature(
     keypunk_service: &KeypunkService,
     encrypted_payload: Vec<u8>,
     ephemeral_public_key: [u8; 32],
-    derivation_path: Vec<u8>,
+    derivation_path: String,
 ) -> Result<Vec<u8>, String> {
     keypunk_service
         .authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path)
@@ -111,25 +115,6 @@ pub fn finalize_artifact(
     signed: &[u8],
 ) -> Result<Vec<u8>, String> {
     protocols.get(protocol)?.finalize(signed)
-}
-
-/// Derive an address from a viewing key using the protocol service.
-pub fn derive_address(
-    _protocols: &ProtocolService,
-    protocol: ProtocolId,
-    viewing_key: &[u8],
-    index: u32,
-) -> Result<String, String> {
-    match protocol {
-        ProtocolId::Zcash => paypunk_chains_zcash::address::derive_from_fvk(viewing_key, index)
-            .map_err(|e| e.to_string()),
-        ProtocolId::Ethereum => paypunk_chains_ethereum::address::derive_from_pubkey(viewing_key)
-            .map(|a| a.to_string())
-            .map_err(|e| e.to_string()),
-        _ => Err(format!(
-            "unsupported protocol for address derivation: {protocol:?}"
-        )),
-    }
 }
 
 /// Validate an address using the protocol service.
@@ -191,7 +176,8 @@ pub async fn create_account(
         })
         .collect();
 
-    let address = derive_address(protocols, protocol, &viewing_key, 0)?;
+    let proto = protocols.get(protocol)?;
+    let address = proto.derive_address_from_viewing_key(&viewing_key, 0)?;
 
     let account = Account {
         id,
@@ -238,54 +224,11 @@ pub fn get_pre_derived_key(
         "SELECT viewing_key FROM pre_derived_keys WHERE protocol = ?1 AND account_index = ?2",
         rusqlite::params![format!("{:?}", protocol), account_index],
         |row| row.get(0),
-    ).map_err(|e| format!("pre-derived key not found: {e}"))
+    )
+    .map_err(|e| format!("pre-derived key not found: {e}"))
 }
 
-/// Create Ethereum Account 0 from pre-derived viewing key.
-pub fn create_ethereum_account_0(
-    db: &Database,
-    repo: &dyn AccountsRepository,
-    protocols: &ProtocolService,
-) -> Result<Account, String> {
-    // Check if Ethereum account 0 already exists
-    let conn = db.conn.as_ref().ok_or("database is locked")?;
-    let conn = conn.lock().map_err(|e| e.to_string())?;
-    let existing = repo.find_by_protocol(&conn, &ProtocolId::Ethereum)?;
-    drop(conn);
-
-    if existing.iter().any(|a| a.derivation_path == "m/44'/60'/0'") {
-        return Err("Ethereum account 0 already exists".to_string());
-    }
-
-    let viewing_key = get_pre_derived_key(db, ProtocolId::Ethereum, 0)?;
-    let address = derive_address(protocols, ProtocolId::Ethereum, &viewing_key, 0)?;
-
-    let id: String = (0..16)
-        .map(|_| {
-            let hex = rand::thread_rng().gen_range(0..16);
-            format!("{hex:x}")
-        })
-        .collect();
-    let account = Account {
-        id,
-        protocol: ProtocolId::Ethereum,
-        derivation_path: "m/44'/60'/0'".to_string(),
-        name: "Ethereum Account 0".to_string(),
-        address,
-        viewing_key,
-        created_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs(),
-    };
-
-    let conn = db.conn.as_ref().ok_or("database is locked")?;
-    let conn = conn.lock().map_err(|e| e.to_string())?;
-    repo.save(&conn, &account)?;
-    Ok(account)
-}
-
-/// Bulk-derive accounts for all registered protocols.
+/// Bulk-derive accounts for the given derivation paths.
 pub async fn bulk_derive_accounts(
     keypunk_service: &KeypunkService,
     protocols: &ProtocolService,
@@ -293,21 +236,25 @@ pub async fn bulk_derive_accounts(
     repo: &dyn AccountsRepository,
     encrypted_password: Vec<u8>,
     client_public_key: [u8; 32],
-    protocol_ids: Vec<ProtocolId>,
-    count: u32,
+    paths: Vec<(ProtocolId, String)>,
 ) -> Result<Vec<Account>, String> {
+    info!("bulk_derive_accounts() with {paths:?}");
+
     let keys = keypunk_service
-        .bulk_export_viewing_keys(
-            encrypted_password,
-            client_public_key,
-            protocol_ids.clone(),
-            0,
-            count,
-        )
+        .bulk_export_viewing_keys(encrypted_password, client_public_key, paths)
         .await?;
 
     let mut accounts = Vec::new();
-    for (protocol, account_index, viewing_key) in keys {
+    for (protocol, path, viewing_key) in keys {
+        // TODO: account_index_from_path is fragile — custom derivations and Metamask keys use
+        // different path formats. Consider making account_index an explicit parameter.
+        let account_index: u32 = path
+            .rsplit('\'')
+            .nth(1)
+            .and_then(|s| s.split('/').last())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+
         let id: String = (0..16)
             .map(|_| {
                 let hex = rand::thread_rng().gen_range(0..16);
@@ -315,21 +262,14 @@ pub async fn bulk_derive_accounts(
             })
             .collect();
 
-        let coin_type = match protocol {
-            ProtocolId::Zcash => 133,
-            ProtocolId::Ethereum => 60,
-            ProtocolId::Bitcoin => 0,
-            ProtocolId::Monero => 128,
-            ProtocolId::Solana => 501,
-        };
-
-        let address = derive_address(protocols, protocol, &viewing_key, 0)?;
+        let proto = protocols.get(protocol)?;
+        let address = proto.derive_address_from_viewing_key(&viewing_key, 0)?;
 
         let account = Account {
             id,
             protocol,
-            derivation_path: format!("m/44'/{coin_type}'/{account_index}'"),
-            name: format!("{protocol:?} Account {account_index}"),
+            derivation_path: path,
+            name: proto.default_account_name(account_index),
             address,
             viewing_key,
             created_at: std::time::SystemTime::now()
@@ -365,8 +305,6 @@ pub fn get_account(
     repo.find_by_id(&conn, id)
 }
 
-// ── Stubs: depend on future work ───────────────────────────────────────────
-
 /// Query the spendable, pending, and total balance for the given address and asset.
 pub async fn get_balance(
     protocols: &ProtocolService,
@@ -377,8 +315,9 @@ pub async fn get_balance(
     protocols.get(protocol)?.get_balance(address, asset).await
 }
 
+// ── Stubs: depend on future work ───────────────────────────────────────────
+
 /// Create a transfer for the given protocol and account.
-/// TODO: Requires PCZT pipeline — not yet implemented.
 pub async fn create_transfer(
     _service: &KeypunkService,
     _protocols: &ProtocolService,
@@ -392,7 +331,6 @@ pub async fn create_transfer(
 }
 
 /// Fetch transaction history for the given protocol and account.
-/// TODO: Requires Page/HistoryEntry types and chain backend — not yet implemented.
 pub async fn get_history(
     _protocol: ProtocolId,
     _account: u32,
@@ -403,9 +341,8 @@ pub async fn get_history(
 }
 
 /// Sync the wallet state with the blockchain for the given protocol and account.
-/// TODO: Requires LSP/lightwalletd connection — not yet implemented.
 pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), String> {
-    todo!("sync_wallet: needs LSP/lightwalletd connection")
+    todo!("sync_wallet")
 }
 
 /// Finalize and broadcast a signed transaction to the network.

@@ -20,30 +20,28 @@ pub enum KeypunkdRequest {
     PreviewArtifact {
         raw_artifact: Vec<u8>,
         protocol: ProtocolId,
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     },
     /// Authorize and sign an artifact after user approval.
     AuthorizeArtifact {
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     },
     /// Export chain-specific viewing key material for the given path.
     ExportViewingKey {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         protocol: ProtocolId,
-        account: u32,
+        derivation_path: String,
     },
     /// Check if a seed exists in the store.
     HasSeed,
-    /// Bulk-export viewing keys for multiple protocols and accounts.
+    /// Bulk-export viewing keys for multiple protocols and paths.
     BulkExportViewingKeys {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
-        protocols: Vec<ProtocolId>,
-        start_account: u32,
-        count: u32,
+        paths: Vec<(ProtocolId, String)>,
     },
 }
 
@@ -72,7 +70,7 @@ pub enum KeypunkdResponse {
         exists: bool,
     },
     ViewingKeys {
-        keys: Vec<(ProtocolId, u32, Vec<u8>)>,
+        keys: Vec<(ProtocolId, String, Vec<u8>)>,
     },
     Error {
         message: String,

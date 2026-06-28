@@ -116,7 +116,9 @@ impl TestBuilder {
             params: zcash_protocol::consensus::Network::MainNetwork,
         };
         let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
-        let paypunkd_protocols = ProtocolService::with_ethereum(paypunkd_zcash, paypunkd_ethereum);
+        let mut paypunkd_protocols = ProtocolService::new();
+        paypunkd_protocols.register(Box::new(paypunkd_zcash));
+        paypunkd_protocols.register(Box::new(paypunkd_ethereum));
 
         // Keep the temp dir alive for the lifetime of the actor (leak it).
         let db_dir = Box::leak(Box::new(tempfile::TempDir::new().unwrap()));
@@ -229,7 +231,7 @@ async fn test_derive_address() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             0,
         )
         .await
@@ -250,7 +252,7 @@ async fn test_derive_different_indexes() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             0,
         )
         .await
@@ -259,7 +261,7 @@ async fn test_derive_different_indexes() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             1,
         )
         .await
@@ -268,7 +270,7 @@ async fn test_derive_different_indexes() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             2,
         )
         .await
@@ -291,7 +293,7 @@ async fn test_derive_address_is_deterministic() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             0,
         )
         .await
@@ -302,7 +304,7 @@ async fn test_derive_address_is_deterministic() {
         .derive_address(
             password.clone(),
             ProtocolId::Zcash,
-            "zcash:mainnet:0".to_string(),
+            0,
             0,
         )
         .await
@@ -329,7 +331,7 @@ async fn test_eth_balance_via_mock_rpc() {
         .derive_address(
             password.clone(),
             ProtocolId::Ethereum,
-            "eip155:1:0".to_string(),
+            0,
             0,
         )
         .await
@@ -357,7 +359,7 @@ async fn test_eth_balance_zero() {
         .derive_address(
             password.clone(),
             ProtocolId::Ethereum,
-            "eip155:1:0".to_string(),
+            0,
             0,
         )
         .await
@@ -387,7 +389,7 @@ async fn test_eth_send_full_flow() {
         .derive_address(
             password.clone(),
             ProtocolId::Ethereum,
-            "eip155:1:0".to_string(),
+            0,
             0,
         )
         .await
@@ -400,10 +402,10 @@ async fn test_eth_send_full_flow() {
         asset: "eip155:1/slip44:60".to_string(),
         data: None,
     });
-    let path = 0u32.to_le_bytes();
+    let path = "m/44'/60'/0'/0/0";
 
     let (raw_artifact, parsed_summary, signature, _keypunkd_pk) = client
-        .submit_intent(intent, &path)
+        .submit_intent(intent, path)
         .await
         .expect("submit_intent should succeed");
 
@@ -420,7 +422,7 @@ async fn test_eth_send_full_flow() {
     assert_eq!(summary.to, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
 
     let signed_artifact = client
-        .approve_signature(&raw_artifact, &signature, password.clone(), &path)
+        .approve_signature(&raw_artifact, &signature, password.clone(), path)
         .await
         .expect("approve_signature should succeed");
 
@@ -447,11 +449,12 @@ async fn test_create_account() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
+    // Account 0 is auto-created on unlock; create account 1
     let account = client
         .create_account(
             ProtocolId::Zcash,
-            "m/44'/133'/0'".to_string(),
-            0,
+            "m/44'/133'/1'".to_string(),
+            1,
             "My Zcash Wallet".to_string(),
         )
         .await
@@ -472,11 +475,13 @@ async fn test_list_accounts() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
+    // Account 0 for both protocols are auto-created on unlock;
+    // create account 1 for Ethereum
     let acct1 = client
         .create_account(
             ProtocolId::Zcash,
-            "m/44'/133'/0'".into(),
-            0,
+            "m/44'/133'/1'".into(),
+            1,
             "Zcash 1".into(),
         )
         .await
@@ -484,7 +489,7 @@ async fn test_list_accounts() {
     let acct2 = client
         .create_account(
             ProtocolId::Ethereum,
-            "m/44'/60'/1'".into(),
+            "m/44'/60'/1'/0/0".into(),
             1,
             "Ethereum 1".into(),
         )
@@ -492,7 +497,8 @@ async fn test_list_accounts() {
         .unwrap();
 
     let accounts = client.list_accounts().await.unwrap();
-    assert_eq!(accounts.len(), 3);
+    // 2 auto-created (Zcash 0 + Ethereum 0) + 2 manually created = 4
+    assert_eq!(accounts.len(), 4);
     assert!(accounts.iter().any(|a| a.id == acct1.id));
     assert!(accounts.iter().any(|a| a.id == acct2.id));
 }
@@ -506,19 +512,17 @@ async fn test_get_account_by_id() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
-    let created = client
-        .create_account(
-            ProtocolId::Zcash,
-            "m/44'/133'/0'".into(),
-            0,
-            "Test Account".into(),
-        )
-        .await
+    // Account 0 for Zcash is auto-created on unlock
+    let accounts = client.list_accounts().await.unwrap();
+    let zcash_acct = accounts
+        .iter()
+        .find(|a| a.protocol == ProtocolId::Zcash)
+        .cloned()
         .unwrap();
 
-    let found = client.get_account(created.id.clone()).await.unwrap();
+    let found = client.get_account(zcash_acct.id.clone()).await.unwrap();
     assert!(found.is_some());
-    assert_eq!(found.unwrap().id, created.id);
+    assert_eq!(found.unwrap().id, zcash_acct.id);
 }
 
 #[tokio::test]
@@ -552,11 +556,7 @@ async fn test_create_account_duplicate_fails() {
     client.generate_seed(password.clone()).await.unwrap();
     client.unlock(password).await.unwrap();
 
-    client
-        .create_account(ProtocolId::Zcash, "m/44'/133'/0'".into(), 0, "First".into())
-        .await
-        .unwrap();
-
+    // Account 0 for Zcash is auto-created on unlock; trying to create it again should fail
     let result = client
         .create_account(
             ProtocolId::Zcash,

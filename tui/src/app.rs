@@ -61,6 +61,13 @@ impl App {
         self.process_nav(nav).await;
     }
 
+    pub async fn tick(&mut self) {
+        let api: &mut dyn WalletApi = &mut *self.api;
+        if let Some(screen) = self.screen_stack.last_mut() {
+            screen.tick(api).await;
+        }
+    }
+
     async fn process_nav(&mut self, nav: Nav) {
         match nav {
             Nav::None => {}

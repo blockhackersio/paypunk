@@ -18,7 +18,23 @@ pub struct ZcashProtocol {
 impl ZcashProtocol {
     pub const COIN_TYPE: u32 = 133;
 
-    fn chain_id(&self) -> ChainId {
+    /// Extract the account index from a BIP44-style derivation path.
+    /// Expects format like `m/44'/133'/{account}'` and returns `{account}`.
+    fn account_from_path(path: &str) -> Result<u32, String> {
+        let account_str = path
+            .rsplit('\'')
+            .nth(1)
+            .and_then(|s| s.split('/').last())
+            .ok_or_else(|| format!("invalid derivation path: {path}"))?;
+        account_str
+            .parse()
+            .map_err(|_| format!("invalid account index in path: {path}"))
+    }
+}
+
+#[async_trait]
+impl SignerProtocol for ZcashProtocol {
+    async fn chain(&self) -> ChainId {
         match self.params {
             zcash_protocol::consensus::Network::MainNetwork => ChainId {
                 namespace: "zcash".to_string(),
@@ -30,19 +46,9 @@ impl ZcashProtocol {
             },
         }
     }
-}
 
-#[async_trait]
-impl SignerProtocol for ZcashProtocol {
-    async fn chain(&self) -> ChainId {
-        self.chain_id()
-    }
-
-    fn export_viewing(&self, seed: &[u8; 64], path: &[u8]) -> Result<Vec<u8>, String> {
-        if path.len() < 4 {
-            return Err("path must be at least 4 bytes (account)".to_string());
-        }
-        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
+    fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
+        let account = Self::account_from_path(path)?;
         let account_id = zip32::AccountId::try_from(account)
             .map_err(|_| format!("invalid account: {account}"))?;
         let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
@@ -74,11 +80,8 @@ impl SignerProtocol for ZcashProtocol {
         postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
     }
 
-    fn sign(&self, seed: &[u8; 64], path: &[u8], artifact: &[u8]) -> Result<Vec<u8>, String> {
-        if path.len() < 4 {
-            return Err("path must be at least 4 bytes (account)".to_string());
-        }
-        let account = u32::from_le_bytes(path[..4].try_into().unwrap());
+    fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String> {
+        let account = Self::account_from_path(path)?;
         self.sign_transaction_inner(seed, account, artifact)
     }
 }
@@ -221,6 +224,65 @@ impl Protocol for ZcashProtocol {
 
     async fn broadcast(&self, _finalized_tx: &[u8]) -> Result<String, String> {
         Err("broadcast not yet implemented for Zcash — needs lightwalletd connection".to_string())
+    }
+
+    // ── Protocol metadata ───────────────────────────────────────────────────
+
+    fn chain_id(&self) -> ChainId {
+        match self.params {
+            zcash_protocol::consensus::Network::MainNetwork => ChainId {
+                namespace: "zcash".to_string(),
+                reference: "mainnet".to_string(),
+            },
+            zcash_protocol::consensus::Network::TestNetwork => ChainId {
+                namespace: "zcash".to_string(),
+                reference: "testnet".to_string(),
+            },
+        }
+    }
+
+    fn native_asset(&self) -> String {
+        match self.params {
+            zcash_protocol::consensus::Network::MainNetwork => {
+                "zcash:mainnet/slip44:133".to_string()
+            }
+            zcash_protocol::consensus::Network::TestNetwork => {
+                "zcash:testnet/slip44:133".to_string()
+            }
+        }
+    }
+
+    fn ticker(&self) -> &str {
+        "ZEC"
+    }
+
+    fn decimals(&self) -> u8 {
+        8
+    }
+
+    fn block_explorer_url(&self, tx_hash: &str) -> String {
+        match self.params {
+            zcash_protocol::consensus::Network::MainNetwork => {
+                format!("https://mainnet.zcashexplorer.app/tx/{}", tx_hash)
+            }
+            zcash_protocol::consensus::Network::TestNetwork => {
+                format!("https://testnet.zcashexplorer.app/tx/{}", tx_hash)
+            }
+        }
+    }
+
+    fn default_derivation_path(&self, account: u32) -> String {
+        crate::derivation_path(account)
+    }
+
+    fn default_account_name(&self, account_index: u32) -> String {
+        format!("Zcash Account {account_index}")
+    }
+
+    // ── Key operations ──────────────────────────────────────────────────────
+
+    fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String> {
+        crate::address::derive_from_fvk(vk, index).map_err(|e| e.to_string())
     }
 }
 

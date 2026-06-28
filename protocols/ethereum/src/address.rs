@@ -120,4 +120,51 @@ mod tests {
         assert!(!validate_address("invalid"));
         assert!(!validate_address("0xzzzz"));
     }
+
+    #[test]
+    fn test_anvil_test_mnemonic() {
+        let mnemonic: Mnemonic = bip39::Mnemonic::parse_in(
+            bip39::Language::English,
+            "test test test test test test test test test test test junk",
+        )
+        .unwrap();
+        let seed_bytes = mnemonic.to_seed_normalized("");
+        let mut seed = [0u8; 64];
+        seed.copy_from_slice(&seed_bytes);
+        let address = derive_address(&seed, 0, 0).unwrap();
+        assert_eq!(
+            address.to_string(),
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "got {address}"
+        );
+    }
+
+    #[test]
+    fn test_anvil_bulk_derivation() {
+        let mnemonic: Mnemonic = bip39::Mnemonic::parse_in(
+            bip39::Language::English,
+            "test test test test test test test test test test test junk",
+        )
+        .unwrap();
+        let seed_bytes = mnemonic.to_seed_normalized("");
+        let mut seed = [0u8; 64];
+        seed.copy_from_slice(&seed_bytes);
+
+        // Anvil/Hardhat default accounts: m/44'/60'/0'/0/{index}
+        let expected = [
+            (0, "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+            (1, "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+            (2, "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+            (3, "0x90F79bf6EB2c4f870365E785982E1f101E93b906"),
+        ];
+
+        for (index, expected_addr) in expected {
+            let address = derive_address(&seed, 0, index).unwrap();
+            assert_eq!(
+                address.to_string(),
+                expected_addr,
+                "index {index} mismatch"
+            );
+        }
+    }
 }

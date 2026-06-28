@@ -53,6 +53,10 @@ impl Screen for HomeScreen {
     async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
         api.refresh_home().await;
         self.state = api.home_state().await;
+        if let ApiState::Loaded(ref data) = self.state {
+            let data = data.clone();
+            self.rebuild_list(&data);
+        }
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {

@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -70,7 +70,7 @@ impl PaypunkService {
     pub async fn submit_intent(
         &self,
         intent: Intent,
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     ) -> Result<PaypunkdResponse, String> {
         self.send(PaypunkdRequest::SubmitIntent {
             intent,
@@ -83,7 +83,7 @@ impl PaypunkService {
         &self,
         encrypted_payload: Vec<u8>,
         ephemeral_public_key: [u8; 32],
-        derivation_path: Vec<u8>,
+        derivation_path: String,
     ) -> Result<Vec<u8>, String> {
         match self
             .send(PaypunkdRequest::ApproveSignature {
@@ -104,7 +104,7 @@ impl PaypunkService {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         protocol: ProtocolId,
-        account: String,
+        derivation_path: String,
         index: u32,
     ) -> Result<String, String> {
         match self
@@ -112,7 +112,7 @@ impl PaypunkService {
                 encrypted_password,
                 client_public_key,
                 protocol,
-                account,
+                derivation_path,
                 index,
             })
             .await?
@@ -203,12 +203,29 @@ impl PaypunkService {
         }
     }
 
+    pub async fn get_supported_protocols(&self) -> Result<Vec<ProtocolId>, String> {
+        match self.send(PaypunkdRequest::GetSupportedProtocols).await? {
+            PaypunkdResponse::SupportedProtocols { protocols, .. } => Ok(protocols),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_protocol_metadata(&self) -> Result<Vec<ProtocolMetadata>, String> {
+        match self.send(PaypunkdRequest::GetSupportedProtocols).await? {
+            PaypunkdResponse::SupportedProtocols { metadata, .. } => Ok(metadata),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
     pub async fn unlock(
         &self,
         encrypted_db_password: Vec<u8>,
         ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
     ) -> Result<u32, String> {
         match self
             .send(PaypunkdRequest::Unlock {
@@ -216,6 +233,7 @@ impl PaypunkService {
                 ephemeral_public_key,
                 encrypted_keypunkd_password,
                 keypunkd_client_pk,
+                paths,
             })
             .await?
         {
@@ -229,13 +247,13 @@ impl PaypunkService {
         &self,
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
-        count: u32,
+        paths: Vec<(ProtocolId, String)>,
     ) -> Result<Vec<Account>, String> {
         match self
             .send(PaypunkdRequest::BulkDeriveAccounts {
                 encrypted_password,
                 client_public_key,
-                count,
+                paths,
             })
             .await?
         {
