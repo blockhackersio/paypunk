@@ -58,6 +58,21 @@ impl<T: Searchable + Component<A> + 'static, A> DropdownPicker<T, A> {
         }
     }
 
+    pub fn is_focused(&self) -> bool {
+        self.focused
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn handle_paste(&mut self, text: &str) {
+        self.text_field.handle_paste(text);
+        self.open = true;
+        self.selected = 0;
+        self.filter();
+    }
+
     pub fn max_visible(mut self, n: usize) -> Self {
         self.max_visible = n;
         self
@@ -65,6 +80,14 @@ impl<T: Searchable + Component<A> + 'static, A> DropdownPicker<T, A> {
 
     pub fn value(&self) -> &str {
         self.text_field.value()
+    }
+
+    pub fn set_items(&mut self, items: Vec<T>) {
+        self.items = items;
+        self.filter();
+        if self.selected >= self.filtered.len() {
+            self.selected = self.filtered.len().saturating_sub(1);
+        }
     }
 
     pub fn selected_index(&self) -> Option<usize> {

@@ -1,12 +1,14 @@
 use crate::api::types::*;
 use crate::api::WalletApi;
 use crate::app::Nav;
+use crate::components::dropdown_picker::{DropdownPicker, Searchable};
 use crate::components::text_field::{TextField, TextFieldConfig};
 use crate::components::Component;
 use crate::screens::help::HelpScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
+use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Text};
@@ -14,9 +16,56 @@ use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 use ratatui_bubbletea_components::Progress;
 
+struct AddressBookEntryItem {
+    entry: AddressBookEntry,
+    focused: bool,
+}
+
+impl AddressBookEntryItem {
+    fn new(entry: AddressBookEntry) -> Self {
+        Self {
+            entry,
+            focused: false,
+        }
+    }
+}
+
+impl Searchable for AddressBookEntryItem {
+    fn search_text(&self) -> String {
+        format!("{} {}", self.entry.name, self.entry.address)
+    }
+}
+
+impl Component<()> for AddressBookEntryItem {
+    fn render(&mut self, frame: &mut Frame, area: Rect) {
+        let style = if self.focused {
+            Style::new().fg(ui::palette().foreground).bold()
+        } else {
+            Style::new().fg(ui::palette().foreground)
+        };
+        let text = Paragraph::new(Line::from(vec![
+            ui::theme().accent(format!(" {} ", self.entry.name)),
+            ui::theme().muted(&self.entry.address),
+        ]))
+        .style(style);
+        frame.render_widget(text, area);
+    }
+
+    fn handle_event(&mut self, _key: KeyEvent) -> Option<()> {
+        None
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    fn is_focused(&self) -> bool {
+        self.focused
+    }
+}
+
 enum SendStep {
     Form,
-    AddressBook,
     Review,
     Sending,
     Confirm,
@@ -28,7 +77,7 @@ pub struct SendScreen {
     account_address: String,
     chain_id: String,
     step: SendStep,
-    to_field: TextField,
+    to_picker: DropdownPicker<AddressBookEntryItem, ()>,
     amount_field: TextField,
     password_field: TextField,
     review_data: Option<SendReviewData>,
@@ -36,8 +85,6 @@ pub struct SendScreen {
     focus: usize,
     copied_feedback: Option<String>,
     send_data: ApiState<SendData>,
-    address_book: Vec<AddressBookEntry>,
-    address_book_selection: usize,
 }
 
 impl SendScreen {
@@ -48,13 +95,7 @@ impl SendScreen {
             account_address: account.address,
             chain_id: account.chain_id,
             step: SendStep::Form,
-            to_field: TextField::new(TextFieldConfig {
-                label: "To".into(),
-                placeholder: "Enter recipient address...".into(),
-                password_mode: false,
-                initial_value: String::new(),
-                feedback: None,
-            }),
+            to_picker: DropdownPicker::new("To", "Enter address or search contacts...", Vec::new()),
             amount_field: TextField::new(TextFieldConfig {
                 label: "Amount".into(),
                 placeholder: "Enter amount...".into(),
@@ -74,8 +115,6 @@ impl SendScreen {
             focus: 0,
             copied_feedback: None,
             send_data: ApiState::Loading,
-            address_book: Vec::new(),
-            address_book_selection: 0,
         }
     }
 }
@@ -89,10 +128,24 @@ impl Screen for SendScreen {
     async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
         api.refresh_send(&self.chain_id).await;
         self.send_data = api.send_state(&self.chain_id).await;
+        let book = api.get_address_book().await;
+        self.to_picker.set_items(
+            book.entries
+                .into_iter()
+                .map(AddressBookEntryItem::new)
+                .collect(),
+        );
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {
         self.send_data = api.send_state(&self.chain_id).await;
+        let book = api.get_address_book().await;
+        self.to_picker.set_items(
+            book.entries
+                .into_iter()
+                .map(AddressBookEntryItem::new)
+                .collect(),
+        );
     }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
@@ -110,7 +163,6 @@ impl Screen for SendScreen {
 
         let step_name = match self.step {
             SendStep::Form => "Send — Enter Details",
-            SendStep::AddressBook => "Send — Address Book",
             SendStep::Review => "Send — Review",
             SendStep::Sending => "Send — Broadcasting",
             SendStep::Confirm => "Send — Confirmed",
@@ -134,7 +186,6 @@ impl Screen for SendScreen {
 
         match self.step {
             SendStep::Form => self.render_form(frame, body),
-            SendStep::AddressBook => self.render_address_book(frame, body),
             SendStep::Review => self.render_review(frame, body),
             SendStep::Sending => self.render_sending(frame, body),
             SendStep::Confirm => self.render_confirm(frame, body),
@@ -144,14 +195,8 @@ impl Screen for SendScreen {
             SendStep::Form => theme.help_line([
                 ("Tab/↓", "Focus"),
                 ("Enter", "Review"),
-                ("b", "Address Book"),
                 ("Esc", "Back"),
                 ("?", "Help"),
-            ]),
-            SendStep::AddressBook => theme.help_line([
-                ("↑↓", "Select"),
-                ("Enter", "Pick Address"),
-                ("Esc", "Back"),
             ]),
             SendStep::Review => {
                 theme.help_line([("Enter", "Send"), ("Esc", "Edit"), ("?", "Help")])
@@ -192,11 +237,13 @@ impl Screen for SendScreen {
                     KeyCode::BackTab | KeyCode::Up => {
                         self.focus = self.focus.saturating_sub(1);
                     }
-                    _ => {
-                        if key.code == KeyCode::Enter {
+                    KeyCode::Enter => {
+                        if self.focus == 0 && self.to_picker.is_open() {
+                            self.to_picker.handle_event(key);
+                        } else {
                             let review = api
                                 .submit_send_review(SendReviewInput {
-                                    to_address: self.to_field.value().into(),
+                                    to_address: self.to_picker.value().into(),
                                     amount: self.amount_field.value().into(),
                                     token_id: "eth-native".into(),
                                     chain_id: self.chain_id.clone(),
@@ -205,16 +252,15 @@ impl Screen for SendScreen {
                                 .await;
                             self.review_data = Some(review);
                             self.step = SendStep::Review;
-                        } else if key.code == KeyCode::Char('b') && self.focus == 0 {
-                            self.address_book = api.get_address_book().await.entries;
-                            self.address_book_selection = 0;
-                            self.step = SendStep::AddressBook;
-                        } else if key.code == KeyCode::Esc {
+                        }
+                    }
+                    _ => {
+                        if key.code == KeyCode::Esc {
                             return Nav::Pop;
                         } else {
                             match self.focus {
                                 0 => {
-                                    self.to_field.handle_event(key);
+                                    self.to_picker.handle_event(key);
                                 }
                                 1 => {
                                     self.amount_field.handle_event(key);
@@ -225,27 +271,6 @@ impl Screen for SendScreen {
                     }
                 }
             }
-            SendStep::AddressBook => match key.code {
-                KeyCode::Up => {
-                    self.address_book_selection =
-                        self.address_book_selection.saturating_sub(1);
-                }
-                KeyCode::Down => {
-                    let max = self.address_book.len().saturating_sub(1);
-                    self.address_book_selection =
-                        (self.address_book_selection + 1).min(max);
-                }
-                KeyCode::Enter => {
-                    if let Some(entry) = self.address_book.get(self.address_book_selection) {
-                        self.to_field.set_value(&entry.address);
-                    }
-                    self.step = SendStep::Form;
-                }
-                KeyCode::Esc => {
-                    self.step = SendStep::Form;
-                }
-                _ => {}
-            },
             SendStep::Review => match key.code {
                 KeyCode::Enter => {
                     self.step = SendStep::Sending;
@@ -298,7 +323,7 @@ impl Screen for SendScreen {
     async fn handle_paste(&mut self, text: &str, _api: &mut dyn WalletApi) -> Nav {
         match self.step {
             SendStep::Form => match self.focus {
-                0 => self.to_field.handle_paste(text),
+                0 => self.to_picker.handle_paste(text),
                 1 => self.amount_field.handle_paste(text),
                 _ => {}
             },
@@ -357,8 +382,8 @@ impl SendScreen {
                     "ZEC"
                 };
 
-                self.to_field.set_focused(self.focus == 0);
-                self.to_field.render(
+                self.to_picker.set_focused(self.focus == 0);
+                self.to_picker.render(
                     frame,
                     inner.inner(Margin {
                         vertical: 3,
@@ -523,54 +548,6 @@ impl SendScreen {
             inner.inner(Margin {
                 vertical: 4,
                 horizontal: 2,
-            }),
-        );
-    }
-
-    fn render_address_book(&self, frame: &mut Frame, area: Rect) {
-        let theme = ui::theme();
-        let block = theme.titled_block("Address Book — Select a recipient");
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        if self.address_book.is_empty() {
-            let msg = Paragraph::new(Line::from(vec![
-                theme.muted("No contacts yet. "),
-                theme.accent("Add contacts by sending to new addresses."),
-            ]))
-            .centered()
-            .style(Style::new().bg(ui::BG));
-            frame.render_widget(
-                msg,
-                inner.inner(Margin {
-                    vertical: 3,
-                    horizontal: 2,
-                }),
-            );
-            return;
-        }
-
-        let mut lines = Vec::new();
-        for (i, entry) in self.address_book.iter().enumerate() {
-            let selected = i == self.address_book_selection;
-            let prefix = if selected { " \u{25B6} " } else { "   " };
-            let name_text = format!("{}{}", prefix, entry.name);
-            let addr_text = format!("     {}", entry.address);
-            let name_line = if selected {
-                Line::from(vec![theme.accent(name_text)])
-            } else {
-                Line::from(vec![theme.span(name_text)])
-            };
-            lines.push(name_line);
-            lines.push(Line::from(vec![theme.muted(addr_text)]));
-        }
-
-        let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
-        frame.render_widget(
-            para,
-            inner.inner(Margin {
-                vertical: 2,
-                horizontal: 3,
             }),
         );
     }
