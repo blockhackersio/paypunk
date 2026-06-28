@@ -118,6 +118,20 @@ impl DropdownPickerDemo {
 impl Component<Nav> for DropdownPickerDemo {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
+
+        // Overlay demo: render "background" content first so the dropdown can sit on top
+        let overlay_demo_area = Rect {
+            x: area.x + 2,
+            y: area.y + 6,
+            width: area.width.saturating_sub(4),
+            height: 4,
+        };
+        let masked_text = Paragraph::new(Line::from(vec![theme.muted(
+            "This content is masked by the dropdown overlay when open",
+        )]))
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(masked_text, overlay_demo_area);
+
         let chunks = Layout::vertical([
             Constraint::Length(3),
             Constraint::Length(1),
@@ -135,19 +149,6 @@ impl Component<Nav> for DropdownPickerDemo {
                 .style(Style::new().bg(ui::BG));
             frame.render_widget(msg, chunks[2]);
         }
-
-        // Overlay demo: render some "background" content that the dropdown will mask
-        let overlay_demo_area = Rect {
-            x: area.x + 2,
-            y: area.y + 6,
-            width: area.width.saturating_sub(4),
-            height: 4,
-        };
-        let masked_text = Paragraph::new(Line::from(vec![theme.muted(
-            "This content is masked by the dropdown overlay when open",
-        )]))
-        .style(Style::new().bg(ui::BG));
-        frame.render_widget(masked_text, overlay_demo_area);
     }
 
     fn handle_event(&mut self, key: KeyEvent) -> Option<Nav> {
