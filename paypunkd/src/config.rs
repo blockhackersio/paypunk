@@ -9,7 +9,7 @@ pub trait ConfigSource {
     fn keypunkd_socket_path(&self) -> &str;
     fn data_dir(&self) -> &Path;
     fn config_dir(&self) -> &Path;
-    fn rpc_url(&self) -> &str;
+    fn ethereum_rpc_url(&self) -> &str;
 }
 
 /// Hardcoded default configuration.
@@ -42,7 +42,7 @@ impl ConfigSource for HardcodedConfig {
         Box::leak(path.into_boxed_path())
     }
 
-    fn rpc_url(&self) -> &str {
+    fn ethereum_rpc_url(&self) -> &str {
         "http://127.0.0.1:8545"
     }
 }
@@ -75,8 +75,8 @@ impl ConfigSource for TomlConfig {
         Path::new(&self.config.config_dir)
     }
 
-    fn rpc_url(&self) -> &str {
-        &self.config.rpc_url
+    fn ethereum_rpc_url(&self) -> &str {
+        &self.config.ethereum_rpc_url
     }
 }
 
@@ -104,6 +104,6 @@ mod tests {
         let config = TomlConfig::new(pc);
         assert!(config.paypunkd_socket_path().contains("paypunkd.sock"));
         assert!(config.keypunkd_socket_path().contains("keypunkd.sock"));
-        assert!(!config.rpc_url().is_empty());
+        assert!(!config.ethereum_rpc_url().is_empty());
     }
 }

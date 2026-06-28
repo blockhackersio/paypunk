@@ -70,15 +70,36 @@ pub struct ArtifactSummary {
 // ── Protocol trait (paypunkd side) ───────────────────────────────────────────
 
 /// Non-signer protocol operations: build unsigned artifacts, finalize signed
-/// artifacts, validate addresses, and query balances.
+/// artifacts, validate addresses, query balances, and provide protocol metadata.
 #[async_trait::async_trait]
 pub trait Protocol: Send + Sync {
     fn protocol_id(&self) -> ProtocolId;
+
+    // ── Transaction operations ──────────────────────────────────────────────
     async fn build(&self, intent: &Intent) -> Result<Vec<u8>, String>;
     fn finalize(&self, signed: &[u8]) -> Result<Vec<u8>, String>;
+    async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String>;
+
+    // ── Queries ─────────────────────────────────────────────────────────────
     fn validate_address(&self, address: &str) -> bool;
     async fn get_balance(&self, address: &str, asset: &str) -> Result<Balance, String>;
-    async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String>;
+
+    // ── Protocol metadata ───────────────────────────────────────────────────
+    fn chain_id(&self) -> ChainId;
+    fn native_asset(&self) -> String;
+    fn ticker(&self) -> &str;
+    fn decimals(&self) -> u8;
+    fn block_explorer_url(&self, tx_hash: &str) -> String;
+    fn default_derivation_path(&self, account: u32) -> String;
+    fn default_account_name(&self, account_index: u32) -> String;
+
+    // ── Key operations ──────────────────────────────────────────────────────
+    /// Derive an address from a viewing key.
+    ///
+    /// `index` is the address index within the account. For Ethereum this is
+    /// typically ignored (one address per account); for Zcash it selects which
+    /// diversifier to use within the account.
+    fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String>;
 }
 
 // ── SignerProtocol trait (keypunkd side) ─────────────────────────────────────
@@ -91,6 +112,19 @@ pub trait SignerProtocol: Send + Sync {
     fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String>;
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String>;
     fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String>;
+}
+
+// ── Protocol metadata ────────────────────────────────────────────────────────
+
+/// Static metadata about a protocol, returned by the daemon for display/CLI use.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProtocolMetadata {
+    pub id: ProtocolId,
+    pub chain_id: String,
+    pub native_asset: String,
+    pub ticker: String,
+    pub decimals: u8,
+    pub block_explorer_template: String,
 }
 
 // ── Account ──────────────────────────────────────────────────────────────────

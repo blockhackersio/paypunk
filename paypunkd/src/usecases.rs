@@ -6,8 +6,6 @@ use tracing::info;
 use crate::database::{AccountsRepository, Database};
 use crate::protocol_service::ProtocolService;
 
-// ── Keypunkd forwarding ────────────────────────────────────────────────────
-
 /// Forward a GetEncryptionKey request to keypunkd and return its X25519 public key.
 pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8; 32], String> {
     service.get_encryption_key().await
@@ -119,26 +117,6 @@ pub fn finalize_artifact(
     protocols.get(protocol)?.finalize(signed)
 }
 
-/// Derive an address from a viewing key using the protocol service.
-pub fn derive_address(
-    _protocols: &ProtocolService,
-    protocol: ProtocolId,
-    viewing_key: &[u8],
-    index: u32, // TODO: this appears as if it is required for zcash - is it posisble to encode this
-                // into the derivation path?
-) -> Result<String, String> {
-    match protocol {
-        ProtocolId::Zcash => paypunk_chains_zcash::address::derive_from_fvk(viewing_key, index)
-            .map_err(|e| e.to_string()),
-        ProtocolId::Ethereum => paypunk_chains_ethereum::address::derive_from_pubkey(viewing_key)
-            .map(|a| a.to_string())
-            .map_err(|e| e.to_string()),
-        _ => Err(format!(
-            "unsupported protocol for address derivation: {protocol:?}"
-        )),
-    }
-}
-
 /// Validate an address using the protocol service.
 pub fn validate_address(protocols: &ProtocolService, protocol: ProtocolId, address: &str) -> bool {
     protocols
@@ -198,7 +176,8 @@ pub async fn create_account(
         })
         .collect();
 
-    let address = derive_address(protocols, protocol, &viewing_key, 0)?;
+    let proto = protocols.get(protocol)?;
+    let address = proto.derive_address_from_viewing_key(&viewing_key, 0)?;
 
     let account = Account {
         id,
@@ -249,66 +228,6 @@ pub fn get_pre_derived_key(
     .map_err(|e| format!("pre-derived key not found: {e}"))
 }
 
-/// Extract the account index from a BIP44-style derivation path.
-// TODO: this is problematic as index can be defined in many ways with different protocols
-//       we should consider removing this and doing this another way
-fn account_index_from_path(path: &str) -> u32 {
-    path.rsplit('\'')
-        .nth(1)
-        .and_then(|s| s.split('/').last())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
-}
-
-/// Create Ethereum Account 0 from pre-derived viewing key.
-/// We prederive a batch of keys and then completely derive the
-/// address for the first account here.
-pub fn create_ethereum_account_0(
-    db: &Database,
-    repo: &dyn AccountsRepository,
-    protocols: &ProtocolService,
-) -> Result<Account, String> {
-    // Check if Ethereum account 0 already exists
-    let conn = db.conn.as_ref().ok_or("database is locked")?;
-    let conn = conn.lock().map_err(|e| e.to_string())?;
-    let existing = repo.find_by_protocol(&conn, &ProtocolId::Ethereum)?;
-    drop(conn);
-
-    if existing
-        .iter()
-        .any(|a| a.derivation_path == "m/44'/60'/0'/0/0")
-    {
-        return Err("Ethereum account 0 already exists".to_string());
-    }
-
-    let viewing_key = get_pre_derived_key(db, ProtocolId::Ethereum, 0)?;
-    let address = derive_address(protocols, ProtocolId::Ethereum, &viewing_key, 0)?;
-    info!("create_ethereum_account_0: {address}");
-    let id: String = (0..16)
-        .map(|_| {
-            let hex = rand::thread_rng().gen_range(0..16);
-            format!("{hex:x}")
-        })
-        .collect();
-    let account = Account {
-        id,
-        protocol: ProtocolId::Ethereum,
-        derivation_path: "m/44'/60'/0'/0/0".to_string(),
-        name: "Ethereum Account 0".to_string(),
-        address,
-        viewing_key,
-        created_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs(),
-    };
-
-    let conn = db.conn.as_ref().ok_or("database is locked")?;
-    let conn = conn.lock().map_err(|e| e.to_string())?;
-    repo.save(&conn, &account)?;
-    Ok(account)
-}
-
 /// Bulk-derive accounts for the given derivation paths.
 pub async fn bulk_derive_accounts(
     keypunk_service: &KeypunkService,
@@ -327,11 +246,14 @@ pub async fn bulk_derive_accounts(
 
     let mut accounts = Vec::new();
     for (protocol, path, viewing_key) in keys {
-        // TODO: see note about account_index_from_path as this will likely lead to bugs unless we
-        // can standardise to take into account custom derivations and metamask keys alongside
-        // traditional account info etc. It might be better to consider account_index a data point
-        // given when the account is created.
-        let account_index = account_index_from_path(&path);
+        // TODO: account_index_from_path is fragile — custom derivations and Metamask keys use
+        // different path formats. Consider making account_index an explicit parameter.
+        let account_index: u32 = path
+            .rsplit('\'')
+            .nth(1)
+            .and_then(|s| s.split('/').last())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
 
         let id: String = (0..16)
             .map(|_| {
@@ -340,13 +262,14 @@ pub async fn bulk_derive_accounts(
             })
             .collect();
 
-        let address = derive_address(protocols, protocol, &viewing_key, 0)?;
+        let proto = protocols.get(protocol)?;
+        let address = proto.derive_address_from_viewing_key(&viewing_key, 0)?;
 
         let account = Account {
             id,
             protocol,
             derivation_path: path,
-            name: format!("{protocol:?} Account {account_index}"),
+            name: proto.default_account_name(account_index),
             address,
             viewing_key,
             created_at: std::time::SystemTime::now()

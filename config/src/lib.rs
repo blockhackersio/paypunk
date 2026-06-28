@@ -11,8 +11,8 @@ pub struct PaypunkConfig {
     pub data_dir: String,
     #[serde(default = "default_config_dir")]
     pub config_dir: String,
-    #[serde(default = "default_rpc_url")]
-    pub rpc_url: String,
+    #[serde(default = "default_ethereum_rpc_url")]
+    pub ethereum_rpc_url: String,
 }
 
 fn default_paypunkd_socket_path() -> String {
@@ -33,7 +33,7 @@ fn default_config_dir() -> String {
     base.join("paypunk").to_string_lossy().to_string()
 }
 
-fn default_rpc_url() -> String {
+fn default_ethereum_rpc_url() -> String {
     "http://127.0.0.1:8545".to_string()
 }
 
@@ -44,7 +44,7 @@ impl Default for PaypunkConfig {
             keypunkd_socket_path: default_keypunkd_socket_path(),
             data_dir: default_data_dir(),
             config_dir: default_config_dir(),
-            rpc_url: default_rpc_url(),
+            ethereum_rpc_url: default_ethereum_rpc_url(),
         }
     }
 }
@@ -117,7 +117,7 @@ data_dir = "~/.local/share/paypunk/"
 config_dir = "~/.config/paypunk/"
 
 # RPC URL for Ethereum-compatible chains
-rpc_url = "http://127.0.0.1:8545"
+ethereum_rpc_url = "http://127.0.0.1:8545"
 "#;
 
         std::fs::write(&config_path, contents)
@@ -139,8 +139,8 @@ rpc_url = "http://127.0.0.1:8545"
         if let Ok(v) = std::env::var("PAYPUNK_CONFIG_DIR") {
             config.config_dir = v;
         }
-        if let Ok(v) = std::env::var("PAYPUNK_RPC_URL") {
-            config.rpc_url = v;
+        if let Ok(v) = std::env::var("PAYPUNK_ETHEREUM_RPC_URL") {
+            config.ethereum_rpc_url = v;
         }
     }
 }
@@ -167,7 +167,7 @@ mod tests {
         let config = PaypunkConfig::default();
         assert_eq!(config.paypunkd_socket_path, "/tmp/paypunkd.sock");
         assert_eq!(config.keypunkd_socket_path, "/tmp/keypunkd.sock");
-        assert_eq!(config.rpc_url, "http://127.0.0.1:8545");
+        assert_eq!(config.ethereum_rpc_url, "http://127.0.0.1:8545");
     }
 
     #[test]
@@ -177,14 +177,14 @@ paypunkd_socket_path = "/tmp/custom.sock"
 keypunkd_socket_path = "/tmp/key.sock"
 data_dir = "/data/paypunk"
 config_dir = "/cfg/paypunk"
-rpc_url = "http://localhost:9999"
+ethereum_rpc_url = "http://localhost:9999"
 "#;
         let config: PaypunkConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.paypunkd_socket_path, "/tmp/custom.sock");
         assert_eq!(config.keypunkd_socket_path, "/tmp/key.sock");
         assert_eq!(config.data_dir, "/data/paypunk");
         assert_eq!(config.config_dir, "/cfg/paypunk");
-        assert_eq!(config.rpc_url, "http://localhost:9999");
+        assert_eq!(config.ethereum_rpc_url, "http://localhost:9999");
     }
 
     #[test]
@@ -195,25 +195,25 @@ paypunkd_socket_path = "/tmp/custom.sock"
         let config: PaypunkConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.paypunkd_socket_path, "/tmp/custom.sock");
         assert_eq!(config.keypunkd_socket_path, "/tmp/keypunkd.sock");
-        assert_eq!(config.rpc_url, "http://127.0.0.1:8545");
+        assert_eq!(config.ethereum_rpc_url, "http://127.0.0.1:8545");
     }
 
     #[test]
     fn env_var_overrides() {
         env::set_var("PAYPUNK_SOCKET_PATH", "/env/paypunkd.sock");
         env::set_var("KEYPUNKD_SOCKET_PATH", "/env/keypunkd.sock");
-        env::set_var("PAYPUNK_RPC_URL", "http://env:8545");
+        env::set_var("PAYPUNK_ETHEREUM_RPC_URL", "http://env:8545");
 
         let mut config = PaypunkConfig::default();
         ConfigLoader::apply_env_overrides(&mut config);
 
         assert_eq!(config.paypunkd_socket_path, "/env/paypunkd.sock");
         assert_eq!(config.keypunkd_socket_path, "/env/keypunkd.sock");
-        assert_eq!(config.rpc_url, "http://env:8545");
+        assert_eq!(config.ethereum_rpc_url, "http://env:8545");
 
         env::remove_var("PAYPUNK_SOCKET_PATH");
         env::remove_var("KEYPUNKD_SOCKET_PATH");
-        env::remove_var("PAYPUNK_RPC_URL");
+        env::remove_var("PAYPUNK_ETHEREUM_RPC_URL");
     }
 
     #[test]
@@ -233,7 +233,7 @@ paypunkd_socket_path = "/tmp/custom.sock"
 keypunkd_socket_path = "/tmp/keypunkd.sock"
 data_dir = "~/.local/share/paypunk/"
 config_dir = "~/.config/paypunk/"
-rpc_url = "http://127.0.0.1:8545"
+ethereum_rpc_url = "http://127.0.0.1:8545"
 "#;
         std::fs::write(&config_path, contents).unwrap();
 

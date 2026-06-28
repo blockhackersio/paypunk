@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use paypunk_api::Client;
 use paypunk_config::ConfigLoader;
 use paypunk_tui::run_tui;
-use paypunk_types::{ArtifactSummary, AssetId, EthereumIntent, Intent, ProtocolId, ZcashIntent};
+use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, ZcashIntent};
 use std::fs;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -143,23 +143,8 @@ enum Commands {
         #[arg(short, long)]
         password: String,
     },
-    /// Submit a Zcash transfer intent for preview
-    SubmitZcashTransfer {
-        #[arg(short, long)]
-        to: String,
-        #[arg(short, long)]
-        amount: String,
-        #[arg(short, long)]
-        from: String,
-        #[arg(short, long, default_value = "zcash:mainnet/slip44:133")]
-        asset: String,
-        #[arg(short, long)]
-        memo: Option<String>,
-        #[arg(short, long, default_value_t = 0)]
-        account: u32,
-    },
-    /// Submit an Ethereum transfer intent for preview
-    SubmitEthTransfer {
+    /// Submit a transfer intent for preview
+    SubmitTransfer {
         #[arg(short, long)]
         to: String,
         #[arg(short, long)]
@@ -169,7 +154,11 @@ enum Commands {
         #[arg(short, long, default_value = "eip155:1/slip44:60")]
         asset: String,
         #[arg(short, long)]
+        protocol: Option<String>,
+        #[arg(short, long)]
         data: Option<String>,
+        #[arg(short, long)]
+        memo: Option<String>,
         #[arg(short, long, default_value_t = 0)]
         account: u32,
     },
@@ -204,7 +193,7 @@ enum Commands {
         #[arg(short, long)]
         keypunkd_socket: Option<String>,
         #[arg(short, long)]
-        rpc_url: Option<String>,
+        ethereum_rpc_url: Option<String>,
         #[arg(short, long)]
         data_dir: Option<String>,
     },
@@ -316,19 +305,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Paypunkd {
             socket_path,
             keypunkd_socket,
-            rpc_url,
+            ethereum_rpc_url,
             data_dir,
         }) => {
             let config = ConfigLoader::load_or_default();
             let socket = socket_path.unwrap_or(config.paypunkd_socket_path);
             let ks = keypunkd_socket.unwrap_or(config.keypunkd_socket_path);
-            let url = rpc_url.unwrap_or(config.rpc_url);
+            let url = ethereum_rpc_url.unwrap_or(config.ethereum_rpc_url);
             let dir = data_dir.unwrap_or(config.data_dir);
 
             paypunkd::run::run(paypunkd::run::Config {
                 socket_path: socket,
                 keypunkd_socket: ks,
-                rpc_url: url,
+                ethereum_rpc_url: url,
                 data_dir: dir,
             })
             .await
@@ -414,41 +403,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Seed restored successfully");
                 }
                 // TODO: Remove one of these commands the protocol should be derived from the asset type
-                Commands::SubmitZcashTransfer {
+                Commands::SubmitTransfer {
                     to,
                     amount,
                     from,
                     asset,
+                    protocol,
+                    data,
                     memo,
                     account,
                 } => {
-                    let intent = Intent::Zcash(ZcashIntent::Transfer {
-                        to,
-                        amount,
-                        from,
-                        asset,
-                        memo,
-                    });
-                    let path = client.derivation_path(ProtocolId::Zcash, account);
-                    submit_intent_flow(&client, intent, &path).await?;
-                }
-                // TODO: See above
-                Commands::SubmitEthTransfer {
-                    to,
-                    amount,
-                    from,
-                    asset,
-                    data,
-                    account,
-                } => {
-                    let intent = Intent::Ethereum(EthereumIntent::Transfer {
-                        to,
-                        amount,
-                        from,
-                        asset,
-                        data,
-                    });
-                    let path = client.derivation_path(ProtocolId::Ethereum, account);
+                    let protocol_id = protocol
+                        .as_deref()
+                        .or_else(|| {
+                            if asset.contains("eip155") {
+                                Some("ethereum")
+                            } else if asset.contains("zcash") {
+                                Some("zcash")
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or("ethereum");
+                    let protocol_id = match protocol_id {
+                        "zcash" => ProtocolId::Zcash,
+                        "ethereum" => ProtocolId::Ethereum,
+                        _ => return Err(format!("Unknown protocol: {protocol_id}").into()),
+                    };
+                    let intent = match protocol_id {
+                        ProtocolId::Ethereum => Intent::Ethereum(EthereumIntent::Transfer {
+                            to,
+                            amount,
+                            from,
+                            asset,
+                            data,
+                        }),
+                        ProtocolId::Zcash => Intent::Zcash(ZcashIntent::Transfer {
+                            to,
+                            amount,
+                            from,
+                            asset,
+                            memo,
+                        }),
+                        _ => return Err("unsupported protocol".into()),
+                    };
+                    let path = client.derivation_path(protocol_id, account);
                     submit_intent_flow(&client, intent, &path).await?;
                 }
                 // TODO:
@@ -470,10 +469,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "solana" => ProtocolId::Solana,
                         _ => return Err(format!("Unknown protocol: {protocol}").into()),
                     };
-                    let asset = AssetId::Native;
-                    let balance = client
-                        .get_balance_legacy(protocol_id, account, asset)
-                        .await?;
+                    let (caip_chain, caip_asset) = match protocol_id {
+                        ProtocolId::Ethereum => ("eip155:1", "eip155:1/slip44:60"),
+                        ProtocolId::Zcash => ("zcash:mainnet", "zcash:mainnet/slip44:133"),
+                        _ => return Err(format!("unsupported protocol: {protocol}").into()),
+                    };
+                    let address = format!("{}:{}", caip_chain, account);
+                    let balance = client.get_balance(address, caip_asset.to_string()).await?;
                     println!(
                         "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",
                         balance.spendable.0,

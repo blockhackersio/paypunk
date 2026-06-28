@@ -1,4 +1,4 @@
-use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -117,6 +117,7 @@ pub enum PaypunkdResponse {
     },
     SupportedProtocols {
         protocols: Vec<ProtocolId>,
+        metadata: Vec<ProtocolMetadata>,
     },
     UnlockSuccess {
         accounts_count: u32,
