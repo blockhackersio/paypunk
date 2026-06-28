@@ -4,7 +4,7 @@ use crate::ui;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
-use ratatui::widgets::Block;
+use ratatui::widgets::{Block, Clear};
 use ratatui::Frame;
 use std::marker::PhantomData;
 
@@ -117,6 +117,7 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
                 width: area.width,
                 height: self.max_visible as u16,
             };
+            frame.render_widget(Clear, mask_area);
             frame.render_widget(
                 Block::new().style(Style::new().bg(ui::SURFACE)),
                 mask_area,
@@ -138,6 +139,7 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
                     } else {
                         ui::SURFACE
                     };
+                    frame.render_widget(Clear, row_area);
                     frame.render_widget(Block::new().style(Style::new().bg(bg)), row_area);
                     item.render(frame, row_area);
                 }
