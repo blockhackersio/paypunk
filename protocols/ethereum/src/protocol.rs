@@ -66,7 +66,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
 
         let to_addr: Address = to.parse().map_err(|e| format!("invalid address: {e}"))?;
 
-        let amount_u64 = parse_amount(amount)?;
+        let amount_wei = parse_amount(amount)?;
         let chain_id = self.client.get_chain_id().await?;
         let nonce = self.client.get_transaction_count(from).await?;
         let gas_limit = 21_000u64;
@@ -87,7 +87,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
             max_fee_per_gas: gas_price,
             max_priority_fee_per_gas: priority_fee,
             to: TxKind::Call(to_addr),
-            value: U256::from(amount_u64),
+            value: amount_wei,
             input,
             access_list: Default::default(),
         };
@@ -153,15 +153,16 @@ fn encode_erc20_transfer(recipient: &Address, amount: u64) -> alloy_primitives::
     alloy_primitives::Bytes::from(data)
 }
 
-fn parse_amount(amount: &str) -> Result<u64, String> {
+fn parse_amount(amount: &str) -> Result<U256, String> {
     // Parse human-readable amount string (e.g. "1.5", "0.05")
+    let wei_factor = U256::from(1_000_000_000_000_000_000u128);
     let parts: Vec<&str> = amount.split('.').collect();
     match parts.len() {
         1 => {
             let v: u64 = parts[0]
                 .parse()
                 .map_err(|e| format!("invalid amount: {e}"))?;
-            Ok(v * 1_000_000_000_000_000_000) // Convert to wei
+            Ok(wei_factor * U256::from(v))
         }
         2 => {
             let whole: u64 = parts[0]
@@ -171,7 +172,7 @@ fn parse_amount(amount: &str) -> Result<u64, String> {
             let fraction: u64 = fraction_str[..18]
                 .parse()
                 .map_err(|e| format!("invalid amount: {e}"))?;
-            Ok(whole * 1_000_000_000_000_000_000 + fraction)
+            Ok(wei_factor * U256::from(whole) + U256::from(fraction))
         }
         _ => Err("invalid amount format".to_string()),
     }
