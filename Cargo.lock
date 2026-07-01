@@ -1549,8 +1549,12 @@ dependencies = [
 name = "derive-orchard"
 version = "0.1.0"
 dependencies = [
+ "bech32",
  "bip39",
+ "hex",
  "orchard",
+ "serde",
+ "serde_json",
  "zcash_address",
  "zcash_protocol",
  "zip32",

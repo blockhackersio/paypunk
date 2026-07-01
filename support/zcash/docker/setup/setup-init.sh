@@ -45,7 +45,7 @@ until zcli getblockchaininfo &>/dev/null; do
 done
 log "zcashd is ready."
 
-# ── Derive keys ──────────────────────────────────────────────────────
+# ── Derive keys for display ──────────────────────────────────────────
 
 log "Deriving ${NUM_KEYS} transparent addresses from test mnemonic…"
 KEYS_JSON=$(node /app/derive-keys.mjs --all --json)
@@ -56,32 +56,15 @@ MINING_ADDR=$(echo "$KEYS_JSON" | node -e "
 ")
 log "Primary mining address: ${MINING_ADDR}"
 
-# ── Import private keys ─────────────────────────────────────────────
-
-log "Importing private keys…"
-for i in $(seq 0 $((NUM_KEYS - 1))); do
-  WIF=$(echo "$KEYS_JSON" | node -e "
-    const k = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-    console.log(k[${i}].wif);
-  ")
-  ADDR=$(echo "$KEYS_JSON" | node -e "
-    const k = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-    console.log(k[${i}].taddr);
-  ")
-
-  if zcli importprivkey "$WIF" "hardhat-${i}" false 2>/dev/null; then
-    log "  [$i] ${ADDR} ✓"
-  else
-    warn "  [$i] ${ADDR} – already imported or error"
-  fi
-done
-
 # ── Mine blocks ──────────────────────────────────────────────────────
+# Mining to the wallet's own transparent address (zcashd 6.x wallet
+# derives its own keys from a random mnemonic; we mine to its address
+# so it has spendable coinbase UTXOs).
 
 CURRENT=$(zcli getblockcount)
 if (( CURRENT < BLOCKS )); then
   NEEDED=$((BLOCKS - CURRENT))
-  log "Mining ${NEEDED} blocks…"
+  log "Mining ${NEEDED} blocks (coinbase goes to wallet's internal address)…"
   zcli generate "$NEEDED" >/dev/null
 else
   log "Already at block ${CURRENT}, skipping."
@@ -90,35 +73,39 @@ fi
 log "Rescanning wallet…"
 zcli rescanblockchain 0 >/dev/null 2>&1 || zcli rescanblockchain >/dev/null 2>&1 || true
 
-BALANCE=$(zcli getbalance)
-
-# ── Shield funds into Orchard ────────────────────────────────────────
+# ── Shield coinbase funds into Orchard ───────────────────────────────
 #
-# If ORCHARD_UA is provided (from the wallet's mnemonic-derived key),
-# shield to that address so the wallet sees the balance. Otherwise fall
-# back to zcashd's internal wallet UA (SHIELD_FUNDS=true path).
+# ORCHARD_UA is a uregtest1... address derived from the test mnemonic,
+# matching what paypunkd derives. We use z_shieldcoinbase to move
+# coinbase UTXOs into the Orchard pool at that address.
 
 if [[ -n "${ORCHARD_UA:-}" ]]; then
-  log "Shielding 100 ZEC into wallet Orchard UA: ${ORCHARD_UA}…"
+  log "Shielding coinbase funds to wallet Orchard UA: ${ORCHARD_UA}…"
 
-  OPID=$(zcli z_sendmany "$MINING_ADDR" \
-    "[{\"address\":\"${ORCHARD_UA}\",\"amount\":100}]" \
-    1 null "AllowRevealedSenders" 2>/dev/null || true)
+  SHIELD_RESULT=$(zcli z_shieldcoinbase "*" "${ORCHARD_UA}" null 0 null "AllowRevealedSenders" 2>/dev/null || true)
 
-  if [[ -n "$OPID" ]]; then
-    while true; do
-      STATUS=$(zcli z_getoperationstatus "[\"${OPID}\"]" | node -e "
-        const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-        console.log(r[0]?.status ?? 'unknown');
-      ")
-      [[ "$STATUS" == "success" ]] && break
-      [[ "$STATUS" == "failed" ]] && { warn "Shielding failed"; break; }
-      sleep 1
-    done
-    zcli generate 1 >/dev/null
-    log "Shielding complete."
+  if [[ -n "$SHIELD_RESULT" ]]; then
+    OPID=$(echo "$SHIELD_RESULT" | node -e "
+      const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+      console.log(r.opid);
+    ")
+
+    if [[ -n "$OPID" ]]; then
+      log "Shielding operation: ${OPID}, waiting…"
+      while true; do
+        STATUS=$(zcli z_getoperationstatus "[\"${OPID}\"]" | node -e "
+          const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+          console.log(r[0]?.status ?? 'unknown');
+        ")
+        [[ "$STATUS" == "success" ]] && break
+        [[ "$STATUS" == "failed" ]] && { warn "Shielding failed"; break; }
+        sleep 2
+      done
+      zcli generate 1 >/dev/null
+      log "Shielding complete."
+    fi
   else
-    warn "z_sendmany failed — is the wallet unlocked?"
+    warn "z_shieldcoinbase failed"
   fi
 
 elif [[ "$SHIELD" == "true" ]]; then
@@ -132,21 +119,24 @@ elif [[ "$SHIELD" == "true" ]]; then
     ")
     log "Unified address: ${UA}"
 
-    OPID=$(zcli z_sendmany "$MINING_ADDR" \
-      "[{\"address\":\"${UA}\",\"amount\":50}]" \
-      1 null "AllowRevealedSenders" 2>/dev/null || true)
-
-    if [[ -n "$OPID" ]]; then
-      while true; do
-        STATUS=$(zcli z_getoperationstatus "[\"${OPID}\"]" | node -e "
-          const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-          console.log(r[0]?.status ?? 'unknown');
-        ")
-        [[ "$STATUS" == "success" ]] && break
-        [[ "$STATUS" == "failed" ]] && { warn "Shielding failed"; break; }
-        sleep 1
-      done
-      zcli generate 1 >/dev/null
+    SHIELD_RESULT=$(zcli z_shieldcoinbase "*" "${UA}" null 0 null "AllowRevealedSenders" 2>/dev/null || true)
+    if [[ -n "$SHIELD_RESULT" ]]; then
+      OPID=$(echo "$SHIELD_RESULT" | node -e "
+        const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        console.log(r.opid);
+      ")
+      if [[ -n "$OPID" ]]; then
+        while true; do
+          STATUS=$(zcli z_getoperationstatus "[\"${OPID}\"]" | node -e "
+            const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+            console.log(r[0]?.status ?? 'unknown');
+          ")
+          [[ "$STATUS" == "success" ]] && break
+          [[ "$STATUS" == "failed" ]] && { warn "Shielding failed"; break; }
+          sleep 2
+        done
+        zcli generate 1 >/dev/null
+      fi
     fi
   fi
 fi
@@ -178,7 +168,7 @@ echo "$KEYS_JSON" | node -e "
 "
 if [[ -n "${ORCHARD_UA:-}" ]]; then
   log ""
-  log "  Wallet Orchard UA (100 ZEC shielded):"
+  log "  Wallet Orchard UA (funds shielded):"
   log "    ${ORCHARD_UA}"
 fi
 log ""

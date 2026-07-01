@@ -26,11 +26,12 @@ lightwalletd from source). Subsequent runs use cached layers and volumes.
    NU5/Orchard) active at block 1.
 2. **setup** (one-shot container) derives 5 transparent addresses from
    the mnemonic `test test test ... test junk` using BIP-44
-   `m/44'/133'/0'/0/{0..4}`, imports the private keys, and mines 200
-   blocks to the first address.
-3. **setup then shields 100 ZEC** from the mining address into the
-   Orchard UA derived from the same mnemonic (ZIP-32, account 0,
-   diversifier index 0) — this is the same address your wallet derives,
+   `m/44'/133'/0'/0/{0..4}` for reference, then mines 200 blocks to the
+   wallet's internal transparent address (zcashd 6.x generates its own
+   random wallet seed on first run).
+3. **setup then shields coinbase UTXOs** into the Orchard UA derived
+   from the same mnemonic (ZIP-32, account 0, diversifier index 0) via
+   `z_shieldcoinbase` — this is the same address your wallet derives,
    so `paypunkd` will see the balance after syncing.
 4. **lightwalletd** starts on port 9067 (gRPC, no TLS), connected to
    zcashd.
