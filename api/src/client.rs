@@ -3,6 +3,7 @@ use paypunk_ipc::IpcSender;
 use paypunk_types::{
     Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
 };
+use paypunkd::messages::AddressBookEntry;
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -209,5 +210,34 @@ impl Client {
         password: Zeroizing<String>,
     ) -> Result<(), String> {
         crate::functions::verify_password(&self.service, password).await
+    }
+
+    /// Get all address book entries.
+    pub async fn get_address_book(&self) -> Result<Vec<AddressBookEntry>, String> {
+        crate::functions::get_address_book(&self.service).await
+    }
+
+    /// Add an entry to the address book.
+    pub async fn add_address_book_entry(
+        &self,
+        name: String,
+        address: String,
+        protocol: String,
+    ) -> Result<(), String> {
+        crate::functions::add_address_book_entry(&self.service, name, address, protocol).await
+    }
+
+    /// Get settings.
+    pub async fn get_settings(&self) -> Result<(u32, String), String> {
+        crate::functions::get_settings(&self.service).await
+    }
+
+    /// Save settings.
+    pub async fn save_settings(
+        &self,
+        auto_lock_minutes: u32,
+        fiat_currency: String,
+    ) -> Result<(), String> {
+        crate::functions::save_settings(&self.service, auto_lock_minutes, fiat_currency).await
     }
 }

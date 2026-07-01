@@ -1,6 +1,13 @@
 use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddressBookEntry {
+    pub name: String,
+    pub address: String,
+    pub protocol: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PaypunkdRequest {
     // Get the public key for Keypunk to encrypt data to keypunk
@@ -100,6 +107,21 @@ pub enum PaypunkdRequest {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     },
+    // Get all address book entries
+    GetAddressBook,
+    // Add an entry to the address book
+    AddAddressBookEntry {
+        name: String,
+        address: String,
+        protocol: String,
+    },
+    // Get settings
+    GetSettings,
+    // Save settings
+    SaveSettings {
+        auto_lock_minutes: u32,
+        fiat_currency: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -169,6 +191,15 @@ pub enum PaypunkdResponse {
         failed_attempts: u32,
     },
     PasswordVerified,
+    AddressBookData {
+        entries: Vec<AddressBookEntry>,
+    },
+    AddressBookEntryAdded,
+    SettingsResult {
+        auto_lock_minutes: u32,
+        fiat_currency: String,
+    },
+    SettingsSaved,
     Error {
         message: String,
     },

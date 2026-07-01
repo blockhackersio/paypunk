@@ -5,7 +5,7 @@ use tactix::{Recipient, Sender};
 use rand::Rng;
 use tracing::info;
 
-use crate::database::{AccountsRepository, Database};
+use crate::database::{AccountsRepository, AddressBookRepository, Database};
 use crate::protocol_service::ProtocolService;
 
 /// Forward a GetEncryptionKey request to keypunkd and return its X25519 public key.
@@ -358,6 +358,89 @@ pub async fn get_balance(
     asset: &str,
 ) -> Result<Balance, String> {
     protocols.get(protocol)?.get_balance(address, asset).await
+}
+
+// ── Address Book ───────────────────────────────────────────────────────────
+
+/// Get all address book entries from the database.
+pub fn get_address_book(
+    db: &Database,
+    repo: &dyn AddressBookRepository,
+) -> Result<Vec<crate::messages::AddressBookEntry>, String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+    repo.find_all(&conn)
+}
+
+/// Add a new entry to the address book.
+pub fn add_address_book_entry(
+    db: &Database,
+    repo: &dyn AddressBookRepository,
+    name: String,
+    address: String,
+    protocol: String,
+) -> Result<(), String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+    repo.insert(
+        &conn,
+        &crate::messages::AddressBookEntry {
+            name,
+            address,
+            protocol,
+        },
+    )
+}
+
+// ── Settings ────────────────────────────────────────────────────────────────
+
+/// Get settings from the database. Returns defaults if not set.
+pub fn get_settings(db: &Database) -> Result<(u32, String), String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+
+    let auto_lock = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'auto_lock_minutes'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| "5".to_string());
+
+    let fiat = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'fiat_currency'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| "USD".to_string());
+
+    let auto_lock_minutes = auto_lock.parse::<u32>().unwrap_or(5);
+    Ok((auto_lock_minutes, fiat))
+}
+
+/// Save settings to the database.
+pub fn save_settings(
+    db: &Database,
+    auto_lock_minutes: u32,
+    fiat_currency: String,
+) -> Result<(), String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('auto_lock_minutes', ?1)",
+        rusqlite::params![auto_lock_minutes.to_string()],
+    )
+    .map_err(|e| format!("failed to save auto_lock_minutes: {e}"))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('fiat_currency', ?1)",
+        rusqlite::params![fiat_currency],
+    )
+    .map_err(|e| format!("failed to save fiat_currency: {e}"))?;
+
+    Ok(())
 }
 
 // ── Stubs: depend on future work ───────────────────────────────────────────

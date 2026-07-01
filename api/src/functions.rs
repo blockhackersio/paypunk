@@ -2,6 +2,7 @@ use argon2::Argon2;
 use bip39::{Language, Mnemonic};
 use keypunkd::crypto::Keypair;
 use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId};
+use paypunkd::messages::AddressBookEntry;
 use zeroize::Zeroizing;
 
 fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
@@ -272,6 +273,39 @@ pub async fn verify_password(
         client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
     let client_pk = client_keypair.public_key();
     service.verify_password(encrypted_password, client_pk).await
+}
+
+/// Get all address book entries.
+pub async fn get_address_book(
+    service: &paypunkd::services::PaypunkService,
+) -> Result<Vec<AddressBookEntry>, String> {
+    service.get_address_book().await
+}
+
+/// Add an entry to the address book.
+pub async fn add_address_book_entry(
+    service: &paypunkd::services::PaypunkService,
+    name: String,
+    address: String,
+    protocol: String,
+) -> Result<(), String> {
+    service.add_address_book_entry(name, address, protocol).await
+}
+
+/// Get settings.
+pub async fn get_settings(
+    service: &paypunkd::services::PaypunkService,
+) -> Result<(u32, String), String> {
+    service.get_settings().await
+}
+
+/// Save settings.
+pub async fn save_settings(
+    service: &paypunkd::services::PaypunkService,
+    auto_lock_minutes: u32,
+    fiat_currency: String,
+) -> Result<(), String> {
+    service.save_settings(auto_lock_minutes, fiat_currency).await
 }
 
 #[cfg(test)]

@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use paypunk_api::Client;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, ProtocolMetadata};
 use std::collections::HashMap;
-use std::sync::Mutex;
 use zeroize::Zeroizing;
 
 use super::types::SyncStatus;
@@ -19,10 +18,9 @@ struct PendingSend {
 
 pub struct RealWalletApi {
     client: Client,
-    pending: Mutex<Option<PendingSend>>,
-    pending_mnemonic: Mutex<Option<Zeroizing<String>>>,
-    address_book_entries: Mutex<Vec<AddressBookEntry>>,
-    protocol_metadata: Mutex<HashMap<ProtocolId, ProtocolMetadata>>,
+    pending: std::sync::Mutex<Option<PendingSend>>,
+    pending_mnemonic: std::sync::Mutex<Option<Zeroizing<String>>>,
+    protocol_metadata: std::sync::Mutex<HashMap<ProtocolId, ProtocolMetadata>>,
 }
 
 impl RealWalletApi {
@@ -30,20 +28,18 @@ impl RealWalletApi {
         let client = Client::connect(socket_path).await?;
         Ok(Self {
             client,
-            pending: Mutex::new(None),
-            pending_mnemonic: Mutex::new(None),
-            address_book_entries: Mutex::new(Vec::new()),
-            protocol_metadata: Mutex::new(HashMap::new()),
+            pending: std::sync::Mutex::new(None),
+            pending_mnemonic: std::sync::Mutex::new(None),
+            protocol_metadata: std::sync::Mutex::new(HashMap::new()),
         })
     }
 
     pub fn with_client(client: Client) -> Self {
         Self {
             client,
-            pending: Mutex::new(None),
-            pending_mnemonic: Mutex::new(None),
-            address_book_entries: Mutex::new(Vec::new()),
-            protocol_metadata: Mutex::new(HashMap::new()),
+            pending: std::sync::Mutex::new(None),
+            pending_mnemonic: std::sync::Mutex::new(None),
+            protocol_metadata: std::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -536,17 +532,32 @@ impl WalletApi for RealWalletApi {
     }
 
     async fn get_settings(&self) -> SettingsData {
-        SettingsData {
-            security: SecuritySettings {
-                auto_lock_minutes: 5,
+        match self.client.get_settings().await {
+            Ok((auto_lock_minutes, fiat_currency)) => SettingsData {
+                security: SecuritySettings {
+                    auto_lock_minutes,
+                },
+                fiat_currency,
+                app_version: "0.1.0".into(),
             },
-            fiat_currency: "USD".into(),
-            app_version: "0.1.0".into(),
+            Err(_) => SettingsData {
+                security: SecuritySettings {
+                    auto_lock_minutes: 5,
+                },
+                fiat_currency: "USD".into(),
+                app_version: "0.1.0".into(),
+            },
         }
     }
 
-    async fn submit_settings(&self, _input: SettingsInput) -> Result<(), ApiError> {
-        Ok(())
+    async fn submit_settings(&self, input: SettingsInput) -> Result<(), ApiError> {
+        self.client
+            .save_settings(
+                input.updated_security.auto_lock_minutes,
+                input.fiat_currency,
+            )
+            .await
+            .map_err(|e| ApiError(e))
     }
 
     async fn submit_reveal_phrase(
@@ -571,7 +582,17 @@ impl WalletApi for RealWalletApi {
     }
 
     async fn get_address_book(&self) -> AddressBookData {
-        let mut entries = self.address_book_entries.lock().unwrap().clone();
+        let mut entries = match self.client.get_address_book().await {
+            Ok(entries) => entries
+                .into_iter()
+                .map(|e| AddressBookEntry {
+                    name: e.name,
+                    address: e.address,
+                    protocol: e.protocol,
+                })
+                .collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
 
         // Populate from wallet accounts
         if let Ok(accounts) = self.client.list_accounts().await {
@@ -592,15 +613,10 @@ impl WalletApi for RealWalletApi {
     }
 
     async fn add_address_book_entry(&self, name: String, address: String, protocol: String) {
-        let mut entries = self.address_book_entries.lock().unwrap();
-        let exists = entries.iter().any(|e| e.address == address);
-        if !exists {
-            entries.push(AddressBookEntry {
-                name,
-                address,
-                protocol,
-            });
-        }
+        let _ = self
+            .client
+            .add_address_book_entry(name, address, protocol)
+            .await;
     }
 
     async fn sync(&self, protocol: &str) -> Result<(), ApiError> {

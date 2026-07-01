@@ -8,7 +8,8 @@ use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
 use crate::database::repository::SqliteAccountsRepository;
-use crate::database::{AccountsRepository, Database};
+use crate::database::repository::SqliteAddressBookRepository;
+use crate::database::{AccountsRepository, AddressBookRepository, Database};
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
 use crate::protocol_service::ProtocolService;
 use crate::usecases;
@@ -18,6 +19,7 @@ pub struct Paypunkd {
     protocols: ProtocolService,
     db: Database,
     accounts_repo: Box<dyn AccountsRepository>,
+    address_book_repo: Box<dyn AddressBookRepository>,
     keystore: Keypair,
     zcash_wallet_recipient: Option<Recipient<WalletMessage>>,
     zcash_fvk: Option<Vec<u8>>,
@@ -39,6 +41,7 @@ impl Paypunkd {
             protocols,
             db,
             accounts_repo: Box::new(SqliteAccountsRepository),
+            address_book_repo: Box::new(SqliteAddressBookRepository),
             keystore,
             zcash_wallet_recipient: Some(zcash_wallet_recipient),
             zcash_fvk: None,
@@ -430,6 +433,50 @@ impl Paypunkd {
         }
     }
 
+    fn get_address_book(&self) -> PaypunkdResponse {
+        info!("handling GetAddressBook");
+        self.respond(
+            "get_address_book",
+            usecases::get_address_book(&self.db, self.address_book_repo.as_ref()),
+            |entries| PaypunkdResponse::AddressBookData { entries },
+        )
+    }
+
+    fn add_address_book_entry(
+        &self,
+        name: String,
+        address: String,
+        protocol: String,
+    ) -> PaypunkdResponse {
+        info!("handling AddAddressBookEntry");
+        self.respond(
+            "add_address_book_entry",
+            usecases::add_address_book_entry(&self.db, self.address_book_repo.as_ref(), name, address, protocol),
+            |()| PaypunkdResponse::AddressBookEntryAdded,
+        )
+    }
+
+    fn get_settings(&self) -> PaypunkdResponse {
+        info!("handling GetSettings");
+        self.respond(
+            "get_settings",
+            usecases::get_settings(&self.db),
+            |(auto_lock_minutes, fiat_currency)| PaypunkdResponse::SettingsResult {
+                auto_lock_minutes,
+                fiat_currency,
+            },
+        )
+    }
+
+    fn save_settings(&self, auto_lock_minutes: u32, fiat_currency: String) -> PaypunkdResponse {
+        info!("handling SaveSettings");
+        self.respond(
+            "save_settings",
+            usecases::save_settings(&self.db, auto_lock_minutes, fiat_currency),
+            |()| PaypunkdResponse::SettingsSaved,
+        )
+    }
+
     async fn unlock(
         &mut self,
         encrypted_db_password: Vec<u8>,
@@ -692,6 +739,17 @@ impl Handler<IpcMessage> for Paypunkd {
                 self.verify_password(encrypted_password, client_public_key)
                     .await
             }
+            PaypunkdRequest::GetAddressBook => self.get_address_book(),
+            PaypunkdRequest::AddAddressBookEntry {
+                name,
+                address,
+                protocol,
+            } => self.add_address_book_entry(name, address, protocol),
+            PaypunkdRequest::GetSettings => self.get_settings(),
+            PaypunkdRequest::SaveSettings {
+                auto_lock_minutes,
+                fiat_currency,
+            } => self.save_settings(auto_lock_minutes, fiat_currency),
         };
 
         let encoded =
