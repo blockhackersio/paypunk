@@ -264,7 +264,7 @@ impl WalletApi for RealWalletApi {
         let name = format!("{target_protocol:?} Account {next_index}");
         let _ = self
             .client
-            .create_account(target_protocol, path, next_index, name)
+            .create_account(target_protocol, path, next_index, name, None)
             .await
             .map_err(ApiError)?;
         Ok(())

@@ -456,6 +456,7 @@ async fn test_create_account() {
             "m/44'/133'/1'".to_string(),
             1,
             "My Zcash Wallet".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -483,6 +484,7 @@ async fn test_list_accounts() {
             "m/44'/133'/1'".into(),
             1,
             "Zcash 1".into(),
+            None,
         )
         .await
         .unwrap();
@@ -492,6 +494,7 @@ async fn test_list_accounts() {
             "m/44'/60'/1'/0/0".into(),
             1,
             "Ethereum 1".into(),
+            None,
         )
         .await
         .unwrap();
@@ -540,6 +543,7 @@ async fn test_create_account_beyond_range_fails() {
             "m/44'/133'/30'".into(),
             30,
             "Too Far".into(),
+            None,
         )
         .await;
 
@@ -563,6 +567,7 @@ async fn test_create_account_duplicate_fails() {
             "m/44'/133'/0'".into(),
             0,
             "Duplicate".into(),
+            None,
         )
         .await;
 

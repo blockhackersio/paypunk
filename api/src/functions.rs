@@ -226,9 +226,10 @@ pub async fn create_account(
     derivation_path: String,
     account_index: u32,
     name: String,
+    birthday_height: Option<u64>,
 ) -> Result<Account, String> {
     service
-        .create_account(protocol, derivation_path, account_index, name)
+        .create_account(protocol, derivation_path, account_index, name, birthday_height)
         .await
 }
 

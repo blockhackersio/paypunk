@@ -215,8 +215,9 @@ impl Paypunkd {
         derivation_path: String,
         account_index: u32,
         name: String,
+        birthday_height: Option<u64>,
     ) -> PaypunkdResponse {
-        info!(?protocol, account_index, name, "creating account");
+        info!(?protocol, account_index, name, ?birthday_height, "creating account");
         self.respond(
             "create_account",
             usecases::create_account(
@@ -227,6 +228,7 @@ impl Paypunkd {
                 derivation_path,
                 account_index,
                 name,
+                birthday_height,
             )
             .await,
             |account| PaypunkdResponse::AccountCreated { account },
@@ -365,6 +367,7 @@ impl Paypunkd {
                             path,
                             account_index,
                             name,
+                            None, // birthday_height — default for auto-created accounts
                         )
                         .await;
                     }
@@ -472,9 +475,16 @@ impl Handler<IpcMessage> for Paypunkd {
                 derivation_path,
                 account_index,
                 name,
+                birthday_height,
             } => {
-                self.create_account(protocol, derivation_path, account_index, name)
-                    .await
+                self.create_account(
+                    protocol,
+                    derivation_path,
+                    account_index,
+                    name,
+                    birthday_height,
+                )
+                .await
             }
             PaypunkdRequest::ListAccounts => self.list_accounts().await,
             PaypunkdRequest::GetAccount { id } => self.get_account(id).await,
@@ -496,6 +506,18 @@ impl Handler<IpcMessage> for Paypunkd {
                     paths,
                 )
                 .await
+            }
+            PaypunkdRequest::Sync { protocol } => {
+                warn!(?protocol, "Sync not yet implemented");
+                PaypunkdResponse::Error {
+                    message: "Sync not yet implemented".to_string(),
+                }
+            }
+            PaypunkdRequest::GetSyncStatus { protocol } => {
+                warn!(?protocol, "GetSyncStatus not yet implemented");
+                PaypunkdResponse::Error {
+                    message: "GetSyncStatus not yet implemented".to_string(),
+                }
             }
             PaypunkdRequest::BulkDeriveAccounts {
                 encrypted_password,

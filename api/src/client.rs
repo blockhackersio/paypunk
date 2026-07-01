@@ -121,6 +121,7 @@ impl Client {
         derivation_path: String,
         account_index: u32,
         name: String,
+        birthday_height: Option<u64>,
     ) -> Result<Account, String> {
         crate::functions::create_account(
             &self.service,
@@ -128,6 +129,7 @@ impl Client {
             derivation_path,
             account_index,
             name,
+            birthday_height,
         )
         .await
     }

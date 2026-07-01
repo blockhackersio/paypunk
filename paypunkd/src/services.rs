@@ -155,6 +155,7 @@ impl PaypunkService {
         derivation_path: String,
         account_index: u32,
         name: String,
+        birthday_height: Option<u64>,
     ) -> Result<Account, String> {
         match self
             .send(PaypunkdRequest::CreateAccount {
@@ -162,6 +163,7 @@ impl PaypunkService {
                 derivation_path,
                 account_index,
                 name,
+                birthday_height,
             })
             .await?
         {

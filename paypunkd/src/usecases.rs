@@ -137,6 +137,7 @@ pub async fn create_account(
     derivation_path: String,
     account_index: u32,
     name: String,
+    _birthday_height: Option<u64>,
 ) -> Result<Account, String> {
     let conn = db.conn.as_ref().ok_or("database is locked")?;
     let conn = conn.lock().map_err(|e| e.to_string())?;

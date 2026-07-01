@@ -1,4 +1,4 @@
-use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -51,6 +51,7 @@ pub enum PaypunkdRequest {
         derivation_path: String,
         account_index: u32,
         name: String,
+        birthday_height: Option<u64>,
     },
     ListAccounts,
     GetAccount {
@@ -59,6 +60,14 @@ pub enum PaypunkdRequest {
     GetPaypunkdEncryptionKey,
     HasSeed,
     GetSupportedProtocols,
+    // Trigger a chain sync for the given protocol
+    Sync {
+        protocol: ProtocolId,
+    },
+    // Poll sync status for the given protocol
+    GetSyncStatus {
+        protocol: ProtocolId,
+    },
     Unlock {
         encrypted_db_password: Vec<u8>,
         ephemeral_public_key: [u8; 32],
@@ -124,6 +133,10 @@ pub enum PaypunkdResponse {
     },
     AccountsBulkDerived {
         accounts: Vec<Account>,
+    },
+    SyncAck,
+    SyncStatusResult {
+        status: SyncStatus,
     },
     Error {
         message: String,
