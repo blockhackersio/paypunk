@@ -490,6 +490,89 @@ impl Paypunkd {
         )
     }
 
+    async fn create_transfer(
+        &self,
+        protocol: ProtocolId,
+        account: u32,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+        lightwalletd_host: String,
+    ) -> PaypunkdResponse {
+        info!(?protocol, account, "handling CreateTransfer");
+        let recipient = match &self.zcash_wallet_recipient {
+            Some(r) => r,
+            None => return PaypunkdResponse::Error {
+                message: "Zcash wallet not initialized".to_string(),
+            },
+        };
+        self.respond(
+            "create_transfer",
+            usecases::create_transfer(recipient, protocol, account, &to, amount, memo.as_deref(), &lightwalletd_host).await,
+            |pczt_bytes| PaypunkdResponse::TransferCreated { pczt_bytes },
+        )
+    }
+
+    async fn estimate_fee(
+        &self,
+        protocol: ProtocolId,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+        lightwalletd_host: String,
+    ) -> PaypunkdResponse {
+        info!(?protocol, "handling EstimateFee");
+        let recipient = match &self.zcash_wallet_recipient {
+            Some(r) => r,
+            None => return PaypunkdResponse::Error {
+                message: "Zcash wallet not initialized".to_string(),
+            },
+        };
+        self.respond(
+            "estimate_fee",
+            usecases::estimate_fee(recipient, protocol, &to, amount, memo.as_deref(), &lightwalletd_host).await,
+            |fee| PaypunkdResponse::FeeEstimated { fee },
+        )
+    }
+
+    async fn get_current_block_height(
+        &self,
+        protocol: ProtocolId,
+        lightwalletd_host: String,
+    ) -> PaypunkdResponse {
+        info!(?protocol, "handling GetCurrentBlockHeight");
+        let recipient = match &self.zcash_wallet_recipient {
+            Some(r) => r,
+            None => return PaypunkdResponse::Error {
+                message: "Zcash wallet not initialized".to_string(),
+            },
+        };
+        self.respond(
+            "get_current_block_height",
+            usecases::get_current_block_height(recipient, protocol, lightwalletd_host).await,
+            |height| PaypunkdResponse::BlockHeightResult { height },
+        )
+    }
+
+    async fn get_transaction_status(
+        &self,
+        protocol: ProtocolId,
+        txid: String,
+    ) -> PaypunkdResponse {
+        info!(?protocol, "handling GetTransactionStatus");
+        let recipient = match &self.zcash_wallet_recipient {
+            Some(r) => r,
+            None => return PaypunkdResponse::Error {
+                message: "Zcash wallet not initialized".to_string(),
+            },
+        };
+        self.respond(
+            "get_transaction_status",
+            usecases::get_transaction_status(recipient, protocol, txid).await,
+            |status| PaypunkdResponse::TransactionStatusResult { status },
+        )
+    }
+
     async fn unlock(
         &mut self,
         encrypted_db_password: Vec<u8>,
@@ -767,6 +850,37 @@ impl Handler<IpcMessage> for Paypunkd {
                 encrypted_password,
                 client_public_key,
             } => self.reveal_phrase(encrypted_password, client_public_key).await,
+            PaypunkdRequest::CreateTransfer {
+                protocol,
+                account,
+                to,
+                amount,
+                memo,
+                lightwalletd_host,
+            } => {
+                self.create_transfer(protocol, account, to, amount, memo, lightwalletd_host)
+                    .await
+            }
+            PaypunkdRequest::EstimateFee {
+                protocol,
+                to,
+                amount,
+                memo,
+                lightwalletd_host,
+            } => {
+                self.estimate_fee(protocol, to, amount, memo, lightwalletd_host)
+                    .await
+            }
+            PaypunkdRequest::GetCurrentBlockHeight {
+                protocol,
+                lightwalletd_host,
+            } => {
+                self.get_current_block_height(protocol, lightwalletd_host)
+                    .await
+            }
+            PaypunkdRequest::GetTransactionStatus { protocol, txid } => {
+                self.get_transaction_status(protocol, txid).await
+            }
         };
 
         let encoded =

@@ -127,6 +127,33 @@ pub enum PaypunkdRequest {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     },
+    // Create a transfer (PCZT pipeline)
+    CreateTransfer {
+        protocol: ProtocolId,
+        account: u32,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+        lightwalletd_host: String,
+    },
+    // Estimate fee for a transfer
+    EstimateFee {
+        protocol: ProtocolId,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+        lightwalletd_host: String,
+    },
+    // Get the current block height
+    GetCurrentBlockHeight {
+        protocol: ProtocolId,
+        lightwalletd_host: String,
+    },
+    // Get the status of a transaction
+    GetTransactionStatus {
+        protocol: ProtocolId,
+        txid: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -207,6 +234,18 @@ pub enum PaypunkdResponse {
     SettingsSaved,
     PhraseRevealed {
         encrypted_mnemonic: Vec<u8>,
+    },
+    TransferCreated {
+        pczt_bytes: Vec<u8>,
+    },
+    FeeEstimated {
+        fee: u64,
+    },
+    BlockHeightResult {
+        height: paypunk_types::BlockHeight,
+    },
+    TransactionStatusResult {
+        status: paypunk_types::TxStatus,
     },
     Error {
         message: String,

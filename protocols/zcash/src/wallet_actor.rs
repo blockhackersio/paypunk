@@ -5,11 +5,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use rand_core::OsRng;
 use tactix::{Actor, Ctx, Handler, Message};
-use zcash_client_backend::data_api::error::Error as DataApiError;
+use zcash_client_backend::data_api::wallet::create_pczt_from_proposal;
 use zcash_client_backend::data_api::wallet::propose_standard_transfer_to_address;
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 use zcash_client_backend::data_api::WalletRead;
+use zcash_client_backend::data_api::error::Error as DataApiError;
 use zcash_client_backend::fees::StandardFeeRule;
+use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_sqlite::error::SqliteClientError;
 use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::util::SystemClock;
@@ -46,6 +48,20 @@ pub enum WalletMessage {
         account: u32,
         cursor: Option<String>,
         limit: u32,
+    },
+    /// Get the current block height from lightwalletd.
+    GetBlockHeight {
+        lightwalletd_host: String,
+    },
+    /// Get the status of a transaction by its txid.
+    GetTxStatus {
+        txid: String,
+    },
+    /// Estimate the fee for a transfer.
+    EstimateFee {
+        to: String,
+        amount: u64,
+        memo: Option<String>,
     },
 }
 
@@ -84,70 +100,77 @@ impl Handler<WalletMessage> for WalletDbActor {
     async fn handle(&mut self, msg: WalletMessage, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
         match msg {
             WalletMessage::ProposeAndBuild {
-                public_key,
+                public_key: _public_key,
                 account: _account,
                 to,
                 amount,
                 memo,
             } => {
-                let _proposal = {
-                    let mut db = self.db.lock().map_err(|e| e.to_string())?;
+                let mut db = self.db.lock().map_err(|e| e.to_string())?;
 
-                    // Parse the recipient address
-                    let to_addr = zcash_address::ZcashAddress::try_from_encoded(&to)
-                        .map_err(|e| format!("invalid recipient address: {e}"))?;
+                // Parse the recipient address
+                let to_addr = zcash_address::ZcashAddress::try_from_encoded(&to)
+                    .map_err(|e| format!("invalid recipient address: {e}"))?;
 
-                    let zcash_addr = to_addr
-                        .convert()
-                        .map_err(|e| format!("unsupported address type: {e}"))?;
+                let zcash_addr = to_addr
+                    .convert()
+                    .map_err(|e| format!("unsupported address type: {e}"))?;
 
-                    // Parse the amount from zatoshis
-                    let amount = zcash_protocol::value::Zatoshis::from_u64(amount)
-                        .map_err(|_| "invalid amount".to_string())?;
+                // Parse the amount from zatoshis
+                let amount_zat = zcash_protocol::value::Zatoshis::from_u64(amount)
+                    .map_err(|_| "invalid amount".to_string())?;
 
-                    // Deserialize the FVK from bytes
-                    let fvk_bytes: [u8; 96] = public_key.as_slice().try_into()
-                        .map_err(|_| "invalid FVK bytes: expected 96 bytes".to_string())?;
-                    let _orchard_fvk = orchard::keys::FullViewingKey::from_bytes(&fvk_bytes)
-                        .ok_or("invalid FVK")?;
+                // Get the first account from the wallet
+                let account_ids = db.get_account_ids()
+                    .map_err(|e| format!("get_account_ids failed: {e}"))?;
+                let account_id = account_ids.first()
+                    .ok_or("no accounts in wallet")?
+                    .to_owned();
 
-                    // Get the first account from the wallet
-                    let account_ids = db.get_account_ids()
-                        .map_err(|e| format!("get_account_ids failed: {e}"))?;
-                    let account_id = account_ids.first()
-                        .ok_or("no accounts in wallet")?
-                        .to_owned();
+                let memo = memo
+                    .as_deref()
+                    .map(Memo::from_str)
+                    .transpose()
+                    .map_err(|e| format!("invalid memo: {e}"))?
+                    .map(zcash_protocol::memo::MemoBytes::from);
 
-                    let memo = memo
-                        .as_deref()
-                        .map(Memo::from_str)
-                        .transpose()
-                        .map_err(|e| format!("invalid memo: {e}"))?
-                        .map(zcash_protocol::memo::MemoBytes::from);
+                let proposal = propose_standard_transfer_to_address::<
+                    WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+                    Network,
+                    SqliteClientError,
+                >(
+                    &mut *db,
+                    &self.params,
+                    StandardFeeRule::Zip317,
+                    account_id,
+                    ConfirmationsPolicy::MIN,
+                    &zcash_addr,
+                    amount_zat,
+                    memo,
+                    None,
+                    ShieldedProtocol::Orchard,
+                )
+                .map_err(|e: DataApiError<SqliteClientError, _, _, _, _, ReceivedNoteId>| {
+                    format!("propose_transfer failed: {e}")
+                })?;
 
-                    propose_standard_transfer_to_address::<
-                        WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-                        Network,
-                        SqliteClientError,
-                    >(
-                        &mut *db,
-                        &self.params,
-                        StandardFeeRule::Zip317,
-                        account_id,
-                        ConfirmationsPolicy::MIN,
-                        &zcash_addr,
-                        amount,
-                        memo,
-                        None,
-                        ShieldedProtocol::Orchard,
-                    )
-                    .map_err(|e: DataApiError<SqliteClientError, _, _, _, _, ReceivedNoteId>| {
-                        format!("propose_transfer failed: {e}")
-                    })
-                }?;
+                let pczt = create_pczt_from_proposal::<
+                    WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+                    Network,
+                    SqliteClientError,
+                    StandardFeeRule,
+                    SqliteClientError,
+                    ReceivedNoteId,
+                >(
+                    &mut *db,
+                    &self.params,
+                    account_id,
+                    OvkPolicy::Sender,
+                    &proposal,
+                )
+                .map_err(|e| format!("create_pczt_from_proposal failed: {e}"))?;
 
-                // TODO: Convert proposal to PCZT once create_pczt_from_proposal is available
-                Err("ProposeAndBuild: PCZT creation from proposal not yet implemented".to_string())
+                Ok(pczt.serialize())
             }
             WalletMessage::Sync {
                 fvk: _fvk,
@@ -267,6 +290,86 @@ impl Handler<WalletMessage> for WalletDbActor {
                 };
                 postcard::to_allocvec(&page)
                     .map_err(|e| format!("serialize history failed: {e}"))
+            }
+            WalletMessage::GetBlockHeight { lightwalletd_host } => {
+                let mut lsp = LspClient::connect(&lightwalletd_host, self.params).await?;
+                let height = lsp.get_latest_height().await?;
+                let height_u64: u64 = height.into();
+                postcard::to_allocvec(&paypunk_types::BlockHeight(height_u64))
+                    .map_err(|e| format!("serialize height failed: {e}"))
+            }
+            WalletMessage::GetTxStatus { txid } => {
+                let reader = rusqlite::Connection::open(&self.db_path)
+                    .map_err(|e| format!("failed to open wallet db: {e}"))?;
+
+                let txid_bytes = hex::decode(&txid)
+                    .map_err(|e| format!("invalid txid hex: {e}"))?;
+
+                let status = reader
+                    .query_row(
+                        "SELECT block FROM transactions WHERE txid = ?1",
+                        rusqlite::params![txid_bytes],
+                        |row| row.get::<_, Option<i64>>(0),
+                    )
+                    .map(|block| match block {
+                        Some(h) => TxStatus::Confirmed { confirmations: h as u64 },
+                        None => TxStatus::Pending,
+                    })
+                    .unwrap_or(TxStatus::NotFound);
+
+                postcard::to_allocvec(&status)
+                    .map_err(|e| format!("serialize status failed: {e}"))
+            }
+            WalletMessage::EstimateFee { to, amount, memo } => {
+                let mut db = self.db.lock().map_err(|e| e.to_string())?;
+
+                let to_addr = zcash_address::ZcashAddress::try_from_encoded(&to)
+                    .map_err(|e| format!("invalid recipient address: {e}"))?;
+
+                let zcash_addr = to_addr
+                    .convert()
+                    .map_err(|e| format!("unsupported address type: {e}"))?;
+
+                let amount_zat = zcash_protocol::value::Zatoshis::from_u64(amount)
+                    .map_err(|_| "invalid amount".to_string())?;
+
+                let account_ids = db.get_account_ids()
+                    .map_err(|e| format!("get_account_ids failed: {e}"))?;
+                let account_id = account_ids.first()
+                    .ok_or("no accounts in wallet")?
+                    .to_owned();
+
+                let memo = memo
+                    .as_deref()
+                    .map(Memo::from_str)
+                    .transpose()
+                    .map_err(|e| format!("invalid memo: {e}"))?
+                    .map(zcash_protocol::memo::MemoBytes::from);
+
+                let proposal = propose_standard_transfer_to_address::<
+                    WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+                    Network,
+                    SqliteClientError,
+                >(
+                    &mut *db,
+                    &self.params,
+                    StandardFeeRule::Zip317,
+                    account_id,
+                    ConfirmationsPolicy::MIN,
+                    &zcash_addr,
+                    amount_zat,
+                    memo,
+                    None,
+                    ShieldedProtocol::Orchard,
+                )
+                .map_err(|e: DataApiError<SqliteClientError, _, _, _, _, ReceivedNoteId>| {
+                    format!("propose_transfer failed: {e}")
+                })?;
+
+                let fee = proposal.steps().first().balance().fee_required();
+                let fee_u64: u64 = u64::from(fee);
+                postcard::to_allocvec(&fee_u64)
+                    .map_err(|e| format!("serialize fee failed: {e}"))
             }
         }
     }

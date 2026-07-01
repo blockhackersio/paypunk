@@ -26,8 +26,8 @@ postcard = { workspace = true, features = ["alloc"] }
 hex.workspace = true
 
 # Wallet / actor dependencies
-zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "lightwalletd-tonic", "lightwalletd-tonic-transport", "sync", "transparent-inputs", "zcash_proofs"] }
-zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"] }
+zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "lightwalletd-tonic", "lightwalletd-tonic-transport", "sync", "transparent-inputs", "zcash_proofs", "pczt"] }
+zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs", "serde"] }
 tactix = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
 rusqlite = { workspace = true }

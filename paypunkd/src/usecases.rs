@@ -458,15 +458,32 @@ pub fn save_settings(
 
 /// Create a transfer for the given protocol and account.
 pub async fn create_transfer(
-    _service: &KeypunkService,
-    _protocols: &ProtocolService,
-    _protocol: ProtocolId,
-    _account: u32,
-    _to: &str,
-    _amount: u64,
-    _memo: Option<&str>,
-) -> Result<String, String> {
-    todo!("create_transfer: PCZT pipeline not yet implemented — needs TransactionProposer")
+    wallet_recipient: &Recipient<WalletMessage>,
+    protocol: ProtocolId,
+    account: u32,
+    to: &str,
+    amount: u64,
+    memo: Option<&str>,
+    lightwalletd_host: &str,
+) -> Result<Vec<u8>, String> {
+    match protocol {
+        ProtocolId::Zcash => {
+            // We need the FVK bytes. The WalletDbActor stores the FVK in its WalletDb,
+            // so we pass an empty vec and the handler retrieves the FVK from the DB.
+            let pczt_bytes = wallet_recipient
+                .ask(WalletMessage::ProposeAndBuild {
+                    public_key: vec![],
+                    account,
+                    to: to.to_string(),
+                    amount,
+                    memo: memo.map(|m| m.to_string()),
+                })
+                .await
+                .map_err(|e| format!("create_transfer failed: {e}"))?;
+            Ok(pczt_bytes)
+        }
+        _ => Err(format!("create_transfer not supported for {protocol:?}")),
+    }
 }
 
 /// Fetch transaction history for the given protocol and account.
@@ -515,29 +532,66 @@ pub async fn broadcast_transaction(
 }
 
 /// Query the on-chain status of a transaction by its ID.
-/// TODO: Requires lightwalletd/RPC client — not yet implemented.
 pub async fn get_transaction_status(
-    _protocol: ProtocolId,
-    _txid: String,
+    wallet_recipient: &Recipient<WalletMessage>,
+    protocol: ProtocolId,
+    txid: String,
 ) -> Result<paypunk_types::TxStatus, String> {
-    todo!("get_transaction_status: needs lightwalletd/RPC client")
+    match protocol {
+        ProtocolId::Zcash => {
+            let bytes = wallet_recipient
+                .ask(WalletMessage::GetTxStatus { txid })
+                .await
+                .map_err(|e| format!("get_transaction_status failed: {e}"))?;
+            postcard::from_bytes(&bytes)
+                .map_err(|e| format!("deserialize status failed: {e}"))
+        }
+        _ => Err(format!("get_transaction_status not supported for {protocol:?}")),
+    }
 }
 
 /// Get the current block height from the blockchain.
-/// TODO: Requires lightwalletd/RPC client — not yet implemented.
 pub async fn get_current_block_height(
-    _protocol: ProtocolId,
+    wallet_recipient: &Recipient<WalletMessage>,
+    protocol: ProtocolId,
+    lightwalletd_host: String,
 ) -> Result<paypunk_types::BlockHeight, String> {
-    todo!("get_current_block_height: needs lightwalletd/RPC client")
+    match protocol {
+        ProtocolId::Zcash => {
+            let bytes = wallet_recipient
+                .ask(WalletMessage::GetBlockHeight { lightwalletd_host })
+                .await
+                .map_err(|e| format!("get_current_block_height failed: {e}"))?;
+            postcard::from_bytes(&bytes)
+                .map_err(|e| format!("deserialize height failed: {e}"))
+        }
+        _ => Err(format!("get_current_block_height not supported for {protocol:?}")),
+    }
 }
 
 /// Estimate the fee for a transfer to the given address with the given amount and optional memo.
-/// TODO: Requires TransactionProposer + chain fee estimation — not yet implemented.
 pub async fn estimate_fee(
-    _protocol: ProtocolId,
+    wallet_recipient: &Recipient<WalletMessage>,
+    protocol: ProtocolId,
     _to: &str,
     _amount: u64,
     _memo: Option<&str>,
+    _lightwalletd_host: &str,
 ) -> Result<u64, String> {
-    todo!("estimate_fee: needs TransactionProposer + chain fee estimation")
+    match protocol {
+        ProtocolId::Zcash => {
+            // Build a proposal (without creating a PCZT) and extract the fee
+            let bytes = wallet_recipient
+                .ask(WalletMessage::EstimateFee {
+                    to: _to.to_string(),
+                    amount: _amount,
+                    memo: _memo.map(|m| m.to_string()),
+                })
+                .await
+                .map_err(|e| format!("estimate_fee failed: {e}"))?;
+            postcard::from_bytes(&bytes)
+                .map_err(|e| format!("deserialize fee failed: {e}"))
+        }
+        _ => Err(format!("estimate_fee not supported for {protocol:?}")),
+    }
 }
