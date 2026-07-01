@@ -1,9 +1,8 @@
 pub mod address;
 pub mod protocol;
+pub mod lsp_client;
 
-#[cfg(feature = "wallet")]
 pub mod wallet_actor;
-#[cfg(feature = "wallet")]
 pub mod wallet_client;
 
 /// Return the standard Zcash derivation path for a given account index.

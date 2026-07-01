@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["wallet"]
-wallet = ["dep:zcash_client_backend", "dep:zcash_client_sqlite", "dep:tactix", "dep:tokio", "dep:rusqlite", "dep:secrecy"]
+wallet = ["dep:tactix", "dep:tokio"]
 
 [dependencies]
 paypunk-types.workspace = true
@@ -23,25 +23,21 @@ rand_core = { workspace = true, default-features = false, features = ["getrandom
 rand.workspace = true
 thiserror.workspace = true
 postcard = { workspace = true, features = ["alloc"] }
+hex.workspace = true
 
-# Wallet / actor dependencies (optional, behind "wallet" feature)
-zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "pczt", "transparent-inputs", "zcash_proofs"], optional = true }
-zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"], optional = true }
+# Wallet / actor dependencies
+zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "lightwalletd-tonic", "lightwalletd-tonic-transport", "sync", "transparent-inputs", "zcash_proofs"] }
+zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"] }
 tactix = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
-rusqlite = { workspace = true, optional = true }
-secrecy = { workspace = true, optional = true }
+rusqlite = { workspace = true }
+secrecy = { workspace = true }
+tonic = { workspace = true, features = ["tls-native-roots"] }
 
 [dev-dependencies]
 async-trait.workspace = true
 bip39 = { workspace = true, features = ["rand"] }
 futures-util.workspace = true
 prost.workspace = true
-zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "lightwalletd-tonic", "sync", "transparent-inputs", "zcash_proofs"] }
-zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"] }
-tokio = { workspace = true, features = ["full"] }
 tactix.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-tonic.workspace = true
-rusqlite.workspace = true
-secrecy.workspace = true
