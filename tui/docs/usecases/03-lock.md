@@ -4,6 +4,8 @@
 
 Shown after auto-lock timeout. User authenticates with password to return to HomeScreen.
 
+**Persistence:** None. `get_lock()` returns hardcoded data (no DB read). `submit_lock()` is a no-op (no DB write). The screen exists only for the TUI-side lock UX — the daemon does not track lock state.
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -12,6 +14,7 @@ sequenceDiagram
 
     Note over TUI: init() called
     TUI->>API: get_lock()
+    Note over API: Returns hardcoded LockData — no IPC, no DB read
     API-->>TUI: LockData { auth_methods: { password_set: true }, failed_attempts: 0 }
 
     Note over TUI: Renders password field + failed attempts counter
@@ -21,7 +24,7 @@ sequenceDiagram
     TUI->>API: submit_lock(LockInput { credential: { type: "password", value } })
 
     Note over API: RealWalletApi.submit_lock()
-    Note over API: Always returns Ok(()) — no IPC call
+    Note over API: Always returns Ok(()) — no IPC, no DB write
 
     API-->>TUI: Ok(())
 

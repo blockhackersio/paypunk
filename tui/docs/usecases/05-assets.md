@@ -4,6 +4,11 @@
 
 Shows account's asset holdings. Has Send/Receive/History buttons and sync status polling.
 
+**Persistence involved:**
+- `get_assets()` reads from `accounts` SQLite table to get the account's address and protocol
+- Balance is fetched from the chain (RPC call via protocol implementation), NOT from the DB
+- Sync status is from the protocol layer (no DB)
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -11,19 +16,23 @@ sequenceDiagram
     participant API as RealWalletApi
     participant Client as paypunk-api Client
     participant paypunkd as paypunkd (IPC)
+    participant SQLite as paypunkd.db (SQLite)
+    participant Chain as Blockchain RPC
 
     Note over TUI: init(account_id) called
     TUI->>API: get_assets(account_id)
     API->>Client: get_account(account_id)
     Client->>paypunkd: IpcMessage(GetAccount { id })
-    paypunkd->>paypunkd: Query DB
+    paypunkd->>SQLite: SELECT id, protocol, derivation_path, name, address, viewing_key, created_at FROM accounts WHERE id=?1
+    SQLite-->>paypunkd: account row
     paypunkd-->>Client: AccountFound { account }
     Client-->>API: Ok(Some(account))
     API->>API: Enrich with protocol metadata (chain_id, decimals, ticker, asset)
     API->>Client: get_balance(caip10_address, asset)
     Client->>paypunkd: IpcMessage(GetBalance { address, asset })
-    paypunkd->>paypunkd: Query protocol for balance
-    paypunkd-->>Client: Balance { balance }
+    paypunkd->>Chain: protocol.get_balance(address, asset) — RPC call
+    Chain-->>paypunkd: balance
+    paypunkd-->>Client: Balance { spendable, pending, total }
     Client-->>API: Ok(balance)
     API-->>TUI: AssetsData { assets: [AssetRow { holdings_amount, ... }] }
 
@@ -33,6 +42,7 @@ sequenceDiagram
         TUI->>API: get_sync_status(protocol)
         API->>Client: get_sync_status(protocol_id)
         Client->>paypunkd: IpcMessage(GetSyncStatus { protocol })
+        Note over paypunkd: Currently returns hardcoded SyncStatus{ is_syncing: false }
         paypunkd-->>Client: SyncStatusResult { status }
         Client-->>API: Ok(status)
         API-->>TUI: SyncStatus { is_syncing, current_height, target_height }
@@ -58,9 +68,21 @@ sequenceDiagram
 sequenceDiagram
     participant TUI as AssetsScreen
     participant API as RealWalletApi
+    participant SQLite as paypunkd.db (SQLite)
+    participant Chain as Blockchain RPC
 
     Note over TUI: on_reactivate() called after child screen pops
     TUI->>API: get_assets(account_id)
+    API->>Client: get_account(account_id)
+    Client->>paypunkd: IpcMessage(GetAccount)
+    paypunkd->>SQLite: SELECT * FROM accounts WHERE id=?
+    SQLite-->>paypunkd: account
+    paypunkd-->>Client: account
+    API->>Client: get_balance(address, asset)
+    Client->>paypunkd: IpcMessage(GetBalance)
+    paypunkd->>Chain: protocol.get_balance()
+    Chain-->>paypunkd: balance
+    paypunkd-->>Client: Balance
     API-->>TUI: Fresh AssetsData
     TUI->>TUI: Rebuild asset list
 ```

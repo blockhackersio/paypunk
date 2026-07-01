@@ -4,6 +4,8 @@
 
 Context-sensitive help overlay pushed on top of the current screen. Dismissed with `Esc`, `q`, or `?`.
 
+**Persistence:** None. Pure UI overlay — no API calls, no IPC, no DB or file access.
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -26,4 +28,4 @@ sequenceDiagram
     TUI->>TUI: Nav::Pop (returns to previous screen)
 ```
 
-The HelpScreen is a **pure UI overlay** — it makes no API calls and has no IPC interactions. It reads the current screen name from its constructor and returns static keybinding data based on that name.
+The HelpScreen is a **pure UI overlay** — it makes no API calls, has no IPC interactions, and touches no persistence layer. It reads the current screen name from its constructor and returns static keybinding data based on that name.

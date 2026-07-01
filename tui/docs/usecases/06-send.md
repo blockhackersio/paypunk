@@ -4,6 +4,12 @@
 
 Four-step flow: Form → Review → Sending → Confirm. This is the most complex usecase, spanning TUI → API → paypunkd → keypunkd with two-phase authorization.
 
+**Persistence involved:**
+- `send_state()` reads `accounts` SQLite table for address + protocol metadata
+- Balance is fetched from chain RPC (not DB)
+- Address book is **in-memory only** (a `Mutex<Vec<AddressBookEntry>>` in RealWalletApi) — entries are lost on restart
+- `submit_intent`/`approve_signature`/`broadcast_transaction` involve no DB persistence
+
 ## Step 1: Form (enter recipient, amount, memo)
 
 ```mermaid
@@ -13,22 +19,31 @@ sequenceDiagram
     participant API as RealWalletApi
     participant Client as paypunk-api Client
     participant paypunkd as paypunkd (IPC)
+    participant SQLite as paypunkd.db (SQLite)
+    participant Chain as Blockchain RPC
 
     Note over TUI: init(account) called
     TUI->>API: send_state(account_id)
     API->>Client: get_account(account_id)
     Client->>paypunkd: IpcMessage(GetAccount { id })
+    paypunkd->>SQLite: SELECT * FROM accounts WHERE id=?1
+    SQLite-->>paypunkd: account row
     paypunkd-->>Client: account
     API->>Client: get_balance(caip10, asset)
     Client->>paypunkd: IpcMessage(GetBalance { address, asset })
+    paypunkd->>Chain: protocol.get_balance(address, asset)
+    Chain-->>paypunkd: balance
     paypunkd-->>Client: Balance
     API-->>TUI: ApiState::Loaded(SendData { from_address, spendable_balance, decimals, chain_id })
 
     TUI->>API: get_address_book()
-    API->>Client: list_accounts() + local address_book_entries
+    Note over API: Reads from in-memory Mutex<Vec<AddressBookEntry>> — NOT persisted to SQLite
+    API->>Client: list_accounts() — also includes own accounts
     Client->>paypunkd: IpcMessage(ListAccounts)
+    paypunkd->>SQLite: SELECT * FROM accounts
+    SQLite-->>paypunkd: accounts
     paypunkd-->>Client: accounts
-    API-->>TUI: AddressBookData { entries: [wallet accounts + saved contacts] }
+    API-->>TUI: AddressBookData { entries: [own accounts + previously-sent contacts] }
 
     Note over TUI: Renders: To picker (with address book), Amount field, Memo field (Zcash only), Balance display
 
@@ -46,25 +61,30 @@ sequenceDiagram
     participant paypunkd as paypunkd (IPC)
     participant keypunkd as keypunkd (IPC)
     participant Protocol as Protocol impl
+    participant SQLite as paypunkd.db (SQLite)
+    participant SeedFile as seed.enc (disk)
 
     TUI->>API: submit_send_review(SendReviewInput { to_address, amount, token_id, chain_id, account_id, memo })
     API->>Client: get_account(account_id)
     Client->>paypunkd: IpcMessage(GetAccount { id })
+    paypunkd->>SQLite: SELECT * FROM accounts WHERE id=?1
+    SQLite-->>paypunkd: account
     paypunkd-->>Client: account
 
-    Note over API: Build Intent based on protocol
+    Note over API: Build Intent based on protocol (Ethereum or Zcash)
     API->>Client: submit_intent(intent, derivation_path)
 
     Client->>paypunkd: IpcMessage(SubmitIntent { intent, derivation_path })
-    paypunkd->>Protocol: build(intent) → unsigned artifact
+    paypunkd->>Protocol: build(intent) → unsigned artifact (no persistence)
     paypunkd->>keypunkd: preview_artifact(raw_artifact, protocol_id, derivation_path)
     keypunkd->>Protocol: parse_artifact(raw_artifact) → ArtifactSummary
+    Note over keypunkd: preview_artifact only parses — does NOT read seed.enc
     keypunkd-->>paypunkd: ArtifactPreview { raw_artifact, parsed_summary, signature, keypunkd_public_key }
-    paypunkd-->>Client: SignablePreview { raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key }
+    paypunkd-->>Client: SignablePreview { ... }
     Client-->>API: (raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)
 
     Note over API: Deserialize ArtifactSummary from parsed_summary
-    Note over API: Store PendingSend { raw_artifact, keypunkd_signature, keypunkd_public_key, derivation_path, protocol }
+    Note over API: Store PendingSend in-memory Mutex (raw_artifact, signature, public_key, derivation_path, protocol)
 
     API-->>TUI: SendReviewData { to_address, amount, fee_estimate, total_amount, chain_id, nonce }
 
@@ -85,29 +105,36 @@ sequenceDiagram
     participant paypunkd as paypunkd (IPC)
     participant keypunkd as keypunkd (IPC)
     participant Protocol as Protocol impl
+    participant SeedFile as seed.enc (disk)
+    participant Chain as Blockchain RPC
 
     Note over TUI: tick() fires on next render cycle
 
     TUI->>API: submit_send_confirm(SendConfirmInput { reviewed, auth_confirmation: { type: "password", value }, signed_tx: "" })
 
-    API->>API: Take pending PendingSend from Mutex
-    API->>API: Add recipient to address book (local)
+    API->>API: Take pending PendingSend from in-memory Mutex
+    Note over API: Add recipient to in-memory address book (Mutex<Vec<AddressBookEntry>>)
+    Note over API: Address book entries are NOT persisted to SQLite — lost on restart
 
     API->>Client: approve_signature(raw_artifact, keypunkd_signature, password, derivation_path)
-
-    Note over Client: Encrypt payload (raw_artifact + signature + password_hash) to keypunkd's public key
+    Note over Client: Encrypt payload: [raw_len(4B) | raw_artifact | sig_len(4B) | signature | password_hash] to keypunkd's public key
 
     Client->>paypunkd: IpcMessage(ApproveSignature { encrypted_payload, ephemeral_public_key, derivation_path })
     paypunkd->>keypunkd: authorize_artifact(encrypted_payload, ephemeral_public_key, derivation_path)
-    keypunkd->>keypunkd: Decrypt payload, verify signature, decrypt seed, sign artifact
+    keypunkd->>keypunkd: decrypt payload via X25519 keystore
+    keypunkd->>keypunkd: verify keypunkd_signature over H(raw, parsed, path)
+    keypunkd->>SeedFile: read() — load encrypted seed blob
+    keypunkd->>keypunkd: decrypt_seed(encrypted_blob, password_hash) — Argon2id + AES-256-GCM
+    keypunkd->>keypunkd: sign artifact with decrypted seed
     keypunkd-->>paypunkd: SignatureApproved { signed_artifact }
     paypunkd-->>Client: signed_artifact
     Client-->>API: Ok(signed_artifact)
 
     API->>Client: broadcast_transaction(protocol, signed_artifact)
     Client->>paypunkd: IpcMessage(BroadcastTransaction { protocol, raw_tx })
-    paypunkd->>Protocol: finalize(signed_artifact) → finalized bytes
-    paypunkd->>Protocol: broadcast(finalized_bytes) → tx_hash
+    paypunkd->>Protocol: finalize(signed_artifact) → finalized transaction bytes
+    paypunkd->>Chain: protocol.broadcast(finalized_bytes) → RPC call
+    Chain-->>paypunkd: tx_hash
     paypunkd-->>Client: TransactionBroadcasted { tx_hash }
     Client-->>API: Ok(tx_hash)
 

@@ -14,6 +14,8 @@ sequenceDiagram
     participant Client as paypunk-api Client
     participant paypunkd as paypunkd (IPC)
     participant keypunkd as keypunkd (IPC)
+    participant SeedFile as seed.enc (disk)
+    participant SQLite as paypunkd.db (SQLite)
 
     Note over TUI: init() called
     TUI->>API: get_setup()
@@ -37,16 +39,23 @@ sequenceDiagram
     API->>Client: restore_seed(mnemonic, password)
     Client->>paypunkd: IpcMessage(RestoreSeed { encrypted_mnemonic, encrypted_password, client_pk })
     paypunkd->>keypunkd: forward RestoreSeed
-    keypunkd->>keypunkd: decrypt password, validate mnemonic, derive seed, encrypt+persist seed
+    keypunkd->>keypunkd: decrypt password, validate mnemonic, derive seed
+    keypunkd->>keypunkd: encrypt_seed(seed, password) — Argon2id + AES-256-GCM
+    keypunkd->>SeedFile: write(encrypted_blob) — atomic write via seed.enc.tmp + rename
     keypunkd-->>paypunkd: SeedRestored
-    paypunkd-->>Client: SeedRestored
-    Client-->>API: Ok(())
+
     API->>Client: unlock(password)
-    Client->>paypunkd: IpcMessage(Unlock { ... complex payload ... })
-    paypunkd->>keypunkd: forward encrypted password + paths
+    Client->>paypunkd: IpcMessage(Unlock { encrypted_db_password, encrypted_keypunkd_password, paths, ... })
+    paypunkd->>paypunkd: decrypt db password via X25519
+    paypunkd->>paypunkd: decrypt paypunkd.db.enc → paypunkd.db (Argon2id + AES-256-GCM)
+    paypunkd->>SQLite: open connection, run migrations (accounts + pre_derived_keys tables)
+    paypunkd->>keypunkd: bulk_export_viewing_keys(encrypted_password, paths)
     keypunkd->>keypunkd: decrypt seed, derive viewing keys for 30 paths per protocol
-    keypunkd-->>paypunkd: viewing keys
-    paypunkd->>paypunkd: decrypt DB, save pre-derived keys
+    keypunkd-->>paypunkd: viewing keys per (protocol, path)
+    paypunkd->>SQLite: INSERT OR REPLACE INTO pre_derived_keys (protocol, account_index, viewing_key) — for each key
+    paypunkd->>SQLite: SELECT viewing_key FROM pre_derived_keys WHERE protocol=?1 AND account_index=?2 — for account 0
+    paypunkd->>paypunkd: derive address from viewing key via protocol
+    paypunkd->>SQLite: INSERT INTO accounts (id, protocol, derivation_path, name, address, viewing_key, created_at) — first account per protocol
     paypunkd-->>Client: UnlockSuccess { accounts_count }
     Client-->>API: Ok(accounts_count)
     API-->>TUI: Ok(())
@@ -64,6 +73,8 @@ sequenceDiagram
     participant Client as paypunk-api Client
     participant paypunkd as paypunkd (IPC)
     participant keypunkd as keypunkd (IPC)
+    participant SeedFile as seed.enc (disk)
+    participant SQLite as paypunkd.db (SQLite)
 
     Note over TUI: init() called
     TUI->>API: get_setup()
@@ -81,15 +92,20 @@ sequenceDiagram
     API->>Client: restore_seed(mnemonic, password)
     Client->>paypunkd: IpcMessage(RestoreSeed { encrypted_mnemonic, encrypted_password, client_pk })
     paypunkd->>keypunkd: forward RestoreSeed
-    keypunkd->>keypunkd: decrypt, validate, derive seed, encrypt+persist
+    keypunkd->>keypunkd: decrypt password, validate mnemonic, derive seed
+    keypunkd->>keypunkd: encrypt_seed(seed, password) — Argon2id + AES-256-GCM
+    keypunkd->>SeedFile: write(encrypted_blob) — atomic write
     keypunkd-->>paypunkd: SeedRestored
-    paypunkd-->>Client: SeedRestored
-    Client-->>API: Ok(())
+
     API->>Client: unlock(password)
     Client->>paypunkd: IpcMessage(Unlock { ... })
-    paypunkd->>keypunkd: forward
-    keypunkd-->>paypunkd: viewing keys
-    paypunkd->>paypunkd: save pre-derived keys
+    paypunkd->>paypunkd: decrypt DB password, decrypt paypunkd.db.enc
+    paypunkd->>SQLite: open connection, run migrations
+    paypunkd->>keypunkd: bulk_export_viewing_keys
+    keypunkd->>keypunkd: derive viewing keys
+    keypunkd-->>paypunkd: keys
+    paypunkd->>SQLite: INSERT pre_derived_keys (30 per protocol)
+    paypunkd->>SQLite: INSERT accounts (first account per protocol)
     paypunkd-->>Client: UnlockSuccess
     Client-->>API: Ok(())
     API-->>TUI: Ok(())
