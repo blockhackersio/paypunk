@@ -48,7 +48,7 @@ impl LspClient {
 
     /// Scan a range of blocks into the WalletDb.
     /// Returns (scanned_from, scanned_to) heights.
-    pub async fn scan_range(
+    pub fn scan_range(
         &self,
         wallet_db: &WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
         from_height: BlockHeight,
