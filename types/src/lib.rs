@@ -232,3 +232,11 @@ pub struct Utxo {
 /// A payment proof that can be shared with a recipient.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PaymentProof(pub Vec<u8>);
+
+/// Status of a chain sync operation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncStatus {
+    pub is_syncing: bool,
+    pub current_height: u64,
+    pub target_height: u64,
+}
