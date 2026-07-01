@@ -12,6 +12,7 @@ members = [
     "protocols/zcash",
     "protocols/ethereum",
     "tui",
+    "tools/derive-orchard",
 ]
 
 [workspace.package]

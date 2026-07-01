@@ -1,0 +1,11 @@
+[package]
+name = "derive-orchard"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+orchard.workspace = true
+zip32.workspace = true
+zcash_address.workspace = true
+zcash_protocol.workspace = true
+bip39 = { workspace = true, features = ["rand"] }

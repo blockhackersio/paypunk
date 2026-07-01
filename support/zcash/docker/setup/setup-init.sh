@@ -92,10 +92,37 @@ zcli rescanblockchain 0 >/dev/null 2>&1 || zcli rescanblockchain >/dev/null 2>&1
 
 BALANCE=$(zcli getbalance)
 
-# ── Shield funds (optional) ─────────────────────────────────────────
+# ── Shield funds into Orchard ────────────────────────────────────────
+#
+# If ORCHARD_UA is provided (from the wallet's mnemonic-derived key),
+# shield to that address so the wallet sees the balance. Otherwise fall
+# back to zcashd's internal wallet UA (SHIELD_FUNDS=true path).
 
-if [[ "$SHIELD" == "true" ]]; then
-  log "Shielding 50 ZEC into Orchard…"
+if [[ -n "${ORCHARD_UA:-}" ]]; then
+  log "Shielding 100 ZEC into wallet Orchard UA: ${ORCHARD_UA}…"
+
+  OPID=$(zcli z_sendmany "$MINING_ADDR" \
+    "[{\"address\":\"${ORCHARD_UA}\",\"amount\":100}]" \
+    1 null "AllowRevealedSenders" 2>/dev/null || true)
+
+  if [[ -n "$OPID" ]]; then
+    while true; do
+      STATUS=$(zcli z_getoperationstatus "[\"${OPID}\"]" | node -e "
+        const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        console.log(r[0]?.status ?? 'unknown');
+      ")
+      [[ "$STATUS" == "success" ]] && break
+      [[ "$STATUS" == "failed" ]] && { warn "Shielding failed"; break; }
+      sleep 1
+    done
+    zcli generate 1 >/dev/null
+    log "Shielding complete."
+  else
+    warn "z_sendmany failed — is the wallet unlocked?"
+  fi
+
+elif [[ "$SHIELD" == "true" ]]; then
+  log "Shielding 50 ZEC into Orchard (zcashd-internal UA)…"
 
   UA_RESULT=$(zcli z_getaddressforaccount 0 '["orchard"]' 2>/dev/null || true)
   if [[ -n "$UA_RESULT" ]]; then
@@ -149,6 +176,11 @@ echo "$KEYS_JSON" | node -e "
   const k = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
   k.forEach((a,i) => console.log('    [' + i + '] ' + a.taddr + '  WIF: ' + a.wif));
 "
+if [[ -n "${ORCHARD_UA:-}" ]]; then
+  log ""
+  log "  Wallet Orchard UA (100 ZEC shielded):"
+  log "    ${ORCHARD_UA}"
+fi
 log ""
 
 # Write a marker file so healthcheck or other containers can detect

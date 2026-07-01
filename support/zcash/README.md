@@ -8,6 +8,12 @@ addresses.
 ## Quick Start
 
 ```bash
+./start-zcash.sh
+```
+
+Or directly:
+
+```bash
 docker compose up --build
 ```
 
@@ -22,7 +28,11 @@ lightwalletd from source). Subsequent runs use cached layers and volumes.
    the mnemonic `test test test ... test junk` using BIP-44
    `m/44'/133'/0'/0/{0..4}`, imports the private keys, and mines 200
    blocks to the first address.
-3. **lightwalletd** starts on port 9067 (gRPC, no TLS), connected to
+3. **setup then shields 100 ZEC** from the mining address into the
+   Orchard UA derived from the same mnemonic (ZIP-32, account 0,
+   diversifier index 0) — this is the same address your wallet derives,
+   so `paypunkd` will see the balance after syncing.
+4. **lightwalletd** starts on port 9067 (gRPC, no TLS), connected to
    zcashd.
 
 ## Exposed Ports
@@ -35,10 +45,13 @@ lightwalletd from source). Subsequent runs use cached layers and volumes.
 ## Usage
 
 ```bash
-# Start detached
-docker compose up -d --build
+# Start with automatic Orchard shielding (recommended — gives your wallet 100 ZEC)
+./start-zcash.sh
 
-# Also shield 50 ZEC into Orchard
+# Start detached
+./start-zcash.sh -d
+
+# Start with extra ZEC shielded into Orchard (via SHIELD_FUNDS fallback)
 SHIELD_FUNDS=true docker compose up --build
 
 # Mine more blocks

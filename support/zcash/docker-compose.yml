@@ -53,6 +53,7 @@ services:
       BLOCKS_TO_MINE: "200"
       NUM_KEYS: "5"
       SHIELD_FUNDS: "${SHIELD_FUNDS:-false}"
+      ORCHARD_UA: "${ORCHARD_UA:-}"
     restart: "no"
 
   # ── lightwalletd ────────────────────────────────────────────────────

@@ -1546,6 +1546,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-orchard"
+version = "0.1.0"
+dependencies = [
+ "bip39",
+ "orchard",
+ "zcash_address",
+ "zcash_protocol",
+ "zip32",
+]
+
+[[package]]
 name = "derive_more"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
