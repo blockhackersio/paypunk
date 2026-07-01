@@ -72,6 +72,17 @@ pub async fn export_viewing_key(
         .await
 }
 
+/// Forward an ExportMnemonic request to keypunkd to retrieve the stored mnemonic.
+pub async fn export_mnemonic(
+    service: &KeypunkService,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+) -> Result<Vec<u8>, String> {
+    service
+        .export_mnemonic(encrypted_password, client_public_key)
+        .await
+}
+
 /// Submit an intent: build the unsigned artifact via the protocol,
 /// then forward to keypunkd for parsing and preview.
 pub async fn submit_intent(

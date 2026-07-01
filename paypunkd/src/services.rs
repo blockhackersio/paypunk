@@ -391,4 +391,22 @@ impl PaypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn reveal_phrase(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<Vec<u8>, String> {
+        match self
+            .send(PaypunkdRequest::RevealPhrase {
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
+            PaypunkdResponse::PhraseRevealed { encrypted_mnemonic } => Ok(encrypted_mnemonic),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }

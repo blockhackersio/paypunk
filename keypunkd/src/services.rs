@@ -168,4 +168,22 @@ impl KeypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn export_mnemonic(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<Vec<u8>, String> {
+        match self
+            .send(KeypunkdRequest::ExportMnemonic {
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
+            KeypunkdResponse::MnemonicExported { encrypted_mnemonic } => Ok(encrypted_mnemonic),
+            KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }

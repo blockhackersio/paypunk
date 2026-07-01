@@ -282,6 +282,28 @@ pub async fn get_address_book(
     service.get_address_book().await
 }
 
+/// Reveal the wallet mnemonic phrase.
+///
+/// Creates an ephemeral keypair, encrypts the password to keypunkd's public key,
+/// sends the RevealPhrase request via paypunkd, and decrypts the returned mnemonic.
+pub async fn reveal_phrase(
+    service: &paypunkd::services::PaypunkService,
+    password: Zeroizing<String>,
+) -> Result<Zeroizing<String>, String> {
+    let client_keypair = Keypair::new();
+    let server_pk = service.get_keypunk_encryption_key().await?;
+    let encrypted_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
+    let client_pk = client_keypair.public_key();
+
+    let encrypted_mnemonic = service.reveal_phrase(encrypted_password, client_pk).await?;
+
+    let mnemonic = client_keypair
+        .decrypt(&encrypted_mnemonic, &server_pk)
+        .map_err(|e| e.to_string())?;
+    Ok(mnemonic)
+}
+
 /// Add an entry to the address book.
 pub async fn add_address_book_entry(
     service: &paypunkd::services::PaypunkService,

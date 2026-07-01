@@ -477,6 +477,19 @@ impl Paypunkd {
         )
     }
 
+    async fn reveal_phrase(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("forwarding RevealPhrase to keypunkd");
+        self.respond(
+            "reveal_phrase",
+            usecases::export_mnemonic(&self.keypunk_service, encrypted_password, client_public_key).await,
+            |encrypted_mnemonic| PaypunkdResponse::PhraseRevealed { encrypted_mnemonic },
+        )
+    }
+
     async fn unlock(
         &mut self,
         encrypted_db_password: Vec<u8>,
@@ -750,6 +763,10 @@ impl Handler<IpcMessage> for Paypunkd {
                 auto_lock_minutes,
                 fiat_currency,
             } => self.save_settings(auto_lock_minutes, fiat_currency),
+            PaypunkdRequest::RevealPhrase {
+                encrypted_password,
+                client_public_key,
+            } => self.reveal_phrase(encrypted_password, client_public_key).await,
         };
 
         let encoded =

@@ -48,6 +48,11 @@ pub enum KeypunkdRequest {
         client_public_key: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
     },
+    /// Export the stored mnemonic phrase encrypted to the client's public key.
+    ExportMnemonic {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,6 +82,9 @@ pub enum KeypunkdResponse {
     PasswordVerified,
     ViewingKeys {
         keys: Vec<(ProtocolId, String, Vec<u8>)>,
+    },
+    MnemonicExported {
+        encrypted_mnemonic: Vec<u8>,
     },
     Error {
         message: String,

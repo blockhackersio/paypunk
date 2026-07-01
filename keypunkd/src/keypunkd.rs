@@ -338,6 +338,19 @@ impl<S: Storage> Keypunkd<S> {
             |keys| KeypunkdResponse::ViewingKeys { keys },
         )
     }
+
+    fn export_mnemonic(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> KeypunkdResponse {
+        info!("handling ExportMnemonic");
+        self.respond(
+            "export_mnemonic",
+            usecases::export_mnemonic(&encrypted_password, &client_public_key, &self.keystore, &self.seed_store),
+            |encrypted_mnemonic| KeypunkdResponse::MnemonicExported { encrypted_mnemonic },
+        )
+    }
 }
 
 impl<S: Storage> Actor for Keypunkd<S> {}
@@ -393,6 +406,10 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 client_public_key,
                 paths,
             } => self.bulk_export_viewing_keys(encrypted_password, client_public_key, paths),
+            KeypunkdRequest::ExportMnemonic {
+                encrypted_password,
+                client_public_key,
+            } => self.export_mnemonic(encrypted_password, client_public_key),
         };
 
         let encoded =

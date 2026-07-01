@@ -217,6 +217,16 @@ impl Client {
         crate::functions::get_address_book(&self.service).await
     }
 
+    /// Reveal the wallet mnemonic phrase.
+    ///
+    /// Returns the 12-word BIP39 mnemonic encrypted end-to-end over IPC.
+    pub async fn reveal_phrase(
+        &self,
+        password: Zeroizing<String>,
+    ) -> Result<Zeroizing<String>, String> {
+        crate::functions::reveal_phrase(&self.service, password).await
+    }
+
     /// Add an entry to the address book.
     pub async fn add_address_book_entry(
         &self,

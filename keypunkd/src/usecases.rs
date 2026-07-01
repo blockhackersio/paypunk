@@ -12,6 +12,7 @@ use crate::{
 };
 
 /// Generate a new BIP39 seed, encrypt it with the user's password, and persist to the seed store.
+/// Also persists the encrypted mnemonic for later reveal.
 /// Returns the encrypted mnemonic for the client to display.
 pub fn generate_seed(
     keystore: &Keypair,
@@ -28,8 +29,12 @@ pub fn generate_seed(
     debug!("encrypting seed with password");
     let encrypted = key::encrypt_seed(&seed, &*password)?;
 
-    debug!("persisting encrypted seed");
+    debug!("encrypting mnemonic with password");
+    let encrypted_mnemonic = key::encrypt_mnemonic(&mnemonic, &*password)?;
+
+    debug!("persisting encrypted seed and mnemonic");
     store.write(&encrypted)?;
+    store.write_mnemonic(&encrypted_mnemonic)?;
 
     let mnemonic = Zeroizing::new(mnemonic);
     debug!("encrypting mnemonic for client");
@@ -38,6 +43,7 @@ pub fn generate_seed(
 
 /// Restore a wallet from an existing BIP39 mnemonic phrase.
 /// Validates the mnemonic, derives the seed, encrypts with password, and persists.
+/// Also persists the encrypted mnemonic for later reveal.
 pub fn restore_seed(
     keystore: &Keypair,
     encrypted_mnemonic: &[u8],
@@ -62,8 +68,12 @@ pub fn restore_seed(
     debug!("encrypting seed with password");
     let encrypted = key::encrypt_seed(&seed, &*password)?;
 
-    debug!("persisting encrypted seed");
+    debug!("encrypting mnemonic with password");
+    let encrypted_mnemonic_blob = key::encrypt_mnemonic(&*mnemonic_str, &*password)?;
+
+    debug!("persisting encrypted seed and mnemonic");
     store.write(&encrypted)?;
+    store.write_mnemonic(&encrypted_mnemonic_blob)?;
 
     Ok(())
 }
@@ -97,6 +107,34 @@ pub fn decrypt_seed(
 /// Returns `true` if the phrase is a valid 12-word English BIP39 mnemonic.
 pub fn validate_mnemonic(phrase: &str) -> bool {
     Mnemonic::parse_in(bip39::Language::English, phrase).is_ok()
+}
+
+/// Read and decrypt the stored mnemonic, then re-encrypt it to the client's public key.
+pub fn export_mnemonic(
+    encrypted_password: &[u8],
+    client_pk: &[u8; 32],
+    keystore: &Keypair,
+    store: &impl SeedStore,
+) -> Result<Vec<u8>, String> {
+    debug!("decrypting password");
+    let password = keystore
+        .decrypt(encrypted_password, client_pk)
+        .map_err(|e| format!("password decryption failed: {e}"))?;
+
+    debug!("reading encrypted mnemonic from store");
+    let encrypted_mnemonic = store
+        .read_mnemonic()
+        .map_err(|e| format!("read mnemonic failed: {e}"))?
+        .ok_or_else(|| "no mnemonic found — wallet not initialized".to_string())?;
+
+    debug!("decrypting mnemonic");
+    let mnemonic =
+        key::decrypt_mnemonic(&encrypted_mnemonic, &*password)
+            .map_err(|e| format!("mnemonic decryption failed: {e}"))?;
+
+    let mnemonic = Zeroizing::new(mnemonic);
+    debug!("encrypting mnemonic for client");
+    Ok(keystore.encrypt(mnemonic, client_pk))
 }
 
 /// Export viewing key material for the given protocol and derivation path.

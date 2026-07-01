@@ -562,11 +562,14 @@ impl WalletApi for RealWalletApi {
 
     async fn submit_reveal_phrase(
         &self,
-        _input: RevealPhraseInput,
+        input: RevealPhraseInput,
     ) -> Result<Vec<String>, ApiError> {
-        Err(ApiError(
-            "reveal phrase not yet supported via real API".into(),
-        ))
+        let mnemonic = self
+            .client
+            .reveal_phrase(Zeroizing::new(input.value))
+            .await
+            .map_err(|e| ApiError(e))?;
+        Ok(mnemonic.split_whitespace().map(|s| s.to_string()).collect())
     }
 
     async fn check_wallet_exists(&self) -> bool {
