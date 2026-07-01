@@ -60,12 +60,13 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let wallet_actor = WalletDbActor::new(
-        wallet_db, zcash_params
+        wallet_db, zcash_params, zcash_db_path
     ).start();
-    let wallet_recipient = wallet_actor.recipient();
+    let zcash_wallet_recipient = wallet_actor.clone().recipient();
+    let zcash_protocol_recipient = wallet_actor.recipient();
 
     let zcash_wallet_client = ZcashWalletClient {
-        recipient: wallet_recipient,
+        recipient: zcash_protocol_recipient,
     };
 
     let zcash = paypunk_chains_zcash::protocol::ZcashProtocol {
@@ -84,7 +85,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("failed to open database: {e}"))?;
     info!("database opened");
 
-    let paypunkd = Paypunkd::new(recipient, protocols, db, keystore).start();
+    let paypunkd = Paypunkd::new(recipient, protocols, db, keystore, zcash_wallet_recipient).start();
 
     let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;
     info!("paypunkd listening on {}", config.socket_path);

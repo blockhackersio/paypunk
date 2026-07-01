@@ -1,3 +1,4 @@
+use crate::api::types::HistoryRow as ApiHistoryRow;
 use crate::api::WalletApi;
 use crate::app::Nav;
 use crate::screens::help::HelpScreen;
@@ -43,14 +44,32 @@ impl Screen for HistoryScreen {
         "History"
     }
 
-    async fn init(&mut self, _api: &dyn WalletApi) {
-        // TODO: Load history from API when available
-        // For now, show empty state
-        self.rows = Vec::new();
+    async fn init(&mut self, api: &dyn WalletApi) {
+        let data = api.get_history(&self.account_id).await;
+        self.rows = data
+            .rows
+            .into_iter()
+            .map(|r: ApiHistoryRow| {
+                let date = r
+                    .timestamp
+                    .map(|ts| {
+                        let secs = ts as i64;
+                        // Simple formatting: show relative or absolute
+                        format!("{}", secs)
+                    })
+                    .unwrap_or_else(|| "—".to_string());
+                HistoryRow {
+                    date,
+                    tx_type: r.direction,
+                    amount: r.amount,
+                    status: r.status,
+                }
+            })
+            .collect();
     }
 
-    async fn on_reactivate(&mut self, _api: &mut dyn WalletApi) {
-        // Refresh history when returning to this screen
+    async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
+        self.init(api).await;
     }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {

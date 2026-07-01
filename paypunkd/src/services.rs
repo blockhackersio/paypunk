@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
+use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -279,6 +279,28 @@ impl PaypunkService {
             .await?
         {
             PaypunkdResponse::AccountsBulkDerived { accounts } => Ok(accounts),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_history(
+        &self,
+        protocol: ProtocolId,
+        account_id: u32,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<Vec<HistoryEntry>, String> {
+        match self
+            .send(PaypunkdRequest::GetHistory {
+                protocol,
+                account_id,
+                cursor,
+                limit,
+            })
+            .await?
+        {
+            PaypunkdResponse::HistoryResult { entries, .. } => Ok(entries),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }

@@ -7,6 +7,7 @@ use paypunk_api::Client;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_chains_zcash::wallet_actor::WalletMessage;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId};
 use paypunkd::database::Database;
@@ -19,6 +20,16 @@ use zeroize::Zeroizing;
 struct MockRpcClient {
     eth_balance: u128,
     erc20_balance: u128,
+}
+
+struct DummyWalletActor;
+
+impl Actor for DummyWalletActor {}
+
+impl tactix::Handler<WalletMessage> for DummyWalletActor {
+    async fn handle(&mut self, _msg: WalletMessage, _ctx: &tactix::Ctx<Self>) -> Result<Vec<u8>, String> {
+        Err("wallet not available in test".to_string())
+    }
 }
 
 impl MockRpcClient {
@@ -128,11 +139,17 @@ impl TestBuilder {
         let db_dir = Box::leak(Box::new(tempfile::TempDir::new().unwrap()));
         let db = Database::open(db_dir.path()).unwrap();
         let paypunkd_keystore = Keypair::new();
+
+        // Dummy wallet recipient that returns errors — actual sync tests use dedicated fixtures.
+        let dummy_wallet_actor = DummyWalletActor.start();
+        let dummy_wallet_recipient = dummy_wallet_actor.recipient();
+
         let paypunkd_addr = Paypunkd::new(
             keypunkd_recipient,
             paypunkd_protocols,
             db,
             paypunkd_keystore,
+            dummy_wallet_recipient,
         )
         .start();
         paypunkd_addr.recipient()

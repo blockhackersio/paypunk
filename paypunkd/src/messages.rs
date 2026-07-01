@@ -1,4 +1,4 @@
-use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
+use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,6 +80,19 @@ pub enum PaypunkdRequest {
         client_public_key: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
     },
+    // Register the Zcash wallet for chain sync operations
+    RegisterZcashWallet {
+        fvk: Vec<u8>,
+        birthday_height: u64,
+        lightwalletd_host: String,
+    },
+    // Fetch transaction history for the given protocol and account
+    GetHistory {
+        protocol: ProtocolId,
+        account_id: u32,
+        cursor: Option<String>,
+        limit: u32,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -137,6 +150,12 @@ pub enum PaypunkdResponse {
     SyncAck,
     SyncStatusResult {
         status: SyncStatus,
+    },
+    ZcashWalletRegistered,
+    HistoryResult {
+        entries: Vec<HistoryEntry>,
+        next_cursor: Option<String>,
+        has_more: bool,
     },
     Error {
         message: String,

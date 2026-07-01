@@ -487,4 +487,29 @@ impl WalletApi for MockWalletApi {
             target_height: 2800000,
         }
     }
+
+    async fn get_history(&self, _account_id: &str) -> HistoryData {
+        HistoryData {
+            rows: vec![
+                HistoryRow {
+                    hash: "0xabcd...1234".into(),
+                    direction: "Sent".into(),
+                    counterparty: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                    amount: "0.05000000 ZEC".into(),
+                    status: "Confirmed".into(),
+                    timestamp: Some(1700000000),
+                },
+                HistoryRow {
+                    hash: "0xef01...5678".into(),
+                    direction: "Received".into(),
+                    counterparty: "0x1234567890abcdef1234567890abcdef12345678".into(),
+                    amount: "0.10000000 ZEC".into(),
+                    status: "Pending".into(),
+                    timestamp: Some(1699900000),
+                },
+            ],
+            next_cursor: None,
+            has_more: false,
+        }
+    }
 }

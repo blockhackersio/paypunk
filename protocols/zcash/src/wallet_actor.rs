@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -18,7 +19,7 @@ use zcash_protocol::memo::Memo;
 use zcash_protocol::ShieldedProtocol;
 
 use crate::lsp_client::LspClient;
-use paypunk_types::SyncStatus;
+use paypunk_types::{Address, Amount, HistoryEntry, Page, SyncStatus, TxDirection, TxStatus};
 
 /// Messages sent to the Zcash WalletDbActor.
 #[derive(Debug, Message)]
@@ -40,6 +41,12 @@ pub enum WalletMessage {
     },
     /// Get the current sync status.
     GetStatus,
+    /// Fetch transaction history for the given account.
+    GetHistory {
+        account: u32,
+        cursor: Option<String>,
+        limit: u32,
+    },
 }
 
 /// Tactix actor wrapping `zcash_client_sqlite::WalletDb` behind a Mutex.
@@ -51,12 +58,14 @@ pub struct WalletDbActor {
     pub is_syncing: AtomicBool,
     pub current_height: AtomicU64,
     pub target_height: AtomicU64,
+    pub db_path: PathBuf,
 }
 
 impl WalletDbActor {
     pub fn new(
         db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
         params: Network,
+        db_path: PathBuf,
     ) -> Self {
         Self {
             db: Mutex::new(db),
@@ -64,6 +73,7 @@ impl WalletDbActor {
             is_syncing: AtomicBool::new(false),
             current_height: AtomicU64::new(0),
             target_height: AtomicU64::new(0),
+            db_path,
         }
     }
 }
@@ -179,6 +189,84 @@ impl Handler<WalletMessage> for WalletDbActor {
                 };
                 postcard::to_allocvec(&status)
                     .map_err(|e| format!("serialize status failed: {e}"))
+            }
+            WalletMessage::GetHistory {
+                account: _account,
+                cursor: _cursor,
+                limit: _limit,
+            } => {
+                let reader = rusqlite::Connection::open(&self.db_path)
+                    .map_err(|e| format!("failed to open wallet db for reading: {e}"))?;
+
+                let mut stmt = reader.prepare(
+                    "SELECT t.txid, t.block, t.expiry_height,
+                            COALESCE(s.total_sent, 0) AS total_sent,
+                            COALESCE(r.total_received, 0) AS total_received
+                     FROM transactions t
+                     LEFT JOIN (
+                         SELECT tx, SUM(value) AS total_sent
+                         FROM sent_notes GROUP BY tx
+                     ) s ON s.tx = t.id_tx
+                     LEFT JOIN (
+                         SELECT tx, SUM(value) AS total_received
+                         FROM received_notes GROUP BY tx
+                     ) r ON r.tx = t.id_tx
+                     ORDER BY t.id_tx DESC"
+                ).map_err(|e| format!("prepare failed: {e}"))?;
+
+                let tx_rows = stmt.query_map([], |row| {
+                    let txid_blob: Vec<u8> = row.get(0)?;
+                    let block: Option<i64> = row.get(1)?;
+                    let _expiry: Option<i64> = row.get(2)?;
+                    let total_sent: i64 = row.get(3)?;
+                    let total_received: i64 = row.get(4)?;
+                    Ok((txid_blob, block, total_sent, total_received))
+                }).map_err(|e| format!("query failed: {e}"))?;
+
+                let mut entries: Vec<HistoryEntry> = Vec::new();
+                for row in tx_rows {
+                    let (txid_blob, block, total_sent, total_received) =
+                        row.map_err(|e| format!("row error: {e}"))?;
+
+                    let direction = if total_sent > 0 && total_received == 0 {
+                        TxDirection::Outgoing
+                    } else if total_received > 0 && total_sent == 0 {
+                        TxDirection::Incoming
+                    } else {
+                        TxDirection::SelfTransfer
+                    };
+
+                    let amount = if direction == TxDirection::Outgoing {
+                        Amount(total_sent as u128)
+                    } else {
+                        Amount(total_received as u128)
+                    };
+
+                    let status = match block {
+                        Some(h) => TxStatus::Confirmed { confirmations: h as u64 },
+                        None => TxStatus::Pending,
+                    };
+
+                    let hash = hex::encode(&txid_blob);
+                    let timestamp = block.map(|h| h as u64);
+
+                    entries.push(HistoryEntry {
+                        hash,
+                        direction,
+                        counterparty: Address(String::new()),
+                        amount,
+                        status,
+                        timestamp,
+                    });
+                }
+
+                let page = Page {
+                    items: entries,
+                    next_cursor: None,
+                    has_more: false,
+                };
+                postcard::to_allocvec(&page)
+                    .map_err(|e| format!("serialize history failed: {e}"))
             }
         }
     }

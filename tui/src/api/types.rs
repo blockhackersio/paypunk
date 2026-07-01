@@ -254,3 +254,22 @@ pub struct SyncStatus {
     pub current_height: u64,
     pub target_height: u64,
 }
+
+// ── History ──
+
+#[derive(Debug, Clone)]
+pub struct HistoryRow {
+    pub hash: String,
+    pub direction: String,
+    pub counterparty: String,
+    pub amount: String,
+    pub status: String,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HistoryData {
+    pub rows: Vec<HistoryRow>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}

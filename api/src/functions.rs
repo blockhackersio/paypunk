@@ -1,7 +1,7 @@
 use argon2::Argon2;
 use bip39::{Language, Mnemonic};
 use keypunkd::crypto::Keypair;
-use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId};
 use zeroize::Zeroizing;
 
 fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
@@ -246,6 +246,19 @@ pub async fn get_account(
     id: String,
 ) -> Result<Option<Account>, String> {
     service.get_account(id).await
+}
+
+/// Fetch transaction history for the given protocol and account.
+pub async fn get_history(
+    service: &paypunkd::services::PaypunkService,
+    protocol: ProtocolId,
+    account_id: u32,
+    cursor: Option<String>,
+    limit: u32,
+) -> Result<Vec<HistoryEntry>, String> {
+    service
+        .get_history(protocol, account_id, cursor, limit)
+        .await
 }
 
 #[cfg(test)]

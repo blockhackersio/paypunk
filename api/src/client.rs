@@ -1,7 +1,7 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
 use paypunk_types::{
-    Account, Balance, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
 };
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
@@ -183,5 +183,18 @@ impl Client {
     /// Get the sync status for the given protocol.
     pub async fn get_sync_status(&self, protocol: ProtocolId) -> Result<SyncStatus, String> {
         self.service.get_sync_status(protocol).await
+    }
+
+    /// Fetch transaction history for the given protocol and account.
+    pub async fn get_history(
+        &self,
+        protocol: ProtocolId,
+        account_id: u32,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<Vec<HistoryEntry>, String> {
+        self.service
+            .get_history(protocol, account_id, cursor, limit)
+            .await
     }
 }

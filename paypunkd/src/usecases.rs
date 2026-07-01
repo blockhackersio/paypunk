@@ -1,5 +1,7 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::{Account, Balance, Intent, ProtocolId, SyncStatus};
+use paypunk_chains_zcash::wallet_actor::WalletMessage;
+use paypunk_types::{Account, Balance, HistoryEntry, Intent, Page, ProtocolId, SyncStatus};
+use tactix::{Recipient, Sender};
 use rand::Rng;
 use tracing::info;
 
@@ -110,33 +112,33 @@ pub async fn approve_signature(
 
 /// Trigger a chain sync for the given protocol.
 pub async fn sync(
-    protocols: &ProtocolService,
-    protocol: ProtocolId,
+    wallet_recipient: &Recipient<WalletMessage>,
+    fvk: Vec<u8>,
+    birthday_height: u64,
+    lightwalletd_host: String,
 ) -> Result<(), String> {
-    match protocol {
-        ProtocolId::Zcash => {
-            info!("sync requested for Zcash");
-            Ok(())
-        }
-        _ => Err(format!("sync not supported for {protocol:?}")),
-    }
+    let bytes: Vec<u8> = wallet_recipient
+        .ask(WalletMessage::Sync {
+            fvk,
+            birthday_height,
+            lightwalletd_host,
+        })
+        .await
+        .map_err(|e| format!("sync failed: {e}"))?;
+    let _msg = String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
+    Ok(())
 }
 
 /// Get the current sync status for the given protocol.
 pub async fn get_sync_status(
-    protocols: &ProtocolService,
-    protocol: ProtocolId,
+    wallet_recipient: &Recipient<WalletMessage>,
 ) -> Result<SyncStatus, String> {
-    match protocol {
-        ProtocolId::Zcash => {
-            Ok(SyncStatus {
-                is_syncing: false,
-                current_height: 0,
-                target_height: 0,
-            })
-        }
-        _ => Err(format!("sync status not supported for {protocol:?}")),
-    }
+    let bytes = wallet_recipient
+        .ask(WalletMessage::GetStatus)
+        .await
+        .map_err(|e| format!("get_sync_status failed: {e}"))?;
+    postcard::from_bytes(&bytes)
+        .map_err(|e| format!("deserialize status failed: {e}"))
 }
 
 /// Finalize a signed artifact into broadcast-ready bytes.
@@ -364,12 +366,31 @@ pub async fn create_transfer(
 
 /// Fetch transaction history for the given protocol and account.
 pub async fn get_history(
-    _protocol: ProtocolId,
-    _account: u32,
-    _cursor: Option<String>,
-    _limit: u32,
-) -> Result<String, String> {
-    todo!("get_history: needs Page/HistoryEntry types")
+    wallet_recipient: &Recipient<WalletMessage>,
+    protocol: ProtocolId,
+    account: u32,
+    cursor: Option<String>,
+    limit: u32,
+) -> Result<Page<HistoryEntry>, String> {
+    match protocol {
+        ProtocolId::Zcash => {
+            let bytes = wallet_recipient
+                .ask(WalletMessage::GetHistory {
+                    account,
+                    cursor,
+                    limit,
+                })
+                .await
+                .map_err(|e| format!("get_history failed: {e}"))?;
+            postcard::from_bytes(&bytes)
+                .map_err(|e| format!("deserialize history failed: {e}"))
+        }
+        _ => Ok(Page {
+            items: vec![],
+            next_cursor: None,
+            has_more: false,
+        }),
+    }
 }
 
 /// Sync the wallet state with the blockchain for the given protocol and account.

@@ -616,4 +616,14 @@ impl WalletApi for RealWalletApi {
             Err(_) => SyncStatus::default(),
         }
     }
+
+    async fn get_history(&self, _account_id: &str) -> HistoryData {
+        // For now, return empty history. The IPC GetHistory plumbing is in place
+        // but needs a protocol-level account lookup to dispatch correctly.
+        HistoryData {
+            rows: vec![],
+            next_cursor: None,
+            has_more: false,
+        }
+    }
 }

@@ -54,4 +54,7 @@ pub trait WalletApi {
     // Sync
     async fn sync(&self, protocol: &str) -> Result<(), ApiError>;
     async fn get_sync_status(&self, protocol: &str) -> SyncStatus;
+
+    // History
+    async fn get_history(&self, account_id: &str) -> HistoryData;
 }
