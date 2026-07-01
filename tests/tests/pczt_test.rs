@@ -117,6 +117,8 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 
     let protocol = ZcashProtocol {
         params: zcash_protocol::consensus::Network::MainNetwork,
+        wallet_client: None,
+        lightwalletd_host: None,
     };
 
     // ── 5. Sign via ZcashProtocol (SignerProtocol::sign) ────────────────

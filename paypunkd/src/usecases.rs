@@ -1,5 +1,5 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, SyncStatus};
 use rand::Rng;
 use tracing::info;
 
@@ -107,6 +107,37 @@ pub async fn approve_signature(
 }
 
 // ── Local protocol operations ──────────────────────────────────────────────
+
+/// Trigger a chain sync for the given protocol.
+pub async fn sync(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+) -> Result<(), String> {
+    match protocol {
+        ProtocolId::Zcash => {
+            info!("sync requested for Zcash");
+            Ok(())
+        }
+        _ => Err(format!("sync not supported for {protocol:?}")),
+    }
+}
+
+/// Get the current sync status for the given protocol.
+pub async fn get_sync_status(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+) -> Result<SyncStatus, String> {
+    match protocol {
+        ProtocolId::Zcash => {
+            Ok(SyncStatus {
+                is_syncing: false,
+                current_height: 0,
+                target_height: 0,
+            })
+        }
+        _ => Err(format!("sync status not supported for {protocol:?}")),
+    }
+}
 
 /// Finalize a signed artifact into broadcast-ready bytes.
 pub fn finalize_artifact(

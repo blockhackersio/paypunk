@@ -105,6 +105,8 @@ impl TestBuilder {
             ProtocolId::Zcash,
             Box::new(ZcashProtocol {
                 params: zcash_protocol::consensus::Network::MainNetwork,
+                wallet_client: None,
+                lightwalletd_host: None,
             }),
         );
         keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
@@ -114,6 +116,8 @@ impl TestBuilder {
 
         let paypunkd_zcash = ZcashProtocol {
             params: zcash_protocol::consensus::Network::MainNetwork,
+            wallet_client: None,
+            lightwalletd_host: None,
         };
         let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
         let mut paypunkd_protocols = ProtocolService::new();

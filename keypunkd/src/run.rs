@@ -33,6 +33,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         ProtocolId::Zcash,
         Box::new(paypunk_chains_zcash::protocol::ZcashProtocol {
             params: zcash_protocol::consensus::Network::MainNetwork,
+            wallet_client: None,
+            lightwalletd_host: None,
         }),
     );
     protocols.register(

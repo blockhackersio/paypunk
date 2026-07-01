@@ -3718,6 +3718,7 @@ dependencies = [
  "paypunk-types",
  "postcard",
  "rand 0.8.6",
+ "rand_core 0.6.4",
  "rusqlite",
  "serde",
  "tactix",
@@ -3726,6 +3727,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zcash_client_sqlite",
  "zcash_protocol",
 ]
 

@@ -277,6 +277,24 @@ impl Paypunkd {
         )
     }
 
+    async fn sync(&self, protocol: ProtocolId) -> PaypunkdResponse {
+        info!(?protocol, "handling Sync");
+        self.respond(
+            "sync",
+            usecases::sync(&self.protocols, protocol).await,
+            |()| PaypunkdResponse::SyncAck,
+        )
+    }
+
+    async fn get_sync_status(&self, protocol: ProtocolId) -> PaypunkdResponse {
+        info!(?protocol, "handling GetSyncStatus");
+        self.respond(
+            "get_sync_status",
+            usecases::get_sync_status(&self.protocols, protocol).await,
+            |status| PaypunkdResponse::SyncStatusResult { status },
+        )
+    }
+
     async fn unlock(
         &mut self,
         encrypted_db_password: Vec<u8>,
@@ -507,18 +525,8 @@ impl Handler<IpcMessage> for Paypunkd {
                 )
                 .await
             }
-            PaypunkdRequest::Sync { protocol } => {
-                warn!(?protocol, "Sync not yet implemented");
-                PaypunkdResponse::Error {
-                    message: "Sync not yet implemented".to_string(),
-                }
-            }
-            PaypunkdRequest::GetSyncStatus { protocol } => {
-                warn!(?protocol, "GetSyncStatus not yet implemented");
-                PaypunkdResponse::Error {
-                    message: "GetSyncStatus not yet implemented".to_string(),
-                }
-            }
+            PaypunkdRequest::Sync { protocol } => self.sync(protocol).await,
+            PaypunkdRequest::GetSyncStatus { protocol } => self.get_sync_status(protocol).await,
             PaypunkdRequest::BulkDeriveAccounts {
                 encrypted_password,
                 client_public_key,
