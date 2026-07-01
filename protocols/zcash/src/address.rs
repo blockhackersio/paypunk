@@ -16,40 +16,53 @@ pub enum DeriveError {
 }
 
 /// Derive a unified Zcash address from a BIP39 seed at the given account and
-/// diversifier index.
+/// diversifier index, using the specified network type.
 ///
 /// Uses Orchard (preferred pool) for the unified address.
-pub fn derive_address(seed: &[u8; 64], account: u32, index: u32) -> Result<String, DeriveError> {
+pub fn derive_address(
+    seed: &[u8; 64],
+    account: u32,
+    index: u32,
+    net: NetworkType,
+) -> Result<String, DeriveError> {
     let account_id =
         zip32::AccountId::try_from(account).map_err(|_| DeriveError::InvalidAccount(account))?;
     let sk = SpendingKey::from_zip32_seed(seed, 133, account_id).map_err(DeriveError::Zip32)?;
     let fvk = FullViewingKey::from(&sk);
-    address_from_fvk(&fvk, index)
+    address_from_fvk(&fvk, index, net)
 }
 
 /// Derive a unified address using the default account (0) and the given
 /// diversifier index.
-pub fn derive_address_at_index(seed: &[u8; 64], index: u32) -> Result<String, DeriveError> {
-    derive_address(seed, 0, index)
+pub fn derive_address_at_index(
+    seed: &[u8; 64],
+    index: u32,
+    net: NetworkType,
+) -> Result<String, DeriveError> {
+    derive_address(seed, 0, index, net)
 }
 
 /// Derive a unified address from serialized FullViewingKey bytes and a
 /// diversifier index. No seed or private key material needed.
-pub fn derive_from_fvk(fvk_bytes: &[u8], index: u32) -> Result<String, DeriveError> {
+pub fn derive_from_fvk(
+    fvk_bytes: &[u8],
+    index: u32,
+    net: NetworkType,
+) -> Result<String, DeriveError> {
     let bytes: [u8; 96] = fvk_bytes
         .try_into()
         .map_err(|_| DeriveError::InvalidViewKey)?;
     let fvk = FullViewingKey::from_bytes(&bytes).ok_or(DeriveError::InvalidViewKey)?;
-    address_from_fvk(&fvk, index)
+    address_from_fvk(&fvk, index, net)
 }
 
-fn address_from_fvk(fvk: &FullViewingKey, index: u32) -> Result<String, DeriveError> {
+fn address_from_fvk(fvk: &FullViewingKey, index: u32, net: NetworkType) -> Result<String, DeriveError> {
     let address = fvk.address_at(index, Scope::External);
     let raw = address.to_raw_address_bytes();
 
     let ua = unified::Address::try_from_items(vec![unified::Receiver::Orchard(raw)])
         .map_err(|_| DeriveError::Encoding)?;
-    let zaddr = ZcashAddress::from_unified(NetworkType::Main, ua);
+    let zaddr = ZcashAddress::from_unified(net, ua);
     Ok(zaddr.encode())
 }
 
@@ -72,7 +85,7 @@ pub mod tests {
     #[test]
     fn test_derive_orchard_address() {
         let seed = test_seed();
-        let addr = derive_address_at_index(&seed, 0).expect("should derive address");
+        let addr = derive_address_at_index(&seed, 0, NetworkType::Main).expect("should derive address");
         assert!(addr.starts_with("u1"), "got: {addr}");
         assert!(addr.len() > 50, "got: {addr}");
     }
@@ -80,8 +93,8 @@ pub mod tests {
     #[test]
     fn test_derive_different_indexes() {
         let seed = test_seed();
-        let addr0 = derive_address_at_index(&seed, 0).expect("index 0");
-        let addr1 = derive_address_at_index(&seed, 1).expect("index 1");
+        let addr0 = derive_address_at_index(&seed, 0, NetworkType::Main).expect("index 0");
+        let addr1 = derive_address_at_index(&seed, 1, NetworkType::Main).expect("index 1");
         assert_ne!(
             addr0, addr1,
             "different indexes should give different addresses"
@@ -91,8 +104,8 @@ pub mod tests {
     #[test]
     fn test_derive_is_deterministic() {
         let seed = test_seed();
-        let a = derive_address_at_index(&seed, 0).expect("first");
-        let b = derive_address_at_index(&seed, 0).expect("second");
+        let a = derive_address_at_index(&seed, 0, NetworkType::Main).expect("first");
+        let b = derive_address_at_index(&seed, 0, NetworkType::Main).expect("second");
         assert_eq!(a, b, "same seed + index should give same address");
     }
 }

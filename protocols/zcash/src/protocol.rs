@@ -9,6 +9,7 @@ use pczt::roles::{
     verifier::Verifier,
 };
 use zcash_keys::keys::UnifiedSpendingKey;
+use zcash_protocol::consensus::Parameters;
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::wallet_client::ZcashWalletClient;
@@ -300,7 +301,8 @@ impl Protocol for ZcashProtocol {
     // ── Key operations ──────────────────────────────────────────────────────
 
     fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String> {
-        crate::address::derive_from_fvk(vk, index).map_err(|e| e.to_string())
+        let net = self.params.network_type();
+        crate::address::derive_from_fvk(vk, index, net).map_err(|e| e.to_string())
     }
 }
 

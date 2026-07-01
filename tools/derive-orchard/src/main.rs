@@ -8,7 +8,7 @@ use zcash_protocol::consensus::NetworkType;
 const DEFAULT_MNEMONIC: &str =
     "test test test test test test test test test test test junk";
 
-fn derive_orchard_address(seed: &[u8; 64], account: u32, index: u32) -> String {
+fn derive_orchard_address(seed: &[u8; 64], account: u32, index: u32, net: NetworkType) -> String {
     let account_id = zip32::AccountId::try_from(account).expect("valid account");
     let sk = SpendingKey::from_zip32_seed(seed, 133, account_id).expect("ZIP-32 derivation");
     let fvk = FullViewingKey::from(&sk);
@@ -16,7 +16,7 @@ fn derive_orchard_address(seed: &[u8; 64], account: u32, index: u32) -> String {
     let raw = address.to_raw_address_bytes();
     let ua = unified::Address::try_from_items(vec![unified::Receiver::Orchard(raw)])
         .expect("valid UA");
-    let zaddr = ZcashAddress::from_unified(NetworkType::Main, ua);
+    let zaddr = ZcashAddress::from_unified(net, ua);
     zaddr.encode()
 }
 
@@ -35,6 +35,8 @@ fn main() {
         .parse()
         .expect("valid diversifier index");
 
-    let ua = derive_orchard_address(&seed, account, index);
+    // Regtest reuses testnet address prefixes, so use NetworkType::Test.
+    let net = NetworkType::Test;
+    let ua = derive_orchard_address(&seed, account, index, net);
     println!("{ua}");
 }
