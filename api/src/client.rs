@@ -1,6 +1,8 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
-use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
+use paypunk_types::{
+    Account, Balance, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+};
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -171,5 +173,15 @@ impl Client {
     /// Get protocol metadata from the daemon.
     pub async fn get_protocol_metadata(&self) -> Result<Vec<ProtocolMetadata>, String> {
         self.service.get_protocol_metadata().await
+    }
+
+    /// Trigger a sync for the given protocol.
+    pub async fn sync(&self, protocol: ProtocolId) -> Result<(), String> {
+        self.service.sync(protocol).await
+    }
+
+    /// Get the sync status for the given protocol.
+    pub async fn get_sync_status(&self, protocol: ProtocolId) -> Result<SyncStatus, String> {
+        self.service.get_sync_status(protocol).await
     }
 }

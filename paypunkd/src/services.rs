@@ -1,5 +1,5 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
+use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
@@ -202,6 +202,25 @@ impl PaypunkService {
             PaypunkdResponse::HasSeed { exists } => Ok(exists),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn sync(&self, protocol: ProtocolId) -> Result<(), String> {
+        match self.send(PaypunkdRequest::Sync { protocol }).await? {
+            PaypunkdResponse::SyncAck => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response".to_string()),
+        }
+    }
+
+    pub async fn get_sync_status(&self, protocol: ProtocolId) -> Result<SyncStatus, String> {
+        match self
+            .send(PaypunkdRequest::GetSyncStatus { protocol })
+            .await?
+        {
+            PaypunkdResponse::SyncStatusResult { status } => Ok(status),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response".to_string()),
         }
     }
 
