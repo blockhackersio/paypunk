@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use zeroize::Zeroizing;
 
+use super::types::SyncStatus;
 use super::types::*;
 use super::WalletApi;
 
@@ -570,6 +571,31 @@ impl WalletApi for RealWalletApi {
                 address,
                 protocol,
             });
+        }
+    }
+
+    async fn sync(&self, protocol: &str) -> Result<(), ApiError> {
+        let protocol_id = match protocol {
+            "Zcash" => paypunk_types::ProtocolId::Zcash,
+            "Ethereum" => paypunk_types::ProtocolId::Ethereum,
+            _ => return Err(ApiError(format!("unknown protocol: {protocol}"))),
+        };
+        self.client.sync(protocol_id).await.map_err(ApiError)
+    }
+
+    async fn get_sync_status(&self, protocol: &str) -> SyncStatus {
+        let protocol_id = match protocol {
+            "Zcash" => paypunk_types::ProtocolId::Zcash,
+            "Ethereum" => paypunk_types::ProtocolId::Ethereum,
+            _ => return SyncStatus::default(),
+        };
+        match self.client.get_sync_status(protocol_id).await {
+            Ok(s) => SyncStatus {
+                is_syncing: s.is_syncing,
+                current_height: s.current_height,
+                target_height: s.target_height,
+            },
+            Err(_) => SyncStatus::default(),
         }
     }
 }

@@ -2,6 +2,7 @@ use super::types::*;
 use super::WalletApi;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 struct MockData {
@@ -9,6 +10,9 @@ struct MockData {
     next_account_index: u32,
     address_book: Vec<AddressBookEntry>,
     balances: HashMap<String, String>, // account_id → raw spendable balance
+    sync_in_progress: bool,
+    sync_current: u64,
+    sync_target: u64,
 }
 
 pub struct MockWalletApi {
@@ -58,6 +62,9 @@ impl MockWalletApi {
                     ("acc_1".into(), "1420000000000000000".into()),
                     ("acc_2".into(), "500000000".into()),
                 ]),
+                sync_in_progress: false,
+                sync_current: 0,
+                sync_target: 0,
             }),
             home_cache: Mutex::new(None),
             send_cache: Mutex::new(HashMap::new()),
@@ -461,6 +468,18 @@ impl WalletApi for MockWalletApi {
                 address,
                 protocol,
             });
+        }
+    }
+
+    async fn sync(&self, _protocol: &str) -> Result<(), ApiError> {
+        Ok(())
+    }
+
+    async fn get_sync_status(&self, _protocol: &str) -> SyncStatus {
+        SyncStatus {
+            is_syncing: false,
+            current_height: 2800000,
+            target_height: 2800000,
         }
     }
 }

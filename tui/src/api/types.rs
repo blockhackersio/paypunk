@@ -246,3 +246,10 @@ pub struct AddressBookEntry {
 pub struct AddressBookData {
     pub entries: Vec<AddressBookEntry>,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct SyncStatus {
+    pub is_syncing: bool,
+    pub current_height: u64,
+    pub target_height: u64,
+}
