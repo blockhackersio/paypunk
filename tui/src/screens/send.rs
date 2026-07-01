@@ -70,11 +70,6 @@ enum SendStep {
     Confirm,
 }
 
-struct PendingSend {
-    review: ReviewedDetails,
-    password: String,
-}
-
 pub struct SendScreen {
     account_id: String,
     account_name: String,
@@ -90,7 +85,6 @@ pub struct SendScreen {
     focus: usize,
     copied_feedback: Option<String>,
     send_data: ApiState<SendData>,
-    pending_send: Option<PendingSend>,
     spinner_frame: u32,
 }
 
@@ -129,7 +123,6 @@ impl SendScreen {
             focus: 0,
             copied_feedback: None,
             send_data: ApiState::Loading,
-            pending_send: None,
             spinner_frame: 0,
         }
     }
@@ -153,23 +146,7 @@ impl Screen for SendScreen {
         );
     }
 
-    async fn tick(&mut self, api: &mut dyn WalletApi) {
-        if matches!(self.step, SendStep::Sending) {
-            if let Some(pending) = self.pending_send.take() {
-                let result = api
-                    .submit_send_confirm(SendConfirmInput {
-                        reviewed: pending.review,
-                        auth_confirmation: AuthConfirmation {
-                            auth_type: "password".into(),
-                            value: pending.password,
-                        },
-                        signed_tx: String::new(),
-                    })
-                    .await;
-                self.result = Some(result);
-                self.step = SendStep::Confirm;
-            }
-        }
+    async fn tick(&mut self, _api: &mut dyn WalletApi) {
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {
@@ -353,15 +330,24 @@ impl Screen for SendScreen {
                     self.step = SendStep::Sending;
                     self.spinner_frame = 0;
                     if let Some(ref review) = self.review_data {
-                        self.pending_send = Some(PendingSend {
-                            review: ReviewedDetails {
-                                to_address: review.to_address.clone(),
-                                amount: review.amount.clone(),
-                                fee_estimate: review.fee_estimate.clone(),
-                                total_amount: review.total_amount.clone(),
-                            },
-                            password: self.password_field.value().to_string(),
-                        });
+                        let password = self.password_field.value().to_string();
+                        let result = api
+                            .submit_send_confirm(SendConfirmInput {
+                                reviewed: ReviewedDetails {
+                                    to_address: review.to_address.clone(),
+                                    amount: review.amount.clone(),
+                                    fee_estimate: review.fee_estimate.clone(),
+                                    total_amount: review.total_amount.clone(),
+                                },
+                                auth_confirmation: AuthConfirmation {
+                                    auth_type: "password".into(),
+                                    value: password,
+                                },
+                                signed_tx: String::new(),
+                            })
+                            .await;
+                        self.result = Some(result);
+                        self.step = SendStep::Confirm;
                     }
                 }
                 KeyCode::Esc => {
@@ -373,7 +359,15 @@ impl Screen for SendScreen {
             },
             SendStep::Sending => {}
             SendStep::Confirm => match key.code {
-                KeyCode::Enter | KeyCode::Esc => return Nav::Pop,
+                KeyCode::Enter | KeyCode::Esc => {
+                    if let Some(ref review) = self.review_data {
+                        api.store_pending_deduction(
+                            review.amount.clone(),
+                            review.to_address.clone(),
+                        ).await;
+                    }
+                    return Nav::Pop;
+                }
                 KeyCode::Char('c') => {
                     if let Some(ref result) = self.result {
                         let mut cb = arboard::Clipboard::new().ok();

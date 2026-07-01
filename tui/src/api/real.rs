@@ -21,6 +21,7 @@ pub struct RealWalletApi {
     pending: std::sync::Mutex<Option<PendingSend>>,
     pending_mnemonic: std::sync::Mutex<Option<Zeroizing<String>>>,
     protocol_metadata: std::sync::Mutex<HashMap<ProtocolId, ProtocolMetadata>>,
+    pending_deduction: std::sync::Mutex<Option<(String, String)>>,
 }
 
 impl RealWalletApi {
@@ -31,6 +32,7 @@ impl RealWalletApi {
             pending: std::sync::Mutex::new(None),
             pending_mnemonic: std::sync::Mutex::new(None),
             protocol_metadata: std::sync::Mutex::new(HashMap::new()),
+            pending_deduction: std::sync::Mutex::new(None),
         })
     }
 
@@ -40,6 +42,7 @@ impl RealWalletApi {
             pending: std::sync::Mutex::new(None),
             pending_mnemonic: std::sync::Mutex::new(None),
             protocol_metadata: std::sync::Mutex::new(HashMap::new()),
+            pending_deduction: std::sync::Mutex::new(None),
         }
     }
 }
@@ -655,5 +658,13 @@ impl WalletApi for RealWalletApi {
             next_cursor: None,
             has_more: false,
         }
+    }
+
+    async fn store_pending_deduction(&self, amount_raw: String, address: String) {
+        *self.pending_deduction.lock().unwrap() = Some((amount_raw, address));
+    }
+
+    async fn take_pending_deduction(&self) -> Option<(String, String)> {
+        self.pending_deduction.lock().unwrap().take()
     }
 }

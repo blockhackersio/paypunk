@@ -57,4 +57,8 @@ pub trait WalletApi {
 
     // History
     async fn get_history(&self, account_id: &str) -> HistoryData;
+
+    // Pending deduction (optimistic balance update after send)
+    async fn store_pending_deduction(&self, amount_raw: String, address: String);
+    async fn take_pending_deduction(&self) -> Option<(String, String)>;
 }
