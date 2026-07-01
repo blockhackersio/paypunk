@@ -196,6 +196,10 @@ enum Commands {
         ethereum_rpc_url: Option<String>,
         #[arg(short, long)]
         data_dir: Option<String>,
+        #[arg(short, long)]
+        lightwalletd_host: Option<String>,
+        #[arg(short, long)]
+        zcash_network: Option<String>,
     },
     /// Remove all wallet data (seed, database, accounts) — resets to clean state
     Reset,
@@ -251,8 +255,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err("Timed out waiting for keypunkd socket".into());
             }
 
+            let config = ConfigLoader::load_or_default();
             let mut paypunkd_child = Command::new(&exe)
                 .arg("paypunkd")
+                .arg("--lightwalletd-host")
+                .arg(&config.lightwalletd_host)
+                .arg("--zcash-network")
+                .arg(&config.zcash_network)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -307,20 +316,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             keypunkd_socket,
             ethereum_rpc_url,
             data_dir,
+            lightwalletd_host,
+            zcash_network,
         }) => {
             let config = ConfigLoader::load_or_default();
             let socket = socket_path.unwrap_or(config.paypunkd_socket_path);
             let ks = keypunkd_socket.unwrap_or(config.keypunkd_socket_path);
             let url = ethereum_rpc_url.unwrap_or(config.ethereum_rpc_url);
             let dir = data_dir.unwrap_or(config.data_dir);
+            let lwd = lightwalletd_host.unwrap_or(config.lightwalletd_host);
+            let znet = zcash_network.unwrap_or(config.zcash_network);
 
             paypunkd::run::run(paypunkd::run::Config {
                 socket_path: socket,
                 keypunkd_socket: ks,
                 ethereum_rpc_url: url,
                 data_dir: dir,
-                lightwalletd_host: config.lightwalletd_host,
-                zcash_network: config.zcash_network,
+                lightwalletd_host: lwd,
+                zcash_network: znet,
             })
             .await
         }
