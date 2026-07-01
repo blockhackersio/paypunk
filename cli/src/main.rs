@@ -319,6 +319,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 keypunkd_socket: ks,
                 ethereum_rpc_url: url,
                 data_dir: dir,
+                lightwalletd_host: config.lightwalletd_host,
+                zcash_network: config.zcash_network,
             })
             .await
         }
