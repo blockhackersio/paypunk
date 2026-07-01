@@ -201,6 +201,10 @@ impl WalletApi for MockWalletApi {
         Ok(())
     }
 
+    async fn add_zcash_account(&self, _birthday_height: u64) -> Result<(), ApiError> {
+        self.add_account().await
+    }
+
     async fn get_receive(&self, account_id: &str) -> ReceiveData {
         let data = self.data.lock().unwrap();
         let account = data

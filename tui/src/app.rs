@@ -1,4 +1,6 @@
+use crate::api::types::SyncStatus;
 use crate::api::WalletApi;
+use crate::screens::history::HistoryScreen;
 use crate::screens::Screen;
 use std::io;
 
@@ -8,12 +10,14 @@ pub enum Nav {
     Pop,
     Replace(Box<dyn Screen>),
     Quit,
+    History(String), // account_id
 }
 
 pub struct App {
     pub screen_stack: Vec<Box<dyn Screen>>,
     pub api: Box<dyn WalletApi>,
     pub should_quit: bool,
+    pub sync_status: SyncStatus,
 }
 
 impl App {
@@ -22,6 +26,7 @@ impl App {
             screen_stack: Vec::new(),
             api,
             should_quit: false,
+            sync_status: SyncStatus::default(),
         }
     }
 
@@ -66,6 +71,7 @@ impl App {
         if let Some(screen) = self.screen_stack.last_mut() {
             screen.tick(api).await;
         }
+        self.sync_status = api.get_sync_status("Zcash").await;
     }
 
     async fn process_nav(&mut self, nav: Nav) {
@@ -87,6 +93,19 @@ impl App {
                 self.push_screen(s);
             }
             Nav::Quit => self.should_quit = true,
+            Nav::History(account_id) => {
+                let accounts = self.api.list_accounts().await;
+                if let Ok(accs) = accounts {
+                    if let Some(acc) = accs.iter().find(|a| a.account_id == account_id) {
+                        let mut screen = Box::new(HistoryScreen::new(
+                            account_id,
+                            acc.name.clone(),
+                        ));
+                        screen.init(&*self.api).await;
+                        self.push_screen(screen);
+                    }
+                }
+            }
         }
     }
 }

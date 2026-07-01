@@ -271,6 +271,24 @@ impl WalletApi for RealWalletApi {
         Ok(())
     }
 
+    async fn add_zcash_account(&self, birthday_height: u64) -> Result<(), ApiError> {
+        let accounts = self.client.list_accounts().await.map_err(ApiError)?;
+        let zcash_count = accounts.iter().filter(|a| a.protocol == ProtocolId::Zcash).count();
+        let path = self.client.derivation_path(ProtocolId::Zcash, zcash_count as u32);
+        let name = format!("Zcash Account {zcash_count}");
+        self.client
+            .create_account(
+                ProtocolId::Zcash,
+                path,
+                zcash_count as u32,
+                name,
+                Some(birthday_height),
+            )
+            .await
+            .map_err(ApiError)?;
+        Ok(())
+    }
+
     async fn get_receive(&self, account_id: &str) -> ReceiveData {
         match self.client.get_account(account_id.to_string()).await {
             Ok(Some(account)) => {

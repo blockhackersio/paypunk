@@ -14,6 +14,7 @@ use screens::Screen;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
@@ -151,6 +152,28 @@ fn render(frame: &mut Frame, app: &mut App) {
 
     if let Some(screen) = app.screen_stack.last_mut() {
         screen.render(frame, api);
+
+        // Render sync status bar at bottom
+        if app.sync_status.is_syncing {
+            let area = frame.area();
+            let status_area = Rect {
+                x: area.x,
+                y: area.y + area.height.saturating_sub(1),
+                width: area.width,
+                height: 1,
+            };
+            let status_text = format!(
+                " Syncing Zcash: {} / {} blocks ",
+                app.sync_status.current_height,
+                app.sync_status.target_height,
+            );
+            let status_line = Paragraph::new(Line::from(vec![
+                ui::theme().warning(&status_text),
+            ]));
+            let status_block = Block::new().style(Style::new().bg(ui::SURFACE));
+            frame.render_widget(status_block, status_area);
+            frame.render_widget(status_line, status_area);
+        }
     } else {
         let block = Block::new().style(Style::new().bg(ui::BG));
         frame.render_widget(block, frame.area());

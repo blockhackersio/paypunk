@@ -18,6 +18,7 @@ pub trait WalletApi {
     async fn refresh_home(&self);
     async fn list_accounts(&self) -> Result<Vec<AccountInfo>, ApiError>;
     async fn add_account(&self) -> Result<(), ApiError>;
+    async fn add_zcash_account(&self, birthday_height: u64) -> Result<(), ApiError>;
 
     // Assets — takes account_id
     async fn get_assets(&self, account_id: &str) -> AssetsData;
