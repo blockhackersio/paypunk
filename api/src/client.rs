@@ -197,4 +197,17 @@ impl Client {
             .get_history(protocol, account_id, cursor, limit)
             .await
     }
+
+    /// Get the lock state (whether password is set and failed attempt count).
+    pub async fn get_lock_state(&self) -> Result<(bool, u32), String> {
+        self.service.get_lock_state().await
+    }
+
+    /// Verify the wallet password against keypunkd.
+    pub async fn verify_password(
+        &self,
+        password: Zeroizing<String>,
+    ) -> Result<(), String> {
+        crate::functions::verify_password(&self.service, password).await
+    }
 }

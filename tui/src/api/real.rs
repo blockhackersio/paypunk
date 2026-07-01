@@ -512,16 +512,27 @@ impl WalletApi for RealWalletApi {
     async fn refresh_send(&self, _account_id: &str) {}
 
     async fn get_lock(&self) -> LockData {
-        LockData {
-            auth_methods: LockAuthMethods {
-                password_set: true,
+        match self.client.get_lock_state().await {
+            Ok((password_set, failed_attempts)) => LockData {
+                auth_methods: LockAuthMethods {
+                    password_set,
+                },
+                failed_attempts,
             },
-            failed_attempts: 0,
+            Err(_) => LockData {
+                auth_methods: LockAuthMethods {
+                    password_set: false,
+                },
+                failed_attempts: 0,
+            },
         }
     }
 
-    async fn submit_lock(&self, _input: LockInput) -> Result<(), ApiError> {
-        Ok(())
+    async fn submit_lock(&self, input: LockInput) -> Result<(), ApiError> {
+        self.client
+            .verify_password(zeroize::Zeroizing::new(input.credential.value))
+            .await
+            .map_err(|e| ApiError(e))
     }
 
     async fn get_settings(&self) -> SettingsData {

@@ -23,6 +23,7 @@ pub struct Paypunkd {
     zcash_fvk: Option<Vec<u8>>,
     zcash_birthday: Option<u64>,
     zcash_lightwalletd_host: Option<String>,
+    failed_attempts: u32,
 }
 
 impl Paypunkd {
@@ -43,6 +44,7 @@ impl Paypunkd {
             zcash_fvk: None,
             zcash_birthday: None,
             zcash_lightwalletd_host: None,
+            failed_attempts: 0,
         }
     }
 
@@ -394,6 +396,40 @@ impl Paypunkd {
         }
     }
 
+    async fn get_lock_state(&self) -> PaypunkdResponse {
+        info!("handling GetLockState");
+        let password_set = match self.has_seed().await {
+            PaypunkdResponse::HasSeed { exists } => exists,
+            _ => false,
+        };
+        PaypunkdResponse::LockState {
+            password_set,
+            failed_attempts: self.failed_attempts,
+        }
+    }
+
+    async fn verify_password(
+        &mut self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("handling VerifyPassword");
+        match self
+            .keypunk_service
+            .verify_password(encrypted_password, client_public_key)
+            .await
+        {
+            Ok(()) => {
+                self.failed_attempts = 0;
+                PaypunkdResponse::PasswordVerified
+            }
+            Err(e) => {
+                self.failed_attempts += 1;
+                PaypunkdResponse::Error { message: e }
+            }
+        }
+    }
+
     async fn unlock(
         &mut self,
         encrypted_db_password: Vec<u8>,
@@ -648,6 +684,14 @@ impl Handler<IpcMessage> for Paypunkd {
                 cursor,
                 limit,
             } => self.get_history(protocol, account_id, cursor, limit).await,
+            PaypunkdRequest::GetLockState => self.get_lock_state().await,
+            PaypunkdRequest::VerifyPassword {
+                encrypted_password,
+                client_public_key,
+            } => {
+                self.verify_password(encrypted_password, client_public_key)
+                    .await
+            }
         };
 
         let encoded =

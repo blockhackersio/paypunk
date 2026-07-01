@@ -205,6 +205,35 @@ impl PaypunkService {
         }
     }
 
+    pub async fn get_lock_state(&self) -> Result<(bool, u32), String> {
+        match self.send(PaypunkdRequest::GetLockState).await? {
+            PaypunkdResponse::LockState {
+                password_set,
+                failed_attempts,
+            } => Ok((password_set, failed_attempts)),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn verify_password(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<(), String> {
+        match self
+            .send(PaypunkdRequest::VerifyPassword {
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
+            PaypunkdResponse::PasswordVerified => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
     pub async fn sync(&self, protocol: ProtocolId) -> Result<(), String> {
         match self.send(PaypunkdRequest::Sync { protocol }).await? {
             PaypunkdResponse::SyncAck => Ok(()),

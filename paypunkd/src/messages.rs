@@ -93,6 +93,13 @@ pub enum PaypunkdRequest {
         cursor: Option<String>,
         limit: u32,
     },
+    // Query the lock state (password set, failed attempts)
+    GetLockState,
+    // Verify a password against keypunkd
+    VerifyPassword {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -157,6 +164,11 @@ pub enum PaypunkdResponse {
         next_cursor: Option<String>,
         has_more: bool,
     },
+    LockState {
+        password_set: bool,
+        failed_attempts: u32,
+    },
+    PasswordVerified,
     Error {
         message: String,
     },

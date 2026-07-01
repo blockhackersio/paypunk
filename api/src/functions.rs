@@ -261,6 +261,19 @@ pub async fn get_history(
         .await
 }
 
+/// Verify the wallet password against keypunkd.
+pub async fn verify_password(
+    service: &paypunkd::services::PaypunkService,
+    password: Zeroizing<String>,
+) -> Result<(), String> {
+    let client_keypair = Keypair::new();
+    let server_pk = service.get_keypunk_encryption_key().await?;
+    let encrypted_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
+    let client_pk = client_keypair.public_key();
+    service.verify_password(encrypted_password, client_pk).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

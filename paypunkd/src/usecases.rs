@@ -18,6 +18,17 @@ pub async fn has_seed(service: &KeypunkService) -> Result<bool, String> {
     service.has_seed().await
 }
 
+/// Verify a password by forwarding to keypunkd for seed decryption.
+pub async fn verify_password(
+    service: &KeypunkService,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+) -> Result<(), String> {
+    service
+        .verify_password(encrypted_password, client_public_key)
+        .await
+}
+
 /// Forward a GenerateSeed request to keypunkd with the encrypted password.
 /// Returns the encrypted mnemonic from keypunkd.
 pub async fn generate_seed(

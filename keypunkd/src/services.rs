@@ -131,6 +131,24 @@ impl KeypunkService {
         }
     }
 
+    pub async fn verify_password(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<(), String> {
+        match self
+            .send(KeypunkdRequest::VerifyPassword {
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
+            KeypunkdResponse::PasswordVerified => Ok(()),
+            KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
     pub async fn bulk_export_viewing_keys(
         &self,
         encrypted_password: Vec<u8>,

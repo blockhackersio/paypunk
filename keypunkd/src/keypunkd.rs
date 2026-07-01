@@ -297,6 +297,23 @@ impl<S: Storage> Keypunkd<S> {
         KeypunkdResponse::HasSeed { exists }
     }
 
+    fn verify_password(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> KeypunkdResponse {
+        info!("handling VerifyPassword");
+        match usecases::decrypt_seed(
+            &encrypted_password,
+            &client_public_key,
+            &self.keystore,
+            &self.seed_store,
+        ) {
+            Ok(_) => KeypunkdResponse::PasswordVerified,
+            Err(e) => KeypunkdResponse::Error { message: e },
+        }
+    }
+
     fn bulk_export_viewing_keys(
         &self,
         encrypted_password: Vec<u8>,
@@ -367,6 +384,10 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 self.export_viewing_key(encrypted_password, client_public_key, protocol, derivation_path)
             }
             KeypunkdRequest::HasSeed => self.has_seed(),
+            KeypunkdRequest::VerifyPassword {
+                encrypted_password,
+                client_public_key,
+            } => self.verify_password(encrypted_password, client_public_key),
             KeypunkdRequest::BulkExportViewingKeys {
                 encrypted_password,
                 client_public_key,

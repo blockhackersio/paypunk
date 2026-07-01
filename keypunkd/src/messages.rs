@@ -37,6 +37,11 @@ pub enum KeypunkdRequest {
     },
     /// Check if a seed exists in the store.
     HasSeed,
+    /// Verify a password by attempting to decrypt the seed.
+    VerifyPassword {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
     /// Bulk-export viewing keys for multiple protocols and paths.
     BulkExportViewingKeys {
         encrypted_password: Vec<u8>,
@@ -69,6 +74,7 @@ pub enum KeypunkdResponse {
     HasSeed {
         exists: bool,
     },
+    PasswordVerified,
     ViewingKeys {
         keys: Vec<(ProtocolId, String, Vec<u8>)>,
     },
