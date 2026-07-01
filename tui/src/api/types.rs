@@ -114,6 +114,7 @@ pub struct SendReviewInput {
     pub token_id: String,
     pub chain_id: String,
     pub account_id: String,
+    pub memo: Option<String>,
 }
 
 #[derive(Debug, Clone)]

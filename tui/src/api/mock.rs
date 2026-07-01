@@ -282,6 +282,7 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData {
+        let _ = input.memo;
         *self.pending_account_id.lock().unwrap() = Some(input.account_id.clone());
         let fee_est = "409500000000000";
         let total = format!(

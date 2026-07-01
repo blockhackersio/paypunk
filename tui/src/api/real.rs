@@ -370,7 +370,7 @@ impl WalletApi for RealWalletApi {
                 amount: input.amount.clone(),
                 from: from_address,
                 asset,
-                memo: None,
+                memo: input.memo.clone(),
             }),
             _ => {
                 return SendReviewData {

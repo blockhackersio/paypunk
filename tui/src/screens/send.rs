@@ -83,6 +83,7 @@ pub struct SendScreen {
     step: SendStep,
     to_picker: DropdownPicker<AddressBookEntryItem, ()>,
     amount_field: TextField,
+    memo_field: TextField,
     password_field: TextField,
     review_data: Option<SendReviewData>,
     result: Option<SendResult>,
@@ -105,6 +106,13 @@ impl SendScreen {
             amount_field: TextField::new(TextFieldConfig {
                 label: "Amount".into(),
                 placeholder: "Enter amount...".into(),
+                password_mode: false,
+                initial_value: String::new(),
+                feedback: None,
+            }),
+            memo_field: TextField::new(TextFieldConfig {
+                label: "Memo (optional)".into(),
+                placeholder: "Enter memo (Zcash only)...".into(),
                 password_mode: false,
                 initial_value: String::new(),
                 feedback: None,
@@ -256,7 +264,8 @@ impl Screen for SendScreen {
         }
         match self.step {
             SendStep::Form => {
-                let max_focus = 1;
+                let is_zcash = self.chain_id.contains("bip122") || !self.chain_id.contains("eip155");
+                let max_focus = if is_zcash { 2 } else { 1 };
                 match key.code {
                     KeyCode::Tab => {
                         if self.focus == 0 && self.to_picker.is_open() {
@@ -300,6 +309,11 @@ impl Screen for SendScreen {
                                 }
                             }
                         } else {
+                            let memo = if is_zcash {
+                                Some(self.memo_field.value().to_string())
+                            } else {
+                                None
+                            };
                             let review = api
                                 .submit_send_review(SendReviewInput {
                                     to_address: self.to_picker.value().into(),
@@ -307,6 +321,7 @@ impl Screen for SendScreen {
                                     token_id: "eth-native".into(),
                                     chain_id: self.chain_id.clone(),
                                     account_id: self.account_id.clone(),
+                                    memo,
                                 })
                                 .await;
                             self.review_data = Some(review);
@@ -323,6 +338,9 @@ impl Screen for SendScreen {
                                 }
                                 1 => {
                                     self.amount_field.handle_event(key);
+                                }
+                                2 => {
+                                    self.memo_field.handle_event(key);
                                 }
                                 _ => {}
                             }
@@ -376,6 +394,7 @@ impl Screen for SendScreen {
             SendStep::Form => match self.focus {
                 0 => self.to_picker.handle_paste(text),
                 1 => self.amount_field.handle_paste(text),
+                2 => self.memo_field.handle_paste(text),
                 _ => {}
             },
             SendStep::Review => self.password_field.handle_paste(text),
@@ -427,7 +446,8 @@ impl SendScreen {
                 let divisor = 10u128.pow(data.decimals as u32) as f64;
                 let bal = data.spendable_balance.parse::<f64>().unwrap_or(0.0) / divisor;
                 let bal_str = format!("{:.8}", bal);
-                let symbol = if data.chain_id.contains("eip155") {
+                let is_ethereum = data.chain_id.contains("eip155");
+                let symbol = if is_ethereum {
                     "ETH"
                 } else {
                     "ZEC"
@@ -453,6 +473,17 @@ impl SendScreen {
                     }),
                 );
 
+                if !is_ethereum {
+                    self.memo_field.set_focused(self.focus == 2);
+                    self.memo_field.render(
+                        frame,
+                        inner.inner(Margin {
+                            vertical: 9,
+                            horizontal: 2,
+                        }),
+                    );
+                }
+
                 // Render dropdown overlay last so it appears on top of all fields
                 self.to_picker.render_overlay(
                     frame,
@@ -462,12 +493,20 @@ impl SendScreen {
                     }),
                 );
 
-                let y_offset = 9;
+                let y_offset = if !is_ethereum { 12 } else { 9 };
 
-                let balance_line = Line::from(vec![
-                    theme.muted("Balance: "),
-                    theme.span(format!("{} {}", bal_str, symbol)),
-                ]);
+                let balance_line = if !is_ethereum {
+                    Line::from(vec![
+                        theme.muted("Balance: "),
+                        theme.span(format!("{} {}", bal_str, symbol)),
+                        theme.muted(" (max 8 decimals)"),
+                    ])
+                } else {
+                    Line::from(vec![
+                        theme.muted("Balance: "),
+                        theme.span(format!("{} {}", bal_str, symbol)),
+                    ])
+                };
                 let bal_para = Paragraph::new(balance_line).style(Style::new().bg(ui::BG));
                 frame.render_widget(
                     bal_para,
