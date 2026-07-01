@@ -11,8 +11,12 @@ use pczt::roles::{
 use zcash_keys::keys::UnifiedSpendingKey;
 use zip32::fingerprint::SeedFingerprint;
 
+use crate::wallet_client::ZcashWalletClient;
+
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
+    pub wallet_client: Option<ZcashWalletClient>,
+    pub lightwalletd_host: Option<String>,
 }
 
 impl ZcashProtocol {
@@ -171,20 +175,30 @@ impl Protocol for ZcashProtocol {
                 to,
                 amount,
                 from,
-                asset: _,
-                memo: _,
+                memo,
+                ..
             }) => {
-                // Validate the from address
                 if !self.validate_address(from) {
                     return Err(format!("invalid from address: {from}"));
                 }
-                // TODO: Build PCZT via zcash_primitives::Builder + zcash_client_backend
-                // proposal APIs, then prove inline before returning.
-                //
-                // Requires WalletDb for note selection and merkle paths.
-                Err(format!(
-                    "Zcash build not yet implemented — needs WalletDb. to={to}, amount={amount}"
-                ))
+
+                let wallet = self.wallet_client.as_ref()
+                    .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
+
+                let account = 0;
+
+                let amount_f64: f64 = amount.parse().map_err(|_| "invalid amount".to_string())?;
+                let amount_zat = (amount_f64 * 100_000_000.0) as u64;
+
+                let public_key = vec![];
+
+                wallet.create_transaction_async(
+                    public_key,
+                    account,
+                    to.clone(),
+                    amount_zat,
+                    memo.clone(),
+                ).await
             }
             _ => Err("unexpected intent variant for Zcash protocol".to_string()),
         }
@@ -214,16 +228,20 @@ impl Protocol for ZcashProtocol {
         Ok(raw_tx)
     }
 
-    async fn get_balance(
-        &self,
-        _address: &str,
-        _asset: &str,
-    ) -> Result<paypunk_types::Balance, String> {
-        Err("get_balance not yet implemented — needs WalletDb + LSP chain scan".to_string())
+    async fn get_balance(&self, _address: &str, _asset: &str) -> Result<paypunk_types::Balance, String> {
+        let wallet = self.wallet_client.as_ref()
+            .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
+
+        let _ = wallet;
+        Err("get_balance via WalletDb not yet implemented".to_string())
     }
 
-    async fn broadcast(&self, _finalized_tx: &[u8]) -> Result<String, String> {
-        Err("broadcast not yet implemented for Zcash — needs lightwalletd connection".to_string())
+    async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
+        let host = self.lightwalletd_host.as_ref()
+            .ok_or_else(|| "lightwalletd not configured".to_string())?;
+
+        let mut lsp = crate::lsp_client::LspClient::connect(host, self.params).await?;
+        lsp.broadcast_tx(finalized_tx).await
     }
 
     // ── Protocol metadata ───────────────────────────────────────────────────
