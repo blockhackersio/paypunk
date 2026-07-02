@@ -148,8 +148,8 @@ impl WalletDbActor {
         info!("sync: latest height = {latest_u64}");
 
         let birthday = if birthday_height == 0 {
-            info!("sync: birthday_height is 0, defaulting to block 1");
-            BlockHeight::from_u32(1)
+            info!("sync: birthday_height is 0, defaulting to block 2");
+            BlockHeight::from_u32(2)
         } else {
             BlockHeight::from_u32(birthday_height as u32)
         };
