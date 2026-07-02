@@ -233,8 +233,7 @@ impl Protocol for ZcashProtocol {
         let wallet = self.wallet_client.as_ref()
             .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
-        let _ = wallet;
-        Err("get_balance via WalletDb not yet implemented".to_string())
+        wallet.get_balance().await
     }
 
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {

@@ -1,6 +1,6 @@
 use tactix::{Recipient, Sender};
 
-use paypunk_types::SyncStatus;
+use paypunk_types::{Balance, SyncStatus};
 
 use crate::wallet_actor::WalletMessage;
 
@@ -53,5 +53,14 @@ impl ZcashWalletClient {
             .await?;
         postcard::from_bytes(&bytes)
             .map_err(|e| format!("deserialize status failed: {e}"))
+    }
+
+    /// Get the wallet balance.
+    pub async fn get_balance(&self) -> Result<Balance, String> {
+        let bytes = self.recipient
+            .ask(WalletMessage::GetBalance)
+            .await?;
+        postcard::from_bytes(&bytes)
+            .map_err(|e| format!("deserialize balance failed: {e}"))
     }
 }

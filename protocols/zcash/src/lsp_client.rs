@@ -1,24 +1,21 @@
 use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
-use zcash_client_backend::proto::service::{ChainSpec, RawTransaction};
-use zcash_client_sqlite::WalletDb;
+use zcash_client_backend::proto::service::{BlockId, BlockRange, ChainSpec, RawTransaction, TreeState};
+use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_protocol::consensus::{BlockHeight, Network};
-use rand_core::OsRng;
-use zcash_client_sqlite::util::SystemClock;
 use tonic::transport::Channel;
 
 /// Lightwalletd gRPC client for Zcash chain interaction.
 pub struct LspClient {
     inner: CompactTxStreamerClient<Channel>,
-    params: Network,
 }
 
 impl LspClient {
     /// Connect to a lightwalletd endpoint.
-    pub async fn connect(host: &str, params: Network) -> Result<Self, String> {
+    pub async fn connect(host: &str, _params: Network) -> Result<Self, String> {
         let inner = CompactTxStreamerClient::connect(host.to_string())
             .await
             .map_err(|e| format!("failed to connect to lightwalletd: {e}"))?;
-        Ok(Self { inner, params })
+        Ok(Self { inner })
     }
 
     /// Get the latest block height from lightwalletd.
@@ -30,6 +27,55 @@ impl LspClient {
             .map_err(|e| format!("lightwalletd get_latest_block failed: {e}"))?;
         let height = info.get_ref().height as u32;
         Ok(BlockHeight::from_u32(height))
+    }
+
+    /// Get the tree state (note commitment tree) at a given height.
+    pub async fn get_tree_state(&mut self, height: BlockHeight) -> Result<TreeState, String> {
+        let response = self
+            .inner
+            .get_tree_state(BlockId {
+                height: u64::from(height),
+                hash: vec![],
+            })
+            .await
+            .map_err(|e| format!("lightwalletd get_tree_state failed: {e}"))?;
+        Ok(response.into_inner())
+    }
+
+    /// Fetch a range of compact blocks from lightwalletd.
+    pub async fn get_block_range(
+        &mut self,
+        start_height: BlockHeight,
+        end_height: BlockHeight,
+    ) -> Result<Vec<CompactBlock>, String> {
+        let start = u64::from(start_height);
+        let end = u64::from(end_height);
+        let mut stream = self
+            .inner
+            .get_block_range(BlockRange {
+                start: Some(BlockId {
+                    height: start,
+                    hash: vec![],
+                }),
+                end: Some(BlockId {
+                    height: end,
+                    hash: vec![],
+                }),
+                pool_types: vec![],
+            })
+            .await
+            .map_err(|e| format!("lightwalletd get_block_range failed: {e}"))?
+            .into_inner();
+
+        let mut blocks = Vec::new();
+        while let Some(block) = stream
+            .message()
+            .await
+            .map_err(|e| format!("stream error: {e}"))?
+        {
+            blocks.push(block);
+        }
+        Ok(blocks)
     }
 
     /// Broadcast a raw transaction to the network.
@@ -44,33 +90,5 @@ impl LspClient {
             return Err(format!("broadcast failed ({}): {}", result.error_code, result.error_message));
         }
         Ok("broadcast successful".to_string())
-    }
-
-    /// Scan a range of blocks into the WalletDb.
-    /// Returns (scanned_from, scanned_to) heights.
-    pub fn scan_range(
-        &self,
-        wallet_db: &WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-        from_height: BlockHeight,
-        to_height: BlockHeight,
-    ) -> Result<(u64, u64), String> {
-        let from: u64 = from_height.into();
-        let to: u64 = to_height.into();
-
-        let mut current = from;
-        let batch_size = 100;
-
-        while current < to {
-            let batch_end = (current + batch_size).min(to);
-            let _ = wallet_db;
-            let _ = batch_end;
-            // TODO: Use zcash_client_backend::sync or scan_cached_blocks
-            // to process blocks from lightwalletd into the WalletDb.
-            // This requires the FVK to be registered and the WalletDb
-            // to be initialized.
-            current = batch_end;
-        }
-
-        Ok((from, current))
     }
 }
