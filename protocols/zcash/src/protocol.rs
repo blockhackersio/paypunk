@@ -9,18 +9,17 @@ use pczt::roles::{
     signer::Signer, spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
     verifier::Verifier,
 };
-use tactix::{Addr, Recipient, Sender};
+use tactix::{Recipient, Sender};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_protocol::consensus::Parameters;
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::wallet_actor::{WalletDbActor, WalletMessage};
+use crate::wallet_actor::WalletMessage;
 
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
     wallet_recipient: Option<Recipient<WalletMessage>>,
     pub lightwalletd_host: Option<String>,
-    _actor_handle: Option<Addr<WalletDbActor>>,
 }
 
 impl ZcashProtocol {
@@ -30,13 +29,11 @@ impl ZcashProtocol {
         params: zcash_protocol::consensus::Network,
         wallet_recipient: Option<Recipient<WalletMessage>>,
         lightwalletd_host: Option<String>,
-        actor_handle: Option<Addr<WalletDbActor>>,
     ) -> Self {
         Self {
             params,
             wallet_recipient,
             lightwalletd_host,
-            _actor_handle: actor_handle,
         }
     }
 
@@ -359,7 +356,8 @@ impl Protocol for ZcashProtocol {
                 lightwalletd_host: host,
             })
             .await?;
-        let _msg = String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
+        let _msg =
+            String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
         Ok(())
     }
 

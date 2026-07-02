@@ -35,7 +35,6 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             zcash_protocol::consensus::Network::MainNetwork,
             None,
             None,
-            None,
         )),
     );
     protocols.register(
