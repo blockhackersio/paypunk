@@ -21,6 +21,8 @@ pub struct Paypunkd {
     accounts_repo: Box<dyn AccountsRepository>,
     address_book_repo: Box<dyn AddressBookRepository>,
     keystore: Keypair,
+    // TODO: These are protocol specific concepts that MUST only be available behind the Zcash
+    // implementation of Protocol
     zcash_wallet_recipient: Option<Recipient<WalletMessage>>,
     zcash_fvk: Option<Vec<u8>>,
     zcash_birthday: Option<u64>,
@@ -347,7 +349,6 @@ impl Paypunkd {
     }
 
     async fn get_sync_status(&self, protocol: ProtocolId) -> PaypunkdResponse {
-        info!(?protocol, "handling GetSyncStatus");
         match protocol {
             ProtocolId::Zcash => {
                 let recipient = match &self.zcash_wallet_recipient {
