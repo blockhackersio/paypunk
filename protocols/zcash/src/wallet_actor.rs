@@ -181,19 +181,26 @@ impl WalletDbActor {
             .to_chain_state()
             .map_err(|e| format!("invalid tree state: {e}"))?;
 
-        // Register the account in WalletDb
+        // Register the account in WalletDb if not already registered
         {
             let mut db = self.db.lock().map_err(|e| e.to_string())?;
-            let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
-            info!("sync: importing account UFVK at birthday {birthday:?}");
-            db.import_account_ufvk(
-                "Zcash Account 0",
-                &ufvk,
-                &account_birthday,
-                AccountPurpose::Spending { derivation: None },
-                None,
-            )
-            .map_err(|e| format!("import_account_ufvk failed: {e}"))?;
+            let existing = db
+                .get_account_ids()
+                .map_err(|e| format!("get_account_ids failed: {e}"))?;
+            if existing.is_empty() {
+                let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
+                info!("sync: importing account UFVK at birthday {birthday:?}");
+                db.import_account_ufvk(
+                    "Zcash Account 0",
+                    &ufvk,
+                    &account_birthday,
+                    AccountPurpose::Spending { derivation: None },
+                    None,
+                )
+                .map_err(|e| format!("import_account_ufvk failed: {e}"))?;
+            } else {
+                info!("sync: account already registered, skipping import");
+            }
         }
 
         // Update chain tip
