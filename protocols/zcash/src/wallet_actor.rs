@@ -131,6 +131,97 @@ impl WalletDbActor {
             db_path,
         }
     }
+
+    async fn try_sync(
+        &self,
+        fvk: Vec<u8>,
+        birthday_height: u64,
+        lightwalletd_host: String,
+    ) -> Result<String, String> {
+        // Connect to lightwalletd
+        let mut lsp = LspClient::connect(&lightwalletd_host, self.params).await?;
+        let latest = lsp.get_latest_height().await?;
+        let latest_u64: u64 = latest.into();
+        self.target_height.store(latest_u64, Ordering::SeqCst);
+
+        let birthday = if birthday_height == 0 {
+            BlockHeight::from_u32(1)
+        } else {
+            BlockHeight::from_u32(birthday_height as u32)
+        };
+
+        // Parse the 96-byte Orchard FVK into a UnifiedFullViewingKey
+        let fvk_bytes: [u8; 96] = fvk
+            .try_into()
+            .map_err(|_| "FVK must be 96 bytes".to_string())?;
+        // Validate the FVK bytes are a valid Orchard FVK
+        let _valid = orchard::keys::FullViewingKey::from_bytes(&fvk_bytes)
+            .ok_or("invalid Orchard FVK bytes")?;
+
+        let ufvk_item = Fvk::Orchard(fvk_bytes);
+        let ufvk_container = Ufvk::try_from_items(vec![ufvk_item])
+            .map_err(|e| format!("failed to build UFVK container: {e}"))?;
+        let ufvk = UnifiedFullViewingKey::parse(&ufvk_container)
+            .map_err(|e| format!("failed to parse UFVK: {e}"))?;
+
+        // Get tree state at birthday-1 for the ChainState
+        let prev_height = if birthday > BlockHeight::from_u32(0) {
+            birthday - 1
+        } else {
+            birthday
+        };
+        let tree_state = lsp.get_tree_state(prev_height).await?;
+        let chain_state = tree_state
+            .to_chain_state()
+            .map_err(|e| format!("invalid tree state: {e}"))?;
+
+        // Register the account in WalletDb
+        {
+            let mut db = self.db.lock().map_err(|e| e.to_string())?;
+            let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
+            db.import_account_ufvk(
+                "Zcash Account 0",
+                &ufvk,
+                &account_birthday,
+                AccountPurpose::Spending { derivation: None },
+                None,
+            )
+            .map_err(|e| format!("import_account_ufvk failed: {e}"))?;
+        }
+
+        // Update chain tip
+        {
+            let mut db = self.db.lock().map_err(|e| e.to_string())?;
+            db.update_chain_tip(latest)
+                .map_err(|e| format!("update_chain_tip failed: {e}"))?;
+        }
+
+        // Fetch compact blocks from birthday to latest
+        let blocks = lsp.get_block_range(birthday, latest).await?;
+        let block_count = blocks.len();
+
+        // Scan blocks using scan_cached_blocks
+        let block_source = VecBlockSource {
+            blocks: Arc::new(blocks),
+        };
+
+        let _scan_summary = scan_cached_blocks(
+            &self.params,
+            &block_source,
+            &mut *self.db.lock().map_err(|e| e.to_string())?,
+            birthday,
+            &chain_state,
+            block_count,
+        )
+        .map_err(|e| format!("scan_cached_blocks failed: {e}"))?;
+
+        let msg = format!(
+            "synced from block {} to {}",
+            u64::from(birthday),
+            latest_u64
+        );
+        Ok(msg)
+    }
 }
 
 impl Actor for WalletDbActor {}
@@ -224,93 +315,19 @@ impl Handler<WalletMessage> for WalletDbActor {
                 self.is_syncing.store(true, Ordering::SeqCst);
                 self.current_height.store(0, Ordering::SeqCst);
 
-                // Connect to lightwalletd
-                let mut lsp = LspClient::connect(&lightwalletd_host, self.params).await?;
-                let latest = lsp.get_latest_height().await?;
-                let latest_u64: u64 = latest.into();
-                self.target_height.store(latest_u64, Ordering::SeqCst);
+                let sync_result = self.try_sync(fvk, birthday_height, lightwalletd_host).await;
 
-                let birthday = BlockHeight::from_u32(birthday_height as u32);
-
-                // Parse the 96-byte Orchard FVK into a UnifiedFullViewingKey
-                let fvk_bytes: [u8; 96] = fvk
-                    .try_into()
-                    .map_err(|_| "FVK must be 96 bytes".to_string())?;
-                // Validate the FVK bytes are a valid Orchard FVK
-                let _valid = orchard::keys::FullViewingKey::from_bytes(&fvk_bytes)
-                    .ok_or("invalid Orchard FVK bytes")?;
-
-                let ufvk_item = Fvk::Orchard(fvk_bytes);
-                let ufvk_container = Ufvk::try_from_items(vec![ufvk_item])
-                    .map_err(|e| format!("failed to build UFVK container: {e}"))?;
-                let ufvk = UnifiedFullViewingKey::parse(&ufvk_container)
-                    .map_err(|e| format!("failed to parse UFVK: {e}"))?;
-
-                // Get tree state at birthday-1 for the ChainState
-                let prev_height = if birthday > BlockHeight::from_u32(0) {
-                    birthday - 1
-                } else {
-                    birthday
-                };
-                let tree_state = lsp.get_tree_state(prev_height).await?;
-                let chain_state = tree_state
-                    .to_chain_state()
-                    .map_err(|e| format!("invalid tree state: {e}"))?;
-
-                // Register the account in WalletDb
-                {
-                    let mut db = self.db.lock().map_err(|e| e.to_string())?;
-                    let birthday = AccountBirthday::from_parts(chain_state.clone(), None);
-                    db.import_account_ufvk(
-                        "Zcash Account 0",
-                        &ufvk,
-                        &birthday,
-                        AccountPurpose::Spending { derivation: None },
-                        None,
-                    )
-                    .map_err(|e| format!("import_account_ufvk failed: {e}"))?;
+                match &sync_result {
+                    Ok(msg) => {
+                        self.current_height.store(self.target_height.load(Ordering::SeqCst), Ordering::SeqCst);
+                        self.is_syncing.store(false, Ordering::SeqCst);
+                        Ok(msg.clone().into_bytes())
+                    }
+                    Err(e) => {
+                        self.is_syncing.store(false, Ordering::SeqCst);
+                        Err(e.clone())
+                    }
                 }
-
-                // Update chain tip
-                {
-                    let mut db = self.db.lock().map_err(|e| e.to_string())?;
-                    db.update_chain_tip(latest)
-                        .map_err(|e| format!("update_chain_tip failed: {e}"))?;
-                }
-
-                // Fetch compact blocks from birthday to latest
-                let blocks = lsp.get_block_range(birthday, latest).await?;
-                let block_count = blocks.len();
-
-                // Scan blocks using scan_cached_blocks
-                let block_source = VecBlockSource {
-                    blocks: Arc::new(blocks),
-                };
-
-                let _scan_summary = scan_cached_blocks(
-                    &self.params,
-                    &block_source,
-                    &mut *self.db.lock().map_err(|e| e.to_string())?,
-                    birthday,
-                    &chain_state,
-                    block_count,
-                )
-                .map_err(|e| format!("scan_cached_blocks failed: {e}"))?;
-
-                let scanned_to = if birthday > latest {
-                    u64::from(birthday)
-                } else {
-                    u64::from(latest)
-                };
-                self.current_height.store(scanned_to, Ordering::SeqCst);
-                self.is_syncing.store(false, Ordering::SeqCst);
-
-                let msg = format!(
-                    "synced from block {} to {}",
-                    u64::from(birthday),
-                    scanned_to
-                );
-                Ok(msg.into_bytes())
             }
             WalletMessage::GetStatus => {
                 let status = SyncStatus {
