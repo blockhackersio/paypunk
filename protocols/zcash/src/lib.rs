@@ -33,14 +33,13 @@ pub async fn create_protocol(
         .map_err(|e| format!("failed to create zcash db dir: {e}"))?;
     let zcash_db_path = zcash_db_dir.join("wallet.db");
 
-    let zcash_conn = rusqlite::Connection::open(&zcash_db_path)
-        .map_err(|e| format!("failed to open zcash wallet db: {e}"))?;
-    let mut wallet_db = zcash_client_sqlite::WalletDb::from_connection(
-        zcash_conn,
+    let mut wallet_db = zcash_client_sqlite::WalletDb::for_path(
+        &zcash_db_path,
         params,
         zcash_client_sqlite::util::SystemClock,
         rand_core::OsRng,
-    );
+    )
+    .map_err(|e| format!("failed to open zcash wallet db: {e}"))?;
 
     zcash_client_sqlite::wallet::init::init_wallet_db(&mut wallet_db, None)
         .map_err(|e| format!("failed to initialize zcash wallet db: {e}"))?;

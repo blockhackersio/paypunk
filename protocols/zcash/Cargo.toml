@@ -31,7 +31,7 @@ zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-in
 tactix = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
 tracing.workspace = true
-rusqlite = { workspace = true, features = ["bundled", "vtab"] }
+rusqlite = { workspace = true, features = ["bundled", "vtab", "array"] }
 secrecy = { workspace = true }
 tonic = { workspace = true, features = ["tls-native-roots"] }
 
