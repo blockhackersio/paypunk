@@ -12,7 +12,7 @@ use screens::greeting::GreetingScreen;
 use screens::setup::SetupScreen;
 use screens::Screen;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -24,6 +24,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+
+/// Events that drive the TUI event loop.
+enum AppEvent {
+    Tick,
+    Key(crossterm::event::KeyEvent),
+    Paste(String),
+    Resize(u16, u16),
+}
 
 pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io::Result<()> {
     let api: Box<dyn WalletApi> = connect_with_retry(socket_path, shutdown.as_ref()).await?;
@@ -51,17 +59,23 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
     terminal.clear()?;
     crossterm::execute!(std::io::stdout(), EnableBracketedPaste)?;
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(256);
+    let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(256);
     let event_tx_clone = event_tx.clone();
 
     tokio::task::spawn_blocking(move || loop {
         if event::poll(std::time::Duration::from_millis(50)).unwrap_or(false) {
-            let evt = event::read().unwrap_or(Event::Resize(0, 0));
-            if event_tx_clone.blocking_send(evt).is_err() {
+            let evt = event::read().unwrap_or(crossterm::event::Event::Resize(0, 0));
+            let app_evt = match evt {
+                crossterm::event::Event::Key(key) => AppEvent::Key(key),
+                crossterm::event::Event::Paste(text) => AppEvent::Paste(text),
+                crossterm::event::Event::Resize(w, h) => AppEvent::Resize(w, h),
+                _ => continue,
+            };
+            if event_tx_clone.blocking_send(app_evt).is_err() {
                 break;
             }
         } else {
-            if event_tx_clone.blocking_send(Event::Resize(0, 0)).is_err() {
+            if event_tx_clone.blocking_send(AppEvent::Tick).is_err() {
                 break;
             }
         }
@@ -75,11 +89,12 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
             }
         }
 
-        terminal.draw(|frame| render(frame, &mut app))?;
-
         if let Some(evt) = event_rx.recv().await {
             match evt {
-                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                AppEvent::Tick => {
+                    app.tick().await;
+                }
+                AppEvent::Key(key) if key.kind == KeyEventKind::Press => {
                     if key.modifiers.contains(KeyModifiers::CONTROL)
                         && key.code == KeyCode::Char('c')
                     {
@@ -91,15 +106,16 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
                         }
                     }
                 }
-                Event::Paste(text) => {
+                AppEvent::Paste(text) => {
                     app.handle_paste(&text).await;
                 }
-                Event::Resize(_, _) => {
-                    app.tick().await;
-                }
-                _ => {}
+                // ratatui handles window resize automatically via frame.area()
+                AppEvent::Resize(_, _) => {}
+                AppEvent::Key(_) => {}
             }
         }
+
+        terminal.draw(|frame| render(frame, &mut app))?;
     }
 
     crossterm::execute!(std::io::stdout(), DisableBracketedPaste)?;
@@ -133,9 +149,7 @@ async fn connect_with_retry(
                 if start.elapsed() >= deadline {
                     return Err(io::Error::new(
                         io::ErrorKind::TimedOut,
-                        format!(
-                            "Timed out waiting for paypunkd at {socket_path} after 30s: {e}"
-                        ),
+                        format!("Timed out waiting for paypunkd at {socket_path} after 30s: {e}"),
                     ));
                 }
                 tokio::time::sleep(poll_interval).await;
@@ -164,12 +178,9 @@ fn render(frame: &mut Frame, app: &mut App) {
             };
             let status_text = format!(
                 " Syncing Zcash: {} / {} blocks ",
-                app.sync_status.current_height,
-                app.sync_status.target_height,
+                app.sync_status.current_height, app.sync_status.target_height,
             );
-            let status_line = Paragraph::new(Line::from(vec![
-                ui::theme().warning(&status_text),
-            ]));
+            let status_line = Paragraph::new(Line::from(vec![ui::theme().warning(&status_text)]));
             let status_block = Block::new().style(Style::new().bg(ui::SURFACE));
             frame.render_widget(status_block, status_area);
             frame.render_widget(status_line, status_area);

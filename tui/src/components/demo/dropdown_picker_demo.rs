@@ -36,10 +36,10 @@ impl Component<()> for SearchableLabel {
         } else {
             Style::new().fg(ui::palette().foreground)
         };
-        let text = Paragraph::new(Line::from(vec![ui::theme().span(format!(
-            " {}",
-            self.label
-        ))])).style(style);
+        let text = Paragraph::new(Line::from(vec![
+            ui::theme().span(format!(" {}", self.label))
+        ]))
+        .style(style);
         frame.render_widget(text, area);
     }
 
@@ -126,9 +126,9 @@ impl Component<Nav> for DropdownPickerDemo {
             width: area.width.saturating_sub(4),
             height: 4,
         };
-        let masked_text = Paragraph::new(Line::from(vec![theme.muted(
-            "This content is masked by the dropdown overlay when open",
-        )]))
+        let masked_text = Paragraph::new(Line::from(vec![
+            theme.muted("This content is masked by the dropdown overlay when open")
+        ]))
         .style(Style::new().bg(ui::BG));
         frame.render_widget(masked_text, overlay_demo_area);
 

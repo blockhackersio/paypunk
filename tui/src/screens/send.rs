@@ -146,8 +146,7 @@ impl Screen for SendScreen {
         );
     }
 
-    async fn tick(&mut self, _api: &mut dyn WalletApi) {
-    }
+    async fn tick(&mut self, _api: &mut dyn WalletApi) {}
 
     async fn init(&mut self, api: &dyn WalletApi) {
         self.send_data = api.send_state(&self.account_id).await;
@@ -184,10 +183,9 @@ impl Screen for SendScreen {
         let title = theme.title(&title_text).centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
-        let addr_line = Paragraph::new(
-            Line::from(vec![theme.muted(&self.account_address)]).centered(),
-        )
-        .style(Style::new().bg(ui::BG));
+        let addr_line =
+            Paragraph::new(Line::from(vec![theme.muted(&self.account_address)]).centered())
+                .style(Style::new().bg(ui::BG));
         frame.render_widget(
             addr_line,
             header.inner(Margin {
@@ -241,7 +239,8 @@ impl Screen for SendScreen {
         }
         match self.step {
             SendStep::Form => {
-                let is_zcash = self.chain_id.contains("bip122") || !self.chain_id.contains("eip155");
+                let is_zcash =
+                    self.chain_id.contains("bip122") || !self.chain_id.contains("eip155");
                 let max_focus = if is_zcash { 2 } else { 1 };
                 match key.code {
                     KeyCode::Tab => {
@@ -364,7 +363,8 @@ impl Screen for SendScreen {
                         api.store_pending_deduction(
                             review.amount.clone(),
                             review.to_address.clone(),
-                        ).await;
+                        )
+                        .await;
                     }
                     return Nav::Pop;
                 }
@@ -441,11 +441,7 @@ impl SendScreen {
                 let bal = data.spendable_balance.parse::<f64>().unwrap_or(0.0) / divisor;
                 let bal_str = format!("{:.8}", bal);
                 let is_ethereum = data.chain_id.contains("eip155");
-                let symbol = if is_ethereum {
-                    "ETH"
-                } else {
-                    "ZEC"
-                };
+                let symbol = if is_ethereum { "ETH" } else { "ZEC" };
 
                 self.to_picker.set_focused(self.focus == 0);
                 self.to_picker.render(
@@ -534,11 +530,8 @@ impl SendScreen {
                 String::new()
             };
 
-            let amount_display = format!(
-                "{} {}",
-                format_eth_amount(&review.amount, decimals),
-                ticker
-            );
+            let amount_display =
+                format!("{} {}", format_eth_amount(&review.amount, decimals), ticker);
 
             let fee_display = format!(
                 "{} {}",
@@ -576,10 +569,7 @@ impl SendScreen {
                     theme.muted("Fee:       "),
                     theme.warning(&fee_display),
                 ]),
-                Line::from(vec![
-                    theme.muted("Nonce:     "),
-                    theme.span(&nonce_display),
-                ]),
+                Line::from(vec![theme.muted("Nonce:     "), theme.span(&nonce_display)]),
                 Line::from(vec![
                     theme.muted("Total:     "),
                     theme.accent(&total_display),
@@ -625,10 +615,15 @@ impl SendScreen {
         };
 
         let lines = vec![
-            Line::from(vec![theme.accent(format!(" {} Broadcasting transaction... ", spinner))])
-                .centered(),
+            Line::from(vec![
+                theme.accent(format!(" {} Broadcasting transaction... ", spinner))
+            ])
+            .centered(),
             Line::from(""),
-            Line::from(vec![theme.muted("Please wait while your transaction is sent")]).centered(),
+            Line::from(vec![
+                theme.muted("Please wait while your transaction is sent")
+            ])
+            .centered(),
             Line::from(""),
             Line::from(vec![theme.muted("This may take a moment...")]).centered(),
         ];

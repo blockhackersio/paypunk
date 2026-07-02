@@ -1,4 +1,6 @@
-use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
+use paypunk_types::{
+    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

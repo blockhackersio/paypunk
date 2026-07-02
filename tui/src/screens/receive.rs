@@ -60,7 +60,9 @@ impl Screen for ReceiveScreen {
         let body = chunks[1];
         let footer = chunks[2];
 
-        let title = theme.title(format!(" Receive — {} ", self.account_name)).centered();
+        let title = theme
+            .title(format!(" Receive — {} ", self.account_name))
+            .centered();
         frame.render_widget(Paragraph::new(title).style(Style::new().bg(ui::BG)), header);
 
         match &self.receive_data {
@@ -169,10 +171,7 @@ impl Screen for ReceiveScreen {
             }
         }
 
-        let footer_text = theme.help_line([
-            ("c", "Copy Address"),
-            ("Esc", "Back"),
-        ]);
+        let footer_text = theme.help_line([("c", "Copy Address"), ("Esc", "Back")]);
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
         frame.render_widget(

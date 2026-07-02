@@ -16,6 +16,7 @@ arboard = "3"
 clap = { workspace = true, features = ["derive"] }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "sync", "rt-multi-thread"] }
+tracing.workspace = true
 paypunk-config = { path = "../config" }
 paypunk-api = { path = "../api" }
 paypunk-types = { path = "../types" }

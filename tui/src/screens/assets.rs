@@ -97,7 +97,8 @@ impl Screen for AssetsScreen {
                     let ticker = parts[1];
                     let decimals = if ticker == "ZEC" { 8 } else { 18 };
                     let divisor = 10u128.pow(decimals) as f64;
-                    let deduction_val = deduction.amount_raw.parse::<f64>().unwrap_or(0.0) / divisor;
+                    let deduction_val =
+                        deduction.amount_raw.parse::<f64>().unwrap_or(0.0) / divisor;
                     let new_val = value - deduction_val;
                     asset.holdings_amount = format!("{:.8} {} (pending)", new_val, ticker);
                 }
@@ -157,17 +158,18 @@ impl Screen for AssetsScreen {
         );
 
         if self.sync_status.is_syncing {
-            let sync_line = Paragraph::new(
-                Line::from(vec![theme.warning(format!(
-                    " Syncing: {} / {} blocks ",
-                    self.sync_status.current_height,
-                    self.sync_status.target_height,
-                ))]),
-            ).style(Style::new().bg(ui::BG));
-            frame.render_widget(sync_line, header.inner(Margin {
-                vertical: 3,
-                horizontal: 0,
-            }));
+            let sync_line = Paragraph::new(Line::from(vec![theme.warning(format!(
+                " Syncing: {} / {} blocks ",
+                self.sync_status.current_height, self.sync_status.target_height,
+            ))]))
+            .style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                sync_line,
+                header.inner(Margin {
+                    vertical: 3,
+                    horizontal: 0,
+                }),
+            );
         }
 
         let on_buttons = matches!(self.focus, AssetsFocus::Buttons(_));
@@ -279,7 +281,13 @@ impl Screen for AssetsScreen {
         match self.focus {
             AssetsFocus::Buttons(ref mut sel) => match key.code {
                 KeyCode::Left | KeyCode::Right => {
-                    *sel = if *sel == 0 { 1 } else if *sel == 1 { 2 } else { 0 };
+                    *sel = if *sel == 0 {
+                        1
+                    } else if *sel == 1 {
+                        2
+                    } else {
+                        0
+                    };
                 }
                 KeyCode::Down => {
                     if self.data.as_ref().map_or(false, |d| !d.assets.is_empty()) {

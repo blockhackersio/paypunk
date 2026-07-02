@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use paypunk_api::Client;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, ProtocolMetadata};
 use std::collections::HashMap;
+use tracing::info;
 use zeroize::Zeroizing;
 
 use super::types::SyncStatus;
@@ -89,10 +90,7 @@ impl RealWalletApi {
     async fn protocol_decimals(&self, protocol: &ProtocolId) -> u8 {
         self.ensure_metadata().await;
         let cache = self.protocol_metadata.lock().unwrap();
-        cache
-            .get(protocol)
-            .map(|m| m.decimals)
-            .unwrap_or(18)
+        cache.get(protocol).map(|m| m.decimals).unwrap_or(18)
     }
 
     async fn protocol_ticker(&self, protocol: &ProtocolId) -> String {
@@ -165,6 +163,7 @@ impl WalletApi for RealWalletApi {
     async fn get_assets(&self, account_id: &str) -> AssetsData {
         match self.client.get_account(account_id.to_string()).await {
             Ok(Some(account)) => {
+                info!("TUI API: get_assets()");
                 let chain = self.protocol_chain(&account.protocol).await;
                 let asset = self.protocol_asset(&account.protocol).await;
                 let decimals = self.protocol_decimals(&account.protocol).await;
@@ -177,6 +176,7 @@ impl WalletApi for RealWalletApi {
                     .map(|b| b.spendable.0.to_string())
                     .unwrap_or_else(|_| "0".to_string());
                 let holdings = format_balance(&balance, decimals, &ticker);
+                info!("TUI API: get_assets() holdings={}", holdings);
                 AssetsData {
                     assets: vec![AssetRow {
                         name: ticker.clone(),
@@ -272,8 +272,13 @@ impl WalletApi for RealWalletApi {
 
     async fn add_zcash_account(&self, birthday_height: u64) -> Result<(), ApiError> {
         let accounts = self.client.list_accounts().await.map_err(ApiError)?;
-        let zcash_count = accounts.iter().filter(|a| a.protocol == ProtocolId::Zcash).count();
-        let path = self.client.derivation_path(ProtocolId::Zcash, zcash_count as u32);
+        let zcash_count = accounts
+            .iter()
+            .filter(|a| a.protocol == ProtocolId::Zcash)
+            .count();
+        let path = self
+            .client
+            .derivation_path(ProtocolId::Zcash, zcash_count as u32);
         let name = format!("Zcash Account {zcash_count}");
         self.client
             .create_account(
@@ -449,11 +454,13 @@ impl WalletApi for RealWalletApi {
 
         // Save recipient to address book
         let to_addr = input.reviewed.to_address.clone();
-        let _ = self.add_address_book_entry(
-            format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
-            to_addr,
-            "Wallet".into(),
-        ).await;
+        let _ = self
+            .add_address_book_entry(
+                format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
+                to_addr,
+                "Wallet".into(),
+            )
+            .await;
         match pending {
             Some(p) => {
                 let protocol = p.protocol;
@@ -513,9 +520,7 @@ impl WalletApi for RealWalletApi {
     async fn get_lock(&self) -> LockData {
         match self.client.get_lock_state().await {
             Ok((password_set, failed_attempts)) => LockData {
-                auth_methods: LockAuthMethods {
-                    password_set,
-                },
+                auth_methods: LockAuthMethods { password_set },
                 failed_attempts,
             },
             Err(_) => LockData {
@@ -537,9 +542,7 @@ impl WalletApi for RealWalletApi {
     async fn get_settings(&self) -> SettingsData {
         match self.client.get_settings().await {
             Ok((auto_lock_minutes, fiat_currency)) => SettingsData {
-                security: SecuritySettings {
-                    auto_lock_minutes,
-                },
+                security: SecuritySettings { auto_lock_minutes },
                 fiat_currency,
                 app_version: "0.1.0".into(),
             },

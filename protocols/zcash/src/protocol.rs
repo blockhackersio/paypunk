@@ -183,7 +183,9 @@ impl Protocol for ZcashProtocol {
                     return Err(format!("invalid from address: {from}"));
                 }
 
-                let wallet = self.wallet_client.as_ref()
+                let wallet = self
+                    .wallet_client
+                    .as_ref()
                     .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
                 let account = 0;
@@ -193,13 +195,15 @@ impl Protocol for ZcashProtocol {
 
                 let public_key = vec![];
 
-                wallet.create_transaction_async(
-                    public_key,
-                    account,
-                    to.clone(),
-                    amount_zat,
-                    memo.clone(),
-                ).await
+                wallet
+                    .create_transaction_async(
+                        public_key,
+                        account,
+                        to.clone(),
+                        amount_zat,
+                        memo.clone(),
+                    )
+                    .await
             }
             _ => Err("unexpected intent variant for Zcash protocol".to_string()),
         }
@@ -229,15 +233,23 @@ impl Protocol for ZcashProtocol {
         Ok(raw_tx)
     }
 
-    async fn get_balance(&self, _address: &str, _asset: &str) -> Result<paypunk_types::Balance, String> {
-        let wallet = self.wallet_client.as_ref()
+    async fn get_balance(
+        &self,
+        _address: &str,
+        _asset: &str,
+    ) -> Result<paypunk_types::Balance, String> {
+        let wallet = self
+            .wallet_client
+            .as_ref()
             .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
         wallet.get_balance().await
     }
 
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
-        let host = self.lightwalletd_host.as_ref()
+        let host = self
+            .lightwalletd_host
+            .as_ref()
             .ok_or_else(|| "lightwalletd not configured".to_string())?;
 
         let mut lsp = crate::lsp_client::LspClient::connect(host, self.params).await?;

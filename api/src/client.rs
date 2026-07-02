@@ -205,10 +205,7 @@ impl Client {
     }
 
     /// Verify the wallet password against keypunkd.
-    pub async fn verify_password(
-        &self,
-        password: Zeroizing<String>,
-    ) -> Result<(), String> {
+    pub async fn verify_password(&self, password: Zeroizing<String>) -> Result<(), String> {
         crate::functions::verify_password(&self.service, password).await
     }
 

@@ -1,8 +1,8 @@
 use keypunkd::services::KeypunkService;
 use paypunk_chains_zcash::wallet_actor::WalletMessage;
 use paypunk_types::{Account, Balance, HistoryEntry, Intent, Page, ProtocolId, SyncStatus};
-use tactix::{Recipient, Sender};
 use rand::Rng;
+use tactix::{Recipient, Sender};
 use tracing::info;
 
 use crate::database::{AccountsRepository, AddressBookRepository, Database};
@@ -147,7 +147,8 @@ pub async fn sync(
         })
         .await
         .map_err(|e| format!("sync failed: {e}"))?;
-    let _msg = String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
+    let _msg =
+        String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
     Ok(())
 }
 
@@ -159,8 +160,7 @@ pub async fn get_sync_status(
         .ask(WalletMessage::GetStatus)
         .await
         .map_err(|e| format!("get_sync_status failed: {e}"))?;
-    postcard::from_bytes(&bytes)
-        .map_err(|e| format!("deserialize status failed: {e}"))
+    postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
 }
 
 /// Finalize a signed artifact into broadcast-ready bytes.
@@ -504,8 +504,7 @@ pub async fn get_history(
                 })
                 .await
                 .map_err(|e| format!("get_history failed: {e}"))?;
-            postcard::from_bytes(&bytes)
-                .map_err(|e| format!("deserialize history failed: {e}"))
+            postcard::from_bytes(&bytes).map_err(|e| format!("deserialize history failed: {e}"))
         }
         _ => Ok(Page {
             items: vec![],
@@ -543,10 +542,11 @@ pub async fn get_transaction_status(
                 .ask(WalletMessage::GetTxStatus { txid })
                 .await
                 .map_err(|e| format!("get_transaction_status failed: {e}"))?;
-            postcard::from_bytes(&bytes)
-                .map_err(|e| format!("deserialize status failed: {e}"))
+            postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
         }
-        _ => Err(format!("get_transaction_status not supported for {protocol:?}")),
+        _ => Err(format!(
+            "get_transaction_status not supported for {protocol:?}"
+        )),
     }
 }
 
@@ -562,10 +562,11 @@ pub async fn get_current_block_height(
                 .ask(WalletMessage::GetBlockHeight { lightwalletd_host })
                 .await
                 .map_err(|e| format!("get_current_block_height failed: {e}"))?;
-            postcard::from_bytes(&bytes)
-                .map_err(|e| format!("deserialize height failed: {e}"))
+            postcard::from_bytes(&bytes).map_err(|e| format!("deserialize height failed: {e}"))
         }
-        _ => Err(format!("get_current_block_height not supported for {protocol:?}")),
+        _ => Err(format!(
+            "get_current_block_height not supported for {protocol:?}"
+        )),
     }
 }
 
@@ -589,8 +590,7 @@ pub async fn estimate_fee(
                 })
                 .await
                 .map_err(|e| format!("estimate_fee failed: {e}"))?;
-            postcard::from_bytes(&bytes)
-                .map_err(|e| format!("deserialize fee failed: {e}"))
+            postcard::from_bytes(&bytes).map_err(|e| format!("deserialize fee failed: {e}"))
         }
         _ => Err(format!("estimate_fee not supported for {protocol:?}")),
     }

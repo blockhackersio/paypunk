@@ -2,9 +2,9 @@ use crate::database::Database;
 use crate::paypunkd::Paypunkd;
 use crate::protocol_service::ProtocolService;
 use keypunkd::crypto::Keypair;
-use paypunk_ipc::{IpcReceiver, IpcSender};
 use paypunk_chains_zcash::wallet_actor::WalletDbActor;
 use paypunk_chains_zcash::wallet_client::ZcashWalletClient;
+use paypunk_ipc::{IpcReceiver, IpcSender};
 use tactix::{Actor, Sender};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -37,7 +37,10 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         "mainnet" => zcash_protocol::consensus::Network::MainNetwork,
         "testnet" => zcash_protocol::consensus::Network::TestNetwork,
         _ => {
-            tracing::warn!("unknown zcash network '{}', defaulting to testnet", config.zcash_network);
+            tracing::warn!(
+                "unknown zcash network '{}', defaulting to testnet",
+                config.zcash_network
+            );
             zcash_protocol::consensus::Network::TestNetwork
         }
     };
@@ -59,9 +62,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         rand_core::OsRng,
     );
 
-    let wallet_actor = WalletDbActor::new(
-        wallet_db, zcash_params, zcash_db_path
-    ).start();
+    let wallet_actor = WalletDbActor::new(wallet_db, zcash_params, zcash_db_path).start();
     let zcash_wallet_recipient = wallet_actor.clone().recipient();
     let zcash_protocol_recipient = wallet_actor.recipient();
 
@@ -74,7 +75,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         wallet_client: Some(zcash_wallet_client),
         lightwalletd_host: Some(config.lightwalletd_host.clone()),
     };
-    let eth_client = paypunk_chains_ethereum::rpc::HttpRpcClient::new(config.ethereum_rpc_url.clone());
+    let eth_client =
+        paypunk_chains_ethereum::rpc::HttpRpcClient::new(config.ethereum_rpc_url.clone());
     let ethereum = paypunk_chains_ethereum::protocol::EthereumProtocol::new(eth_client);
     let mut protocols = ProtocolService::new();
     protocols.register(Box::new(zcash));
@@ -85,7 +87,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("failed to open database: {e}"))?;
     info!("database opened");
 
-    let paypunkd = Paypunkd::new(recipient, protocols, db, keystore, zcash_wallet_recipient).start();
+    let paypunkd =
+        Paypunkd::new(recipient, protocols, db, keystore, zcash_wallet_recipient).start();
 
     let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;
     info!("paypunkd listening on {}", config.socket_path);

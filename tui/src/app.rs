@@ -97,10 +97,7 @@ impl App {
                 let accounts = self.api.list_accounts().await;
                 if let Ok(accs) = accounts {
                     if let Some(acc) = accs.iter().find(|a| a.account_id == account_id) {
-                        let mut screen = Box::new(HistoryScreen::new(
-                            account_id,
-                            acc.name.clone(),
-                        ));
+                        let mut screen = Box::new(HistoryScreen::new(account_id, acc.name.clone()));
                         screen.init(&*self.api).await;
                         self.push_screen(screen);
                     }

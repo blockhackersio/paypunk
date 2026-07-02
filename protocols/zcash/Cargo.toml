@@ -30,6 +30,7 @@ zcash_client_backend = { workspace = true, default-features = false, features = 
 zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs", "serde"] }
 tactix = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
+tracing.workspace = true
 rusqlite = { workspace = true }
 secrecy = { workspace = true }
 tonic = { workspace = true, features = ["tls-native-roots"] }

@@ -1,5 +1,7 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus};
+use paypunk_types::{
+    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+};
 use tactix::{Recipient, Sender};
 
 use crate::messages::{AddressBookEntry, PaypunkdRequest, PaypunkdResponse};

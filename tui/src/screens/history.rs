@@ -96,12 +96,15 @@ impl Screen for HistoryScreen {
         frame.render_widget(block, body);
 
         if self.rows.is_empty() {
-            let empty_msg = Paragraph::new(
-                Line::from(vec![theme.muted(" No transactions yet ")])
-            ).centered().style(Style::new().bg(ui::BG));
+            let empty_msg = Paragraph::new(Line::from(vec![theme.muted(" No transactions yet ")]))
+                .centered()
+                .style(Style::new().bg(ui::BG));
             frame.render_widget(
                 empty_msg,
-                inner.inner(Margin { vertical: 3, horizontal: 2 }),
+                inner.inner(Margin {
+                    vertical: 3,
+                    horizontal: 2,
+                }),
             );
         } else {
             // Column headers
@@ -114,7 +117,10 @@ impl Screen for HistoryScreen {
             ]);
             frame.render_widget(
                 Paragraph::new(header_line).style(Style::new().bg(ui::BG)),
-                inner.inner(Margin { vertical: 1, horizontal: 2 }),
+                inner.inner(Margin {
+                    vertical: 1,
+                    horizontal: 2,
+                }),
             );
 
             // Rows
@@ -145,16 +151,15 @@ impl Screen for HistoryScreen {
         }
 
         // Footer
-        let footer_text = theme.help_line([
-            ("↑↓", "Navigate"),
-            ("Esc", "Back"),
-            ("?", "Help"),
-        ]);
+        let footer_text = theme.help_line([("↑↓", "Navigate"), ("Esc", "Back"), ("?", "Help")]);
         let fb = Block::new().style(Style::new().bg(ui::SURFACE));
         frame.render_widget(fb, footer);
         frame.render_widget(
             Paragraph::new(footer_text).style(Style::new().bg(ui::SURFACE)),
-            footer.inner(Margin { vertical: 0, horizontal: 1 }),
+            footer.inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            }),
         );
     }
 

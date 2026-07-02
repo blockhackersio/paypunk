@@ -128,9 +128,8 @@ pub fn export_mnemonic(
         .ok_or_else(|| "no mnemonic found — wallet not initialized".to_string())?;
 
     debug!("decrypting mnemonic");
-    let mnemonic =
-        key::decrypt_mnemonic(&encrypted_mnemonic, &*password)
-            .map_err(|e| format!("mnemonic decryption failed: {e}"))?;
+    let mnemonic = key::decrypt_mnemonic(&encrypted_mnemonic, &*password)
+        .map_err(|e| format!("mnemonic decryption failed: {e}"))?;
 
     let mnemonic = Zeroizing::new(mnemonic);
     debug!("encrypting mnemonic for client");

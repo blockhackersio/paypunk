@@ -56,7 +56,11 @@ pub fn derive_from_fvk(
     address_from_fvk(&fvk, index, net)
 }
 
-fn address_from_fvk(fvk: &FullViewingKey, index: u32, net: NetworkType) -> Result<String, DeriveError> {
+fn address_from_fvk(
+    fvk: &FullViewingKey,
+    index: u32,
+    net: NetworkType,
+) -> Result<String, DeriveError> {
     let address = fvk.address_at(index, Scope::External);
     let raw = address.to_raw_address_bytes();
 
@@ -85,7 +89,8 @@ pub mod tests {
     #[test]
     fn test_derive_orchard_address() {
         let seed = test_seed();
-        let addr = derive_address_at_index(&seed, 0, NetworkType::Main).expect("should derive address");
+        let addr =
+            derive_address_at_index(&seed, 0, NetworkType::Main).expect("should derive address");
         assert!(addr.starts_with("u1"), "got: {addr}");
         assert!(addr.len() > 50, "got: {addr}");
     }

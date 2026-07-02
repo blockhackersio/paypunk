@@ -925,7 +925,8 @@ impl SetupScreen {
         }
 
         if show_confirm {
-            self.import_confirm_field.set_focused(self.import_pw_focus == 1);
+            self.import_confirm_field
+                .set_focused(self.import_pw_focus == 1);
             self.import_confirm_field.render(
                 frame,
                 inner.inner(Margin {
@@ -964,7 +965,10 @@ impl SetupScreen {
         };
 
         let lines = vec![
-            Line::from(vec![theme.accent(format!(" {} Creating your wallet... ", spinner))]).centered(),
+            Line::from(vec![
+                theme.accent(format!(" {} Creating your wallet... ", spinner))
+            ])
+            .centered(),
             Line::from(""),
             Line::from(vec![
                 theme.muted("Generating encryption keys and securing your seed.")

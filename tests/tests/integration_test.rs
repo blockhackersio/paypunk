@@ -27,7 +27,11 @@ struct DummyWalletActor;
 impl Actor for DummyWalletActor {}
 
 impl tactix::Handler<WalletMessage> for DummyWalletActor {
-    async fn handle(&mut self, _msg: WalletMessage, _ctx: &tactix::Ctx<Self>) -> Result<Vec<u8>, String> {
+    async fn handle(
+        &mut self,
+        _msg: WalletMessage,
+        _ctx: &tactix::Ctx<Self>,
+    ) -> Result<Vec<u8>, String> {
         Err("wallet not available in test".to_string())
     }
 }
@@ -249,12 +253,7 @@ async fn test_derive_address() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let address = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 0)
         .await
         .unwrap();
     assert!(address.starts_with("u1"), "got: {address}");
@@ -270,30 +269,15 @@ async fn test_derive_different_indexes() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr0 = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 0)
         .await
         .unwrap();
     let addr1 = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            1,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 1)
         .await
         .unwrap();
     let addr2 = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            2,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 2)
         .await
         .unwrap();
 
@@ -311,23 +295,13 @@ async fn test_derive_address_is_deterministic() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr_a = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 0)
         .await
         .unwrap();
 
     // Second call with same seed + index should produce same address
     let addr_b = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 0)
         .await
         .unwrap();
 
@@ -349,12 +323,7 @@ async fn test_eth_balance_via_mock_rpc() {
 
     // Derive the address first
     let addr = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Ethereum,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Ethereum, 0, 0)
         .await
         .unwrap();
 
@@ -377,12 +346,7 @@ async fn test_eth_balance_zero() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Ethereum,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Ethereum, 0, 0)
         .await
         .unwrap();
 
@@ -407,12 +371,7 @@ async fn test_eth_send_full_flow() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Ethereum,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Ethereum, 0, 0)
         .await
         .unwrap();
 

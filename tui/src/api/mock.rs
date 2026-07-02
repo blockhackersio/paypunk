@@ -209,10 +209,7 @@ impl WalletApi for MockWalletApi {
 
     async fn get_receive(&self, account_id: &str) -> ReceiveData {
         let data = self.data.lock().unwrap();
-        let account = data
-            .accounts
-            .iter()
-            .find(|a| a.account_id == account_id);
+        let account = data.accounts.iter().find(|a| a.account_id == account_id);
 
         match account {
             Some(acc) if acc.protocol == "Zcash" => ReceiveData {
@@ -312,7 +309,8 @@ impl WalletApi for MockWalletApi {
             format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
             to_addr,
             "Ethereum".into(),
-        ).await;
+        )
+        .await;
 
         // Deduct from balance
         let total = input.reviewed.total_amount.parse::<u128>().unwrap_or(0);
@@ -341,9 +339,7 @@ impl WalletApi for MockWalletApi {
 
     async fn get_lock(&self) -> LockData {
         LockData {
-            auth_methods: LockAuthMethods {
-                password_set: true,
-            },
+            auth_methods: LockAuthMethods { password_set: true },
             failed_attempts: 0,
         }
     }

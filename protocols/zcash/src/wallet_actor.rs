@@ -1,24 +1,27 @@
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Mutex;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use rand_core::OsRng;
 use tactix::{Actor, Ctx, Handler, Message};
+use tracing::info;
 use zcash_address::unified::{Encoding, Fvk, Ufvk};
-use zcash_client_backend::data_api::chain::{BlockSource, error::Error as ChainError, scan_cached_blocks};
+use zcash_client_backend::data_api::chain::{
+    error::Error as ChainError, scan_cached_blocks, BlockSource,
+};
+use zcash_client_backend::data_api::error::Error as DataApiError;
 use zcash_client_backend::data_api::wallet::create_pczt_from_proposal;
 use zcash_client_backend::data_api::wallet::propose_standard_transfer_to_address;
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
-use zcash_client_backend::data_api::{WalletRead, WalletWrite, AccountBirthday, AccountPurpose};
-use zcash_client_backend::data_api::error::Error as DataApiError;
+use zcash_client_backend::data_api::{AccountBirthday, AccountPurpose, WalletRead, WalletWrite};
 use zcash_client_backend::fees::StandardFeeRule;
 use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_sqlite::error::SqliteClientError;
-use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::util::SystemClock;
+use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_protocol::consensus::{BlockHeight, Network};
@@ -57,13 +60,9 @@ pub enum WalletMessage {
         limit: u32,
     },
     /// Get the current block height from lightwalletd.
-    GetBlockHeight {
-        lightwalletd_host: String,
-    },
+    GetBlockHeight { lightwalletd_host: String },
     /// Get the status of a transaction by its txid.
-    GetTxStatus {
-        txid: String,
-    },
+    GetTxStatus { txid: String },
     /// Estimate the fee for a transfer.
     EstimateFee {
         to: String,
@@ -109,9 +108,7 @@ impl BlockSource for VecBlockSource {
 
 /// Tactix actor wrapping `zcash_client_sqlite::WalletDb` behind a Mutex.
 pub struct WalletDbActor {
-    pub db: Mutex<
-        WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-    >,
+    pub db: Mutex<WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>>,
     pub params: Network,
     pub is_syncing: AtomicBool,
     pub current_height: AtomicU64,
@@ -160,9 +157,11 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let amount_zat = zcash_protocol::value::Zatoshis::from_u64(amount)
                     .map_err(|_| "invalid amount".to_string())?;
 
-                let account_ids = db.get_account_ids()
+                let account_ids = db
+                    .get_account_ids()
                     .map_err(|e| format!("get_account_ids failed: {e}"))?;
-                let account_id = account_ids.first()
+                let account_id = account_ids
+                    .first()
                     .ok_or("no accounts in wallet")?
                     .to_owned();
 
@@ -189,9 +188,11 @@ impl Handler<WalletMessage> for WalletDbActor {
                     None,
                     ShieldedProtocol::Orchard,
                 )
-                .map_err(|e: DataApiError<SqliteClientError, _, _, _, _, ReceivedNoteId>| {
-                    format!("propose_transfer failed: {e}")
-                })?;
+                .map_err(
+                    |e: DataApiError<SqliteClientError, _, _, _, _, ReceivedNoteId>| {
+                        format!("propose_transfer failed: {e}")
+                    },
+                )?;
 
                 let pczt = create_pczt_from_proposal::<
                     WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
@@ -232,7 +233,9 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let birthday = BlockHeight::from_u32(birthday_height as u32);
 
                 // Parse the 96-byte Orchard FVK into a UnifiedFullViewingKey
-                let fvk_bytes: [u8; 96] = fvk.try_into().map_err(|_| "FVK must be 96 bytes".to_string())?;
+                let fvk_bytes: [u8; 96] = fvk
+                    .try_into()
+                    .map_err(|_| "FVK must be 96 bytes".to_string())?;
                 // Validate the FVK bytes are a valid Orchard FVK
                 let _valid = orchard::keys::FullViewingKey::from_bytes(&fvk_bytes)
                     .ok_or("invalid Orchard FVK bytes")?;
@@ -294,11 +297,19 @@ impl Handler<WalletMessage> for WalletDbActor {
                 )
                 .map_err(|e| format!("scan_cached_blocks failed: {e}"))?;
 
-                let scanned_to = if birthday > latest { u64::from(birthday) } else { u64::from(latest) };
+                let scanned_to = if birthday > latest {
+                    u64::from(birthday)
+                } else {
+                    u64::from(latest)
+                };
                 self.current_height.store(scanned_to, Ordering::SeqCst);
                 self.is_syncing.store(false, Ordering::SeqCst);
 
-                let msg = format!("synced from block {} to {}", u64::from(birthday), scanned_to);
+                let msg = format!(
+                    "synced from block {} to {}",
+                    u64::from(birthday),
+                    scanned_to
+                );
                 Ok(msg.into_bytes())
             }
             WalletMessage::GetStatus => {
@@ -307,10 +318,10 @@ impl Handler<WalletMessage> for WalletDbActor {
                     current_height: self.current_height.load(Ordering::SeqCst),
                     target_height: self.target_height.load(Ordering::SeqCst),
                 };
-                postcard::to_allocvec(&status)
-                    .map_err(|e| format!("serialize status failed: {e}"))
+                postcard::to_allocvec(&status).map_err(|e| format!("serialize status failed: {e}"))
             }
             WalletMessage::GetBalance => {
+                info!("WalletMessage::GetBalance received by wallet actor");
                 let db = self.db.lock().map_err(|e| e.to_string())?;
                 let summary = db
                     .get_wallet_summary(ConfirmationsPolicy::MIN)
@@ -321,6 +332,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let mut total_spendable: u128 = 0;
                 let mut total_pending: u128 = 0;
                 let mut total_value: u128 = 0;
+                info!("WalletMessage::GetBalance summing orchard balances...");
                 for (_account_id, acct_balance) in summary.account_balances() {
                     let ob = acct_balance.orchard_balance();
                     let spendable: u64 = u64::from(ob.spendable_value());
@@ -331,11 +343,17 @@ impl Handler<WalletMessage> for WalletDbActor {
                     total_value += (spendable + pending_change + pending_spendable) as u128;
                 }
 
+                info!(
+                    "WalletMessage::GetBalance: spendable={}, pending={}, value={}",
+                    total_spendable, total_pending, total_value
+                );
+
                 let balance = paypunk_types::Balance {
                     spendable: Amount(total_spendable),
                     pending: Amount(total_pending),
                     total: Amount(total_value),
                 };
+
                 postcard::to_allocvec(&balance)
                     .map_err(|e| format!("serialize balance failed: {e}"))
             }
@@ -347,8 +365,9 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let reader = rusqlite::Connection::open(&self.db_path)
                     .map_err(|e| format!("failed to open wallet db for reading: {e}"))?;
 
-                let mut stmt = reader.prepare(
-                    "SELECT t.txid, t.block, t.expiry_height,
+                let mut stmt = reader
+                    .prepare(
+                        "SELECT t.txid, t.block, t.expiry_height,
                             COALESCE(s.total_sent, 0) AS total_sent,
                             COALESCE(r.total_received, 0) AS total_received
                      FROM transactions t
@@ -360,17 +379,20 @@ impl Handler<WalletMessage> for WalletDbActor {
                          SELECT tx, SUM(value) AS total_received
                          FROM received_notes GROUP BY tx
                      ) r ON r.tx = t.id_tx
-                     ORDER BY t.id_tx DESC"
-                ).map_err(|e| format!("prepare failed: {e}"))?;
+                     ORDER BY t.id_tx DESC",
+                    )
+                    .map_err(|e| format!("prepare failed: {e}"))?;
 
-                let tx_rows = stmt.query_map([], |row| {
-                    let txid_blob: Vec<u8> = row.get(0)?;
-                    let block: Option<i64> = row.get(1)?;
-                    let _expiry: Option<i64> = row.get(2)?;
-                    let total_sent: i64 = row.get(3)?;
-                    let total_received: i64 = row.get(4)?;
-                    Ok((txid_blob, block, total_sent, total_received))
-                }).map_err(|e| format!("query failed: {e}"))?;
+                let tx_rows = stmt
+                    .query_map([], |row| {
+                        let txid_blob: Vec<u8> = row.get(0)?;
+                        let block: Option<i64> = row.get(1)?;
+                        let _expiry: Option<i64> = row.get(2)?;
+                        let total_sent: i64 = row.get(3)?;
+                        let total_received: i64 = row.get(4)?;
+                        Ok((txid_blob, block, total_sent, total_received))
+                    })
+                    .map_err(|e| format!("query failed: {e}"))?;
 
                 let mut entries: Vec<HistoryEntry> = Vec::new();
                 for row in tx_rows {
@@ -392,7 +414,9 @@ impl Handler<WalletMessage> for WalletDbActor {
                     };
 
                     let status = match block {
-                        Some(h) => TxStatus::Confirmed { confirmations: h as u64 },
+                        Some(h) => TxStatus::Confirmed {
+                            confirmations: h as u64,
+                        },
                         None => TxStatus::Pending,
                     };
 
@@ -414,8 +438,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                     next_cursor: None,
                     has_more: false,
                 };
-                postcard::to_allocvec(&page)
-                    .map_err(|e| format!("serialize history failed: {e}"))
+                postcard::to_allocvec(&page).map_err(|e| format!("serialize history failed: {e}"))
             }
             WalletMessage::GetBlockHeight { lightwalletd_host } => {
                 let mut lsp = LspClient::connect(&lightwalletd_host, self.params).await?;
@@ -428,8 +451,8 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let reader = rusqlite::Connection::open(&self.db_path)
                     .map_err(|e| format!("failed to open wallet db: {e}"))?;
 
-                let txid_bytes = hex::decode(&txid)
-                    .map_err(|e| format!("invalid txid hex: {e}"))?;
+                let txid_bytes =
+                    hex::decode(&txid).map_err(|e| format!("invalid txid hex: {e}"))?;
 
                 let status = reader
                     .query_row(
@@ -438,13 +461,14 @@ impl Handler<WalletMessage> for WalletDbActor {
                         |row| row.get::<_, Option<i64>>(0),
                     )
                     .map(|block| match block {
-                        Some(h) => TxStatus::Confirmed { confirmations: h as u64 },
+                        Some(h) => TxStatus::Confirmed {
+                            confirmations: h as u64,
+                        },
                         None => TxStatus::Pending,
                     })
                     .unwrap_or(TxStatus::NotFound);
 
-                postcard::to_allocvec(&status)
-                    .map_err(|e| format!("serialize status failed: {e}"))
+                postcard::to_allocvec(&status).map_err(|e| format!("serialize status failed: {e}"))
             }
             WalletMessage::EstimateFee { to, amount, memo } => {
                 let mut db = self.db.lock().map_err(|e| e.to_string())?;
@@ -459,9 +483,11 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let amount_zat = zcash_protocol::value::Zatoshis::from_u64(amount)
                     .map_err(|_| "invalid amount".to_string())?;
 
-                let account_ids = db.get_account_ids()
+                let account_ids = db
+                    .get_account_ids()
                     .map_err(|e| format!("get_account_ids failed: {e}"))?;
-                let account_id = account_ids.first()
+                let account_id = account_ids
+                    .first()
                     .ok_or("no accounts in wallet")?
                     .to_owned();
 
@@ -488,14 +514,15 @@ impl Handler<WalletMessage> for WalletDbActor {
                     None,
                     ShieldedProtocol::Orchard,
                 )
-                .map_err(|e: DataApiError<SqliteClientError, _, _, _, _, ReceivedNoteId>| {
-                    format!("propose_transfer failed: {e}")
-                })?;
+                .map_err(
+                    |e: DataApiError<SqliteClientError, _, _, _, _, ReceivedNoteId>| {
+                        format!("propose_transfer failed: {e}")
+                    },
+                )?;
 
                 let fee = proposal.steps().first().balance().fee_required();
                 let fee_u64: u64 = u64::from(fee);
-                postcard::to_allocvec(&fee_u64)
-                    .map_err(|e| format!("serialize fee failed: {e}"))
+                postcard::to_allocvec(&fee_u64).map_err(|e| format!("serialize fee failed: {e}"))
             }
         }
     }

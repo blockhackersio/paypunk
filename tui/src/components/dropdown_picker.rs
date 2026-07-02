@@ -162,10 +162,7 @@ impl<T: Searchable + Component<A> + 'static, A> DropdownPicker<T, A> {
                 } else {
                     ui::SURFACE
                 };
-                frame.render_widget(
-                    Fill::new(" ").style(Style::new().bg(bg)),
-                    row_area,
-                );
+                frame.render_widget(Fill::new(" ").style(Style::new().bg(bg)), row_area);
                 item.render(frame, row_area);
             }
         }

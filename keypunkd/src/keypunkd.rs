@@ -347,7 +347,12 @@ impl<S: Storage> Keypunkd<S> {
         info!("handling ExportMnemonic");
         self.respond(
             "export_mnemonic",
-            usecases::export_mnemonic(&encrypted_password, &client_public_key, &self.keystore, &self.seed_store),
+            usecases::export_mnemonic(
+                &encrypted_password,
+                &client_public_key,
+                &self.keystore,
+                &self.seed_store,
+            ),
             |encrypted_mnemonic| KeypunkdResponse::MnemonicExported { encrypted_mnemonic },
         )
     }
@@ -393,9 +398,12 @@ impl<S: Storage> Handler<IpcMessage> for Keypunkd<S> {
                 client_public_key,
                 protocol,
                 derivation_path,
-            } => {
-                self.export_viewing_key(encrypted_password, client_public_key, protocol, derivation_path)
-            }
+            } => self.export_viewing_key(
+                encrypted_password,
+                client_public_key,
+                protocol,
+                derivation_path,
+            ),
             KeypunkdRequest::HasSeed => self.has_seed(),
             KeypunkdRequest::VerifyPassword {
                 encrypted_password,

@@ -1,6 +1,6 @@
 pub mod address;
-pub mod protocol;
 pub mod lsp_client;
+pub mod protocol;
 
 pub mod wallet_actor;
 pub mod wallet_client;

@@ -140,7 +140,13 @@ pub async fn derive_address(
     let derivation_path = derivation_path(protocol, account);
 
     service
-        .derive_address(encrypted_password, client_pk, protocol, derivation_path, index)
+        .derive_address(
+            encrypted_password,
+            client_pk,
+            protocol,
+            derivation_path,
+            index,
+        )
         .await
 }
 
@@ -230,7 +236,13 @@ pub async fn create_account(
     birthday_height: Option<u64>,
 ) -> Result<Account, String> {
     service
-        .create_account(protocol, derivation_path, account_index, name, birthday_height)
+        .create_account(
+            protocol,
+            derivation_path,
+            account_index,
+            name,
+            birthday_height,
+        )
         .await
 }
 
@@ -311,7 +323,9 @@ pub async fn add_address_book_entry(
     address: String,
     protocol: String,
 ) -> Result<(), String> {
-    service.add_address_book_entry(name, address, protocol).await
+    service
+        .add_address_book_entry(name, address, protocol)
+        .await
 }
 
 /// Get settings.
@@ -327,7 +341,9 @@ pub async fn save_settings(
     auto_lock_minutes: u32,
     fiat_currency: String,
 ) -> Result<(), String> {
-    service.save_settings(auto_lock_minutes, fiat_currency).await
+    service
+        .save_settings(auto_lock_minutes, fiat_currency)
+        .await
 }
 
 #[cfg(test)]

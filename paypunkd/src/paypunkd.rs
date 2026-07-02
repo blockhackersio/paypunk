@@ -162,17 +162,14 @@ impl Paypunkd {
             .protocols()
             .iter()
             .find_map(|&pid| {
-                self.protocols
-                    .get(pid)
-                    .ok()
-                    .and_then(|p| {
-                        let chain = p.chain_id();
-                        if address.starts_with(&format!("{}:", chain.namespace)) {
-                            Some(pid)
-                        } else {
-                            None
-                        }
-                    })
+                self.protocols.get(pid).ok().and_then(|p| {
+                    let chain = p.chain_id();
+                    if address.starts_with(&format!("{}:", chain.namespace)) {
+                        Some(pid)
+                    } else {
+                        None
+                    }
+                })
             })
             .unwrap_or(ProtocolId::Ethereum); // fallback shouldn't happen in practice
         self.respond(
@@ -232,7 +229,13 @@ impl Paypunkd {
         name: String,
         birthday_height: Option<u64>,
     ) -> PaypunkdResponse {
-        info!(?protocol, account_index, name, ?birthday_height, "creating account");
+        info!(
+            ?protocol,
+            account_index,
+            name,
+            ?birthday_height,
+            "creating account"
+        );
         self.respond(
             "create_account",
             usecases::create_account(
@@ -298,27 +301,38 @@ impl Paypunkd {
             ProtocolId::Zcash => {
                 let recipient = match &self.zcash_wallet_recipient {
                     Some(r) => r,
-                    None => return PaypunkdResponse::Error {
-                        message: "Zcash wallet not initialized".to_string(),
-                    },
+                    None => {
+                        return PaypunkdResponse::Error {
+                            message: "Zcash wallet not initialized".to_string(),
+                        }
+                    }
                 };
                 let fvk = match &self.zcash_fvk {
                     Some(f) => f.clone(),
-                    None => return PaypunkdResponse::Error {
-                        message: "Zcash wallet not registered — call RegisterZcashWallet first".to_string(),
-                    },
+                    None => {
+                        return PaypunkdResponse::Error {
+                            message: "Zcash wallet not registered — call RegisterZcashWallet first"
+                                .to_string(),
+                        }
+                    }
                 };
                 let birthday = match self.zcash_birthday {
                     Some(b) => b,
-                    None => return PaypunkdResponse::Error {
-                        message: "Zcash wallet not registered — call RegisterZcashWallet first".to_string(),
-                    },
+                    None => {
+                        return PaypunkdResponse::Error {
+                            message: "Zcash wallet not registered — call RegisterZcashWallet first"
+                                .to_string(),
+                        }
+                    }
                 };
                 let host = match &self.zcash_lightwalletd_host {
                     Some(h) => h.clone(),
-                    None => return PaypunkdResponse::Error {
-                        message: "Zcash wallet not registered — call RegisterZcashWallet first".to_string(),
-                    },
+                    None => {
+                        return PaypunkdResponse::Error {
+                            message: "Zcash wallet not registered — call RegisterZcashWallet first"
+                                .to_string(),
+                        }
+                    }
                 };
                 self.respond(
                     "sync",
@@ -338,9 +352,11 @@ impl Paypunkd {
             ProtocolId::Zcash => {
                 let recipient = match &self.zcash_wallet_recipient {
                     Some(r) => r,
-                    None => return PaypunkdResponse::Error {
-                        message: "Zcash wallet not initialized".to_string(),
-                    },
+                    None => {
+                        return PaypunkdResponse::Error {
+                            message: "Zcash wallet not initialized".to_string(),
+                        }
+                    }
                 };
                 self.respond(
                     "get_sync_status",
@@ -379,9 +395,11 @@ impl Paypunkd {
             ProtocolId::Zcash => {
                 let recipient = match &self.zcash_wallet_recipient {
                     Some(r) => r,
-                    None => return PaypunkdResponse::Error {
-                        message: "Zcash wallet not initialized".to_string(),
-                    },
+                    None => {
+                        return PaypunkdResponse::Error {
+                            message: "Zcash wallet not initialized".to_string(),
+                        }
+                    }
                 };
                 self.respond(
                     "get_history",
@@ -451,7 +469,13 @@ impl Paypunkd {
         info!("handling AddAddressBookEntry");
         self.respond(
             "add_address_book_entry",
-            usecases::add_address_book_entry(&self.db, self.address_book_repo.as_ref(), name, address, protocol),
+            usecases::add_address_book_entry(
+                &self.db,
+                self.address_book_repo.as_ref(),
+                name,
+                address,
+                protocol,
+            ),
             |()| PaypunkdResponse::AddressBookEntryAdded,
         )
     }
@@ -485,7 +509,8 @@ impl Paypunkd {
         info!("forwarding RevealPhrase to keypunkd");
         self.respond(
             "reveal_phrase",
-            usecases::export_mnemonic(&self.keypunk_service, encrypted_password, client_public_key).await,
+            usecases::export_mnemonic(&self.keypunk_service, encrypted_password, client_public_key)
+                .await,
             |encrypted_mnemonic| PaypunkdResponse::PhraseRevealed { encrypted_mnemonic },
         )
     }
@@ -502,13 +527,24 @@ impl Paypunkd {
         info!(?protocol, account, "handling CreateTransfer");
         let recipient = match &self.zcash_wallet_recipient {
             Some(r) => r,
-            None => return PaypunkdResponse::Error {
-                message: "Zcash wallet not initialized".to_string(),
-            },
+            None => {
+                return PaypunkdResponse::Error {
+                    message: "Zcash wallet not initialized".to_string(),
+                }
+            }
         };
         self.respond(
             "create_transfer",
-            usecases::create_transfer(recipient, protocol, account, &to, amount, memo.as_deref(), &lightwalletd_host).await,
+            usecases::create_transfer(
+                recipient,
+                protocol,
+                account,
+                &to,
+                amount,
+                memo.as_deref(),
+                &lightwalletd_host,
+            )
+            .await,
             |pczt_bytes| PaypunkdResponse::TransferCreated { pczt_bytes },
         )
     }
@@ -524,13 +560,23 @@ impl Paypunkd {
         info!(?protocol, "handling EstimateFee");
         let recipient = match &self.zcash_wallet_recipient {
             Some(r) => r,
-            None => return PaypunkdResponse::Error {
-                message: "Zcash wallet not initialized".to_string(),
-            },
+            None => {
+                return PaypunkdResponse::Error {
+                    message: "Zcash wallet not initialized".to_string(),
+                }
+            }
         };
         self.respond(
             "estimate_fee",
-            usecases::estimate_fee(recipient, protocol, &to, amount, memo.as_deref(), &lightwalletd_host).await,
+            usecases::estimate_fee(
+                recipient,
+                protocol,
+                &to,
+                amount,
+                memo.as_deref(),
+                &lightwalletd_host,
+            )
+            .await,
             |fee| PaypunkdResponse::FeeEstimated { fee },
         )
     }
@@ -543,9 +589,11 @@ impl Paypunkd {
         info!(?protocol, "handling GetCurrentBlockHeight");
         let recipient = match &self.zcash_wallet_recipient {
             Some(r) => r,
-            None => return PaypunkdResponse::Error {
-                message: "Zcash wallet not initialized".to_string(),
-            },
+            None => {
+                return PaypunkdResponse::Error {
+                    message: "Zcash wallet not initialized".to_string(),
+                }
+            }
         };
         self.respond(
             "get_current_block_height",
@@ -554,17 +602,15 @@ impl Paypunkd {
         )
     }
 
-    async fn get_transaction_status(
-        &self,
-        protocol: ProtocolId,
-        txid: String,
-    ) -> PaypunkdResponse {
+    async fn get_transaction_status(&self, protocol: ProtocolId, txid: String) -> PaypunkdResponse {
         info!(?protocol, "handling GetTransactionStatus");
         let recipient = match &self.zcash_wallet_recipient {
             Some(r) => r,
-            None => return PaypunkdResponse::Error {
-                message: "Zcash wallet not initialized".to_string(),
-            },
+            None => {
+                return PaypunkdResponse::Error {
+                    message: "Zcash wallet not initialized".to_string(),
+                }
+            }
         };
         self.respond(
             "get_transaction_status",
@@ -627,8 +673,9 @@ impl Paypunkd {
 
             match keys {
                 Ok(derived) => {
-                    // TODO: the following is messy. is there a neater way to handle this? can index
-                    // be derived a different way? Also we need to fix the other instances where
+                    // TODO: the following works but is messy.
+                    // Is there a neater way to handle this? can index be derived a different way?
+                    // Also we need to fix the other instances where
                     // index is extracted from the derivation path.
                     let mut indexes: HashMap<&ProtocolId, i32> = HashMap::new();
                     // Store pre-derived keys in the database
@@ -663,6 +710,8 @@ impl Paypunkd {
                             path,
                             account_index,
                             name,
+                            // Does the birthday need to be associated with the seed?
+                            // Or is it better to keep a separate birthday for each account?
                             None, // birthday_height — default for auto-created accounts
                         )
                         .await;
@@ -849,7 +898,10 @@ impl Handler<IpcMessage> for Paypunkd {
             PaypunkdRequest::RevealPhrase {
                 encrypted_password,
                 client_public_key,
-            } => self.reveal_phrase(encrypted_password, client_public_key).await,
+            } => {
+                self.reveal_phrase(encrypted_password, client_public_key)
+                    .await
+            }
             PaypunkdRequest::CreateTransfer {
                 protocol,
                 account,

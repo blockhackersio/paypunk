@@ -1,8 +1,10 @@
-use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
-use zcash_client_backend::proto::service::{BlockId, BlockRange, ChainSpec, RawTransaction, TreeState};
-use zcash_client_backend::proto::compact_formats::CompactBlock;
-use zcash_protocol::consensus::{BlockHeight, Network};
 use tonic::transport::Channel;
+use zcash_client_backend::proto::compact_formats::CompactBlock;
+use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
+use zcash_client_backend::proto::service::{
+    BlockId, BlockRange, ChainSpec, RawTransaction, TreeState,
+};
+use zcash_protocol::consensus::{BlockHeight, Network};
 
 /// Lightwalletd gRPC client for Zcash chain interaction.
 pub struct LspClient {
@@ -82,12 +84,18 @@ impl LspClient {
     pub async fn broadcast_tx(&mut self, tx_bytes: &[u8]) -> Result<String, String> {
         let response = self
             .inner
-            .send_transaction(RawTransaction { data: tx_bytes.to_vec(), height: 0 })
+            .send_transaction(RawTransaction {
+                data: tx_bytes.to_vec(),
+                height: 0,
+            })
             .await
             .map_err(|e| format!("broadcast failed: {e}"))?;
         let result = response.into_inner();
         if result.error_code != 0 {
-            return Err(format!("broadcast failed ({}): {}", result.error_code, result.error_message));
+            return Err(format!(
+                "broadcast failed ({}): {}",
+                result.error_code, result.error_message
+            ));
         }
         Ok("broadcast successful".to_string())
     }

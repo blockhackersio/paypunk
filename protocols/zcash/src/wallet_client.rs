@@ -40,27 +40,26 @@ impl ZcashWalletClient {
         birthday_height: u64,
         lightwalletd_host: String,
     ) -> Result<String, String> {
-        let bytes: Vec<u8> = self.recipient
-            .ask(WalletMessage::Sync { fvk, birthday_height, lightwalletd_host })
+        let bytes: Vec<u8> = self
+            .recipient
+            .ask(WalletMessage::Sync {
+                fvk,
+                birthday_height,
+                lightwalletd_host,
+            })
             .await?;
         String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))
     }
 
     /// Get the current sync status.
     pub async fn get_status(&self) -> Result<SyncStatus, String> {
-        let bytes = self.recipient
-            .ask(WalletMessage::GetStatus)
-            .await?;
-        postcard::from_bytes(&bytes)
-            .map_err(|e| format!("deserialize status failed: {e}"))
+        let bytes = self.recipient.ask(WalletMessage::GetStatus).await?;
+        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
     }
 
     /// Get the wallet balance.
     pub async fn get_balance(&self) -> Result<Balance, String> {
-        let bytes = self.recipient
-            .ask(WalletMessage::GetBalance)
-            .await?;
-        postcard::from_bytes(&bytes)
-            .map_err(|e| format!("deserialize balance failed: {e}"))
+        let bytes = self.recipient.ask(WalletMessage::GetBalance).await?;
+        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize balance failed: {e}"))
     }
 }
