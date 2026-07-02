@@ -49,7 +49,7 @@ impl ConfigSource for HardcodedConfig {
     }
 
     fn lightwalletd_host(&self) -> &str {
-        ""
+        "http://127.0.0.1:9067"
     }
 
     fn zcash_network(&self) -> &str {

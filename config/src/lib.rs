@@ -42,7 +42,7 @@ fn default_ethereum_rpc_url() -> String {
 }
 
 fn default_lightwalletd_host() -> String {
-    String::new()
+    "http://127.0.0.1:9067".to_string()
 }
 
 fn default_zcash_network() -> String {
@@ -133,8 +133,8 @@ config_dir = "~/.config/paypunk/"
 # RPC URL for Ethereum-compatible chains
 ethereum_rpc_url = "http://127.0.0.1:8545"
 
-# Zcash lightwalletd host (empty = not configured)
-lightwalletd_host = ""
+# Zcash lightwalletd host (default: http://127.0.0.1:9067)
+lightwalletd_host = "http://127.0.0.1:9067"
 
 # Zcash network (testnet or mainnet)
 zcash_network = "testnet"
