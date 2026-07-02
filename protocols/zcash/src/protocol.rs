@@ -9,17 +9,16 @@ use pczt::roles::{
     signer::Signer, spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
     verifier::Verifier,
 };
-use tactix::Addr;
+use tactix::{Addr, Recipient, Sender};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_protocol::consensus::Parameters;
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::wallet_actor::WalletDbActor;
-use crate::wallet_client::ZcashWalletClient;
+use crate::wallet_actor::{WalletDbActor, WalletMessage};
 
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
-    pub wallet_client: Option<ZcashWalletClient>,
+    wallet_recipient: Option<Recipient<WalletMessage>>,
     pub lightwalletd_host: Option<String>,
     _actor_handle: Option<Addr<WalletDbActor>>,
 }
@@ -29,13 +28,13 @@ impl ZcashProtocol {
 
     pub fn new(
         params: zcash_protocol::consensus::Network,
-        wallet_client: Option<ZcashWalletClient>,
+        wallet_recipient: Option<Recipient<WalletMessage>>,
         lightwalletd_host: Option<String>,
         actor_handle: Option<Addr<WalletDbActor>>,
     ) -> Self {
         Self {
             params,
-            wallet_client,
+            wallet_recipient,
             lightwalletd_host,
             _actor_handle: actor_handle,
         }
@@ -202,7 +201,7 @@ impl Protocol for ZcashProtocol {
                 }
 
                 let wallet = self
-                    .wallet_client
+                    .wallet_recipient
                     .as_ref()
                     .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
@@ -211,16 +210,14 @@ impl Protocol for ZcashProtocol {
                 let amount_f64: f64 = amount.parse().map_err(|_| "invalid amount".to_string())?;
                 let amount_zat = (amount_f64 * 100_000_000.0) as u64;
 
-                let public_key = vec![];
-
                 wallet
-                    .create_transaction_async(
-                        public_key,
+                    .ask(WalletMessage::ProposeAndBuild {
+                        public_key: vec![],
                         account,
-                        to.clone(),
-                        amount_zat,
-                        memo.clone(),
-                    )
+                        to: to.clone(),
+                        amount: amount_zat,
+                        memo: memo.clone(),
+                    })
                     .await
             }
             _ => Err("unexpected intent variant for Zcash protocol".to_string()),
@@ -257,11 +254,11 @@ impl Protocol for ZcashProtocol {
         _asset: &str,
     ) -> Result<paypunk_types::Balance, String> {
         let wallet = self
-            .wallet_client
+            .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
-
-        wallet.get_balance().await
+        let bytes = wallet.ask(WalletMessage::GetBalance).await?;
+        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize balance failed: {e}"))
     }
 
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
@@ -352,19 +349,27 @@ impl Protocol for ZcashProtocol {
             .map_err(|_| "invalid lightwalletd host".to_string())?;
 
         let wallet = self
-            .wallet_client
+            .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        wallet.sync(fvk, birthday, host).await?;
+        let bytes: Vec<u8> = wallet
+            .ask(WalletMessage::Sync {
+                fvk,
+                birthday_height: birthday,
+                lightwalletd_host: host,
+            })
+            .await?;
+        let _msg = String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
         Ok(())
     }
 
     async fn get_sync_status(&self) -> Result<SyncStatus, String> {
         let wallet = self
-            .wallet_client
+            .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        wallet.get_status().await
+        let bytes = wallet.ask(WalletMessage::GetStatus).await?;
+        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
     }
 
     // ── Transfer operations ──────────────────────────────────────────────────
@@ -377,11 +382,17 @@ impl Protocol for ZcashProtocol {
         memo: Option<String>,
     ) -> Result<Vec<u8>, String> {
         let wallet = self
-            .wallet_client
+            .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
         wallet
-            .create_transaction_async(vec![], account, to, amount, memo)
+            .ask(WalletMessage::ProposeAndBuild {
+                public_key: vec![],
+                account,
+                to,
+                amount,
+                memo,
+            })
             .await
     }
 
@@ -392,10 +403,12 @@ impl Protocol for ZcashProtocol {
         memo: Option<String>,
     ) -> Result<u64, String> {
         let wallet = self
-            .wallet_client
+            .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes = wallet.estimate_fee(to, amount, memo).await?;
+        let bytes: Vec<u8> = wallet
+            .ask(WalletMessage::EstimateFee { to, amount, memo })
+            .await?;
         postcard::from_bytes(&bytes).map_err(|e| format!("deserialize fee failed: {e}"))
     }
 
@@ -408,19 +421,25 @@ impl Protocol for ZcashProtocol {
         limit: u32,
     ) -> Result<Page<HistoryEntry>, String> {
         let wallet = self
-            .wallet_client
+            .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes = wallet.get_history(account, cursor, limit).await?;
+        let bytes: Vec<u8> = wallet
+            .ask(WalletMessage::GetHistory {
+                account,
+                cursor,
+                limit,
+            })
+            .await?;
         postcard::from_bytes(&bytes).map_err(|e| format!("deserialize history failed: {e}"))
     }
 
     async fn get_transaction_status(&self, txid: String) -> Result<TxStatus, String> {
         let wallet = self
-            .wallet_client
+            .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes = wallet.get_tx_status(txid).await?;
+        let bytes: Vec<u8> = wallet.ask(WalletMessage::GetTxStatus { txid }).await?;
         postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
     }
 
@@ -429,10 +448,12 @@ impl Protocol for ZcashProtocol {
         lightwalletd_host: String,
     ) -> Result<BlockHeight, String> {
         let wallet = self
-            .wallet_client
+            .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes = wallet.get_block_height(lightwalletd_host).await?;
+        let bytes: Vec<u8> = wallet
+            .ask(WalletMessage::GetBlockHeight { lightwalletd_host })
+            .await?;
         postcard::from_bytes(&bytes).map_err(|e| format!("deserialize height failed: {e}"))
     }
 }

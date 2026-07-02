@@ -2,15 +2,13 @@ pub mod address;
 pub mod lsp_client;
 pub mod protocol;
 pub mod wallet_actor;
-pub mod wallet_client;
 
 use std::path::Path;
 
-use tactix::{Actor, Sender};
+use tactix::{Actor, Recipient, Sender};
 
 pub use protocol::ZcashProtocol;
 pub use wallet_actor::{WalletDbActor, WalletMessage};
-pub use wallet_client::ZcashWalletClient;
 
 /// Create a fully-initialized Zcash protocol with a running WalletDbActor.
 pub async fn create_protocol(
@@ -45,13 +43,11 @@ pub async fn create_protocol(
     );
 
     let wallet_actor = WalletDbActor::new(wallet_db, params, zcash_db_path).start();
-    let recipient = wallet_actor.clone().recipient();
-
-    let wallet_client = ZcashWalletClient { recipient };
+    let recipient: Recipient<WalletMessage> = wallet_actor.clone().recipient();
 
     let protocol = ZcashProtocol::new(
         params,
-        Some(wallet_client),
+        Some(recipient),
         Some(lightwalletd_host),
         Some(wallet_actor),
     );
