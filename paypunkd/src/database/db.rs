@@ -88,6 +88,25 @@ impl Database {
         self.conn.is_none()
     }
 
+    /// Ensure the underlying database file still exists.
+    ///
+    /// If the file was deleted (e.g. by `paypunk reset` while the daemon is
+    /// running), the stale connection is dropped and a fresh database is
+    /// created. This makes startup idempotent regardless of filesystem state.
+    pub fn ensure_file_exists(&mut self) -> Result<(), DbError> {
+        if self.conn.is_some() && !self.db_path.exists() {
+            tracing::warn!("database file deleted, reinitializing");
+            self.conn = None;
+            if let Some(parent) = self.db_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let conn = Connection::open(&self.db_path)?;
+            self.conn = Some(Mutex::new(conn));
+            self.run_migrations()?;
+        }
+        Ok(())
+    }
+
     fn run_migrations(&self) -> Result<(), DbError> {
         let conn = self
             .conn

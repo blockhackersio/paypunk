@@ -501,6 +501,14 @@ impl Paypunkd {
     ) -> PaypunkdResponse {
         info!("handling Unlock");
 
+        // If the DB file was deleted out from under us (e.g. by `paypunk reset`
+        // while the daemon is running), reinitialize before proceeding.
+        if let Err(e) = self.db.ensure_file_exists() {
+            return PaypunkdResponse::Error {
+                message: format!("failed to reinitialize database: {e}"),
+            };
+        }
+
         // 1. If DB is already unlocked (fresh, no .enc file), skip decryption
         if self.db.is_locked() {
             let decrypted_password = match self
