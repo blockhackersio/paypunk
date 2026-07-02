@@ -35,6 +35,9 @@ lightwalletd from source). Subsequent runs use cached layers and volumes.
    so `paypunkd` will see the balance after syncing.
 4. **lightwalletd** starts on port 9067 (gRPC, no TLS), connected to
    zcashd.
+5. **block-miner** generates 1 block every 3 seconds (configurable via
+   `BLOCK_INTERVAL`) so that Orchard notes become spendable shortly
+   after being received.
 
 ## Exposed Ports
 
@@ -99,6 +102,9 @@ is identical to mainnet.
     │   ├── Dockerfile
     │   ├── zcash-lwd.conf
     │   └── entrypoint-lwd.sh
+    ├── block-miner/
+    │   ├── Dockerfile
+    │   └── entrypoint.sh
     └── setup/
         ├── Dockerfile
         ├── setup-init.sh

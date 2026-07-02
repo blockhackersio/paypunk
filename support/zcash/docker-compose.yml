@@ -15,7 +15,10 @@
 #   # Clean reset:
 #   docker compose down -v && docker compose up --build
 #
-# Ports exposed to the host:
+# Notes:
+#   - The block-miner service generates 1 block every 3s by default so that
+#     Orchard notes become spendable quickly. Set BLOCK_INTERVAL to adjust.
+#   - Ports exposed to the host:
 #   9067  → lightwalletd gRPC (no TLS)
 #   18232 → zcashd RPC
 
@@ -73,6 +76,22 @@ services:
       GRPC_BIND: "0.0.0.0:9067"
     ports:
       - "9067:9067"
+    restart: unless-stopped
+
+  # ── block-miner (regtest auto-miner) ─────────────────────────────────
+  # Generates 1 block every N seconds so pending notes become spendable.
+  block-miner:
+    build:
+      context: ./docker/block-miner
+    depends_on:
+      zcashd:
+        condition: service_healthy
+    environment:
+      ZCASHD_HOST: zcashd
+      ZCASHD_PORT: "18232"
+      RPC_USER: zcashrpc
+      RPC_PASS: notsecure
+      BLOCK_INTERVAL: "3"
     restart: unless-stopped
 
 volumes:

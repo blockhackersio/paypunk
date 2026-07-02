@@ -173,7 +173,7 @@ impl WalletApi for RealWalletApi {
                     .client
                     .get_balance(caip10, asset.to_string())
                     .await
-                    .map(|b| b.spendable.0.to_string())
+                    .map(|b| b.total.0.to_string())
                     .unwrap_or_else(|_| "0".to_string());
                 let holdings = format_balance(&balance, decimals, &ticker);
                 info!("TUI API: get_assets() holdings={}", holdings);
