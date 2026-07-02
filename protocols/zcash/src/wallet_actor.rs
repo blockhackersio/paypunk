@@ -138,18 +138,23 @@ impl WalletDbActor {
         birthday_height: u64,
         lightwalletd_host: String,
     ) -> Result<String, String> {
+        info!("sync: connecting to lightwalletd at {lightwalletd_host}");
         // Connect to lightwalletd
         let mut lsp = LspClient::connect(&lightwalletd_host, self.params).await?;
+        info!("sync: connected, getting latest height");
         let latest = lsp.get_latest_height().await?;
         let latest_u64: u64 = latest.into();
         self.target_height.store(latest_u64, Ordering::SeqCst);
+        info!("sync: latest height = {latest_u64}");
 
         let birthday = if birthday_height == 0 {
+            info!("sync: birthday_height is 0, defaulting to block 1");
             BlockHeight::from_u32(1)
         } else {
             BlockHeight::from_u32(birthday_height as u32)
         };
 
+        info!("sync: parsing 96-byte Orchard FVK");
         // Parse the 96-byte Orchard FVK into a UnifiedFullViewingKey
         let fvk_bytes: [u8; 96] = fvk
             .try_into()
@@ -170,6 +175,7 @@ impl WalletDbActor {
         } else {
             birthday
         };
+        info!("sync: getting tree state at height {prev_height:?}");
         let tree_state = lsp.get_tree_state(prev_height).await?;
         let chain_state = tree_state
             .to_chain_state()
@@ -179,6 +185,7 @@ impl WalletDbActor {
         {
             let mut db = self.db.lock().map_err(|e| e.to_string())?;
             let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
+            info!("sync: importing account UFVK at birthday {birthday:?}");
             db.import_account_ufvk(
                 "Zcash Account 0",
                 &ufvk,
@@ -192,19 +199,23 @@ impl WalletDbActor {
         // Update chain tip
         {
             let mut db = self.db.lock().map_err(|e| e.to_string())?;
+            info!("sync: updating chain tip to {latest:?}");
             db.update_chain_tip(latest)
                 .map_err(|e| format!("update_chain_tip failed: {e}"))?;
         }
 
         // Fetch compact blocks from birthday to latest
+        info!("sync: fetching blocks from {birthday:?} to {latest:?}");
         let blocks = lsp.get_block_range(birthday, latest).await?;
         let block_count = blocks.len();
+        info!("sync: fetched {block_count} blocks");
 
         // Scan blocks using scan_cached_blocks
         let block_source = VecBlockSource {
             blocks: Arc::new(blocks),
         };
 
+        info!("sync: scanning {block_count} blocks");
         let _scan_summary = scan_cached_blocks(
             &self.params,
             &block_source,
@@ -215,6 +226,7 @@ impl WalletDbActor {
         )
         .map_err(|e| format!("scan_cached_blocks failed: {e}"))?;
 
+        info!("sync: scan complete");
         let msg = format!(
             "synced from block {} to {}",
             u64::from(birthday),

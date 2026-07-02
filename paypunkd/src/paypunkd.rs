@@ -595,7 +595,9 @@ impl Paypunkd {
                     {
                         for pid in self.protocols.protocols() {
                             if let Ok(proto) = self.protocols.get(pid) {
-                                let _ = proto.start_background_sync(&accounts).await;
+                                if let Err(e) = proto.start_background_sync(&accounts).await {
+                                    warn!(?pid, error = %e, "background sync failed");
+                                }
                             }
                         }
                     }
@@ -614,7 +616,9 @@ impl Paypunkd {
             if let Ok(accounts) = usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
                 for pid in self.protocols.protocols() {
                     if let Ok(proto) = self.protocols.get(pid) {
-                        let _ = proto.start_background_sync(&accounts).await;
+                        if let Err(e) = proto.start_background_sync(&accounts).await {
+                            warn!(?pid, error = %e, "background sync failed");
+                        }
                     }
                 }
             }
