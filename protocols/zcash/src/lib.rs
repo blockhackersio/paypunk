@@ -33,13 +33,21 @@ pub async fn create_protocol(
         .map_err(|e| format!("failed to create zcash db dir: {e}"))?;
     let zcash_db_path = zcash_db_dir.join("wallet.db");
 
-    let mut wallet_db = zcash_client_sqlite::WalletDb::for_path(
-        &zcash_db_path,
+    // Open the SQLite connection ourselves so we can register the `rarray`
+    // virtual table module before constructing the WalletDb. Without this,
+    // zcash_client_sqlite's scan_cached_blocks will fail with
+    // "no such table: rarray".
+    let conn = rusqlite::Connection::open(&zcash_db_path)
+        .map_err(|e| format!("failed to open zcash wallet db: {e}"))?;
+    rusqlite::vtab::array::load_module(&conn)
+        .map_err(|e| format!("failed to load rarray module: {e}"))?;
+
+    let mut wallet_db = zcash_client_sqlite::WalletDb::from_connection(
+        conn,
         params,
         zcash_client_sqlite::util::SystemClock,
         rand_core::OsRng,
-    )
-    .map_err(|e| format!("failed to open zcash wallet db: {e}"))?;
+    );
 
     zcash_client_sqlite::wallet::init::init_wallet_db(&mut wallet_db, None)
         .map_err(|e| format!("failed to initialize zcash wallet db: {e}"))?;
