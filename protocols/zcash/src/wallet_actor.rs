@@ -132,12 +132,40 @@ impl WalletDbActor {
         }
     }
 
+    /// If the wallet DB file was deleted (e.g. by `paypunk reset` while the
+    /// daemon is running), reinitialize the connection so writes don't go to
+    /// an orphaned inode.
+    fn ensure_db_file_exists(&self) -> Result<(), String> {
+        if !self.db_path.exists() {
+            tracing::warn!("wallet DB file deleted, reinitializing");
+            if let Some(parent) = self.db_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("failed to create wallet db dir: {e}"))?;
+            }
+            let mut new_db = zcash_client_sqlite::WalletDb::for_path(
+                &self.db_path,
+                self.params,
+                zcash_client_sqlite::util::SystemClock,
+                rand_core::OsRng,
+            )
+            .map_err(|e| format!("failed to recreate wallet db: {e}"))?;
+            zcash_client_sqlite::wallet::init::init_wallet_db(&mut new_db, None)
+                .map_err(|e| format!("failed to init wallet db: {e}"))?;
+            let mut db = self.db.lock().map_err(|e| e.to_string())?;
+            *db = new_db;
+        }
+        Ok(())
+    }
+
     async fn try_sync(
         &self,
         fvk: Vec<u8>,
         birthday_height: u64,
         lightwalletd_host: String,
     ) -> Result<String, String> {
+        // If the DB file was deleted out from under us, reinitialize first.
+        self.ensure_db_file_exists()?;
+
         info!("sync: connecting to lightwalletd at {lightwalletd_host}");
         // Connect to lightwalletd
         let mut lsp = LspClient::connect(&lightwalletd_host, self.params).await?;
