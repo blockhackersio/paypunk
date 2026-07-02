@@ -589,6 +589,17 @@ impl Paypunkd {
                         .await;
                     }
 
+                    // Re-list accounts (with viewing keys) and notify each protocol
+                    if let Ok(accounts) =
+                        usecases::list_accounts(&self.db, self.accounts_repo.as_ref())
+                    {
+                        for pid in self.protocols.protocols() {
+                            if let Ok(proto) = self.protocols.get(pid) {
+                                let _ = proto.start_background_sync(&accounts).await;
+                            }
+                        }
+                    }
+
                     info!(count = derived.len(), "cached pre-derived viewing keys");
                     PaypunkdResponse::UnlockSuccess {
                         accounts_count: derived.len() as u32,
@@ -599,6 +610,14 @@ impl Paypunkd {
                 },
             }
         } else {
+            // Accounts already exist — notify protocols for post-unlock setup
+            if let Ok(accounts) = usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
+                for pid in self.protocols.protocols() {
+                    if let Ok(proto) = self.protocols.get(pid) {
+                        let _ = proto.start_background_sync(&accounts).await;
+                    }
+                }
+            }
             PaypunkdResponse::UnlockSuccess { accounts_count }
         }
     }

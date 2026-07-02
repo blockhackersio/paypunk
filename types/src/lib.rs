@@ -173,6 +173,13 @@ pub trait Protocol: Send + Sync {
             self.protocol_id()
         ))
     }
+
+    // ── Lifecycle hooks ───────────────────────────────────────────────────────
+    /// Called after the wallet is unlocked and accounts are available.
+    /// Protocols can use this to trigger sync, fetch data, etc.
+    async fn start_background_sync(&self, _accounts: &[Account]) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 // ── SignerProtocol trait (keypunkd side) ─────────────────────────────────────

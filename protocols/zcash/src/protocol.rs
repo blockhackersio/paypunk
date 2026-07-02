@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use paypunk_types::{
-    ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol, ProtocolId,
-    SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
+    Account, ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol,
+    ProtocolId, SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
 };
 use pczt::roles::{
     signer::Signer, spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
@@ -453,6 +453,32 @@ impl Protocol for ZcashProtocol {
             .ask(WalletMessage::GetBlockHeight { lightwalletd_host })
             .await?;
         postcard::from_bytes(&bytes).map_err(|e| format!("deserialize height failed: {e}"))
+    }
+
+    async fn start_background_sync(&self, accounts: &[Account]) -> Result<(), String> {
+        let host = self
+            .lightwalletd_host
+            .as_ref()
+            .ok_or_else(|| "lightwalletd host not configured".to_string())?;
+
+        for account in accounts.iter().filter(|a| a.protocol == ProtocolId::Zcash) {
+            if account.viewing_key.len() != 96 {
+                return Err(format!(
+                    "expected 96-byte Orchard FVK for account {}, got {} bytes",
+                    account.id,
+                    account.viewing_key.len(),
+                ));
+            }
+
+            let mut config = Vec::with_capacity(104 + host.len());
+            config.extend_from_slice(&account.viewing_key);
+            config.extend_from_slice(&0u64.to_le_bytes());
+            config.extend_from_slice(host.as_bytes());
+
+            self.sync_with_config(config).await?;
+        }
+
+        Ok(())
     }
 }
 
