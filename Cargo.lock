@@ -3744,8 +3744,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "zcash_client_sqlite",
- "zcash_protocol",
 ]
 
 [[package]]

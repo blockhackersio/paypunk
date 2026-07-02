@@ -634,7 +634,7 @@ impl WalletApi for RealWalletApi {
             "Ethereum" => paypunk_types::ProtocolId::Ethereum,
             _ => return Err(ApiError(format!("unknown protocol: {protocol}"))),
         };
-        self.client.sync(protocol_id).await.map_err(ApiError)
+        self.client.sync(protocol_id, vec![]).await.map_err(ApiError)
     }
 
     async fn get_sync_status(&self, protocol: &str) -> SyncStatus {

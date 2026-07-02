@@ -72,6 +72,9 @@ pub enum PaypunkdRequest {
     // Trigger a chain sync for the given protocol
     Sync {
         protocol: ProtocolId,
+        /// Protocol-specific sync configuration bytes.
+        /// For Zcash: 96-byte FVK + 8-byte LE birthday_height + lightwalletd host string.
+        config: Vec<u8>,
     },
     // Poll sync status for the given protocol
     GetSyncStatus {
@@ -88,12 +91,6 @@ pub enum PaypunkdRequest {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
-    },
-    // Register the Zcash wallet for chain sync operations
-    RegisterZcashWallet {
-        fvk: Vec<u8>,
-        birthday_height: u64,
-        lightwalletd_host: String,
     },
     // Fetch transaction history for the given protocol and account
     GetHistory {
@@ -214,7 +211,6 @@ pub enum PaypunkdResponse {
     SyncStatusResult {
         status: SyncStatus,
     },
-    ZcashWalletRegistered,
     HistoryResult {
         entries: Vec<HistoryEntry>,
         next_cursor: Option<String>,

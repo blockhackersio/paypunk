@@ -2,26 +2,44 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use paypunk_types::{
-    ArtifactSummary, ChainId, Intent, Protocol, ProtocolId, SignerProtocol, ZcashIntent,
+    ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol, ProtocolId,
+    SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
 };
 use pczt::roles::{
     signer::Signer, spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
     verifier::Verifier,
 };
+use tactix::Addr;
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_protocol::consensus::Parameters;
 use zip32::fingerprint::SeedFingerprint;
 
+use crate::wallet_actor::WalletDbActor;
 use crate::wallet_client::ZcashWalletClient;
 
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
     pub wallet_client: Option<ZcashWalletClient>,
     pub lightwalletd_host: Option<String>,
+    _actor_handle: Option<Addr<WalletDbActor>>,
 }
 
 impl ZcashProtocol {
     pub const COIN_TYPE: u32 = 133;
+
+    pub fn new(
+        params: zcash_protocol::consensus::Network,
+        wallet_client: Option<ZcashWalletClient>,
+        lightwalletd_host: Option<String>,
+        actor_handle: Option<Addr<WalletDbActor>>,
+    ) -> Self {
+        Self {
+            params,
+            wallet_client,
+            lightwalletd_host,
+            _actor_handle: actor_handle,
+        }
+    }
 
     /// Extract the account index from a BIP44-style derivation path.
     /// Expects format like `m/44'/133'/{account}'` and returns `{account}`.
@@ -314,6 +332,108 @@ impl Protocol for ZcashProtocol {
     fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String> {
         let net = self.params.network_type();
         crate::address::derive_from_fvk(vk, index, net).map_err(|e| e.to_string())
+    }
+
+    // ── Chain sync ──────────────────────────────────────────────────────────
+
+    async fn sync_with_config(&self, config: Vec<u8>) -> Result<(), String> {
+        if config.len() < 104 {
+            return Err(format!(
+                "sync config too short: expected at least 104 bytes, got {}",
+                config.len()
+            ));
+        }
+        let fvk = config[..96].to_vec();
+        let birthday_bytes: [u8; 8] = config[96..104]
+            .try_into()
+            .map_err(|_| "invalid birthday bytes".to_string())?;
+        let birthday = u64::from_le_bytes(birthday_bytes);
+        let host = String::from_utf8(config[104..].to_vec())
+            .map_err(|_| "invalid lightwalletd host".to_string())?;
+
+        let wallet = self
+            .wallet_client
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        wallet.sync(fvk, birthday, host).await?;
+        Ok(())
+    }
+
+    async fn get_sync_status(&self) -> Result<SyncStatus, String> {
+        let wallet = self
+            .wallet_client
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        wallet.get_status().await
+    }
+
+    // ── Transfer operations ──────────────────────────────────────────────────
+
+    async fn create_transfer(
+        &self,
+        account: u32,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+    ) -> Result<Vec<u8>, String> {
+        let wallet = self
+            .wallet_client
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        wallet
+            .create_transaction_async(vec![], account, to, amount, memo)
+            .await
+    }
+
+    async fn estimate_fee(
+        &self,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+    ) -> Result<u64, String> {
+        let wallet = self
+            .wallet_client
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        let bytes = wallet.estimate_fee(to, amount, memo).await?;
+        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize fee failed: {e}"))
+    }
+
+    // ── History & status ────────────────────────────────────────────────────
+
+    async fn get_history(
+        &self,
+        account: u32,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<Page<HistoryEntry>, String> {
+        let wallet = self
+            .wallet_client
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        let bytes = wallet.get_history(account, cursor, limit).await?;
+        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize history failed: {e}"))
+    }
+
+    async fn get_transaction_status(&self, txid: String) -> Result<TxStatus, String> {
+        let wallet = self
+            .wallet_client
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        let bytes = wallet.get_tx_status(txid).await?;
+        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
+    }
+
+    async fn get_current_block_height(
+        &self,
+        lightwalletd_host: String,
+    ) -> Result<BlockHeight, String> {
+        let wallet = self
+            .wallet_client
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        let bytes = wallet.get_block_height(lightwalletd_host).await?;
+        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize height failed: {e}"))
     }
 }
 

@@ -1,8 +1,6 @@
 use keypunkd::services::KeypunkService;
-use paypunk_chains_zcash::wallet_actor::WalletMessage;
 use paypunk_types::{Account, Balance, HistoryEntry, Intent, Page, ProtocolId, SyncStatus};
 use rand::Rng;
-use tactix::{Recipient, Sender};
 use tracing::info;
 
 use crate::database::{AccountsRepository, AddressBookRepository, Database};
@@ -134,33 +132,19 @@ pub async fn approve_signature(
 
 /// Trigger a chain sync for the given protocol.
 pub async fn sync(
-    wallet_recipient: &Recipient<WalletMessage>,
-    fvk: Vec<u8>,
-    birthday_height: u64,
-    lightwalletd_host: String,
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    config: Vec<u8>,
 ) -> Result<(), String> {
-    let bytes: Vec<u8> = wallet_recipient
-        .ask(WalletMessage::Sync {
-            fvk,
-            birthday_height,
-            lightwalletd_host,
-        })
-        .await
-        .map_err(|e| format!("sync failed: {e}"))?;
-    let _msg =
-        String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
-    Ok(())
+    protocols.get(protocol)?.sync_with_config(config).await
 }
 
 /// Get the current sync status for the given protocol.
 pub async fn get_sync_status(
-    wallet_recipient: &Recipient<WalletMessage>,
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
 ) -> Result<SyncStatus, String> {
-    let bytes = wallet_recipient
-        .ask(WalletMessage::GetStatus)
-        .await
-        .map_err(|e| format!("get_sync_status failed: {e}"))?;
-    postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
+    protocols.get(protocol)?.get_sync_status().await
 }
 
 /// Finalize a signed artifact into broadcast-ready bytes.
@@ -454,64 +438,36 @@ pub fn save_settings(
     Ok(())
 }
 
-// ── Stubs: depend on future work ───────────────────────────────────────────
+// ── Protocol-routed operations ───────────────────────────────────────────
 
 /// Create a transfer for the given protocol and account.
 pub async fn create_transfer(
-    wallet_recipient: &Recipient<WalletMessage>,
+    protocols: &ProtocolService,
     protocol: ProtocolId,
     account: u32,
     to: &str,
     amount: u64,
     memo: Option<&str>,
-    lightwalletd_host: &str,
+    _lightwalletd_host: &str,
 ) -> Result<Vec<u8>, String> {
-    match protocol {
-        ProtocolId::Zcash => {
-            // We need the FVK bytes. The WalletDbActor stores the FVK in its WalletDb,
-            // so we pass an empty vec and the handler retrieves the FVK from the DB.
-            let pczt_bytes = wallet_recipient
-                .ask(WalletMessage::ProposeAndBuild {
-                    public_key: vec![],
-                    account,
-                    to: to.to_string(),
-                    amount,
-                    memo: memo.map(|m| m.to_string()),
-                })
-                .await
-                .map_err(|e| format!("create_transfer failed: {e}"))?;
-            Ok(pczt_bytes)
-        }
-        _ => Err(format!("create_transfer not supported for {protocol:?}")),
-    }
+    protocols
+        .get(protocol)?
+        .create_transfer(account, to.to_string(), amount, memo.map(|m| m.to_string()))
+        .await
 }
 
 /// Fetch transaction history for the given protocol and account.
 pub async fn get_history(
-    wallet_recipient: &Recipient<WalletMessage>,
+    protocols: &ProtocolService,
     protocol: ProtocolId,
     account: u32,
     cursor: Option<String>,
     limit: u32,
 ) -> Result<Page<HistoryEntry>, String> {
-    match protocol {
-        ProtocolId::Zcash => {
-            let bytes = wallet_recipient
-                .ask(WalletMessage::GetHistory {
-                    account,
-                    cursor,
-                    limit,
-                })
-                .await
-                .map_err(|e| format!("get_history failed: {e}"))?;
-            postcard::from_bytes(&bytes).map_err(|e| format!("deserialize history failed: {e}"))
-        }
-        _ => Ok(Page {
-            items: vec![],
-            next_cursor: None,
-            has_more: false,
-        }),
-    }
+    protocols
+        .get(protocol)?
+        .get_history(account, cursor, limit)
+        .await
 }
 
 /// Sync the wallet state with the blockchain for the given protocol and account.
@@ -532,66 +488,36 @@ pub async fn broadcast_transaction(
 
 /// Query the on-chain status of a transaction by its ID.
 pub async fn get_transaction_status(
-    wallet_recipient: &Recipient<WalletMessage>,
+    protocols: &ProtocolService,
     protocol: ProtocolId,
     txid: String,
 ) -> Result<paypunk_types::TxStatus, String> {
-    match protocol {
-        ProtocolId::Zcash => {
-            let bytes = wallet_recipient
-                .ask(WalletMessage::GetTxStatus { txid })
-                .await
-                .map_err(|e| format!("get_transaction_status failed: {e}"))?;
-            postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
-        }
-        _ => Err(format!(
-            "get_transaction_status not supported for {protocol:?}"
-        )),
-    }
+    protocols.get(protocol)?.get_transaction_status(txid).await
 }
 
 /// Get the current block height from the blockchain.
 pub async fn get_current_block_height(
-    wallet_recipient: &Recipient<WalletMessage>,
+    protocols: &ProtocolService,
     protocol: ProtocolId,
     lightwalletd_host: String,
 ) -> Result<paypunk_types::BlockHeight, String> {
-    match protocol {
-        ProtocolId::Zcash => {
-            let bytes = wallet_recipient
-                .ask(WalletMessage::GetBlockHeight { lightwalletd_host })
-                .await
-                .map_err(|e| format!("get_current_block_height failed: {e}"))?;
-            postcard::from_bytes(&bytes).map_err(|e| format!("deserialize height failed: {e}"))
-        }
-        _ => Err(format!(
-            "get_current_block_height not supported for {protocol:?}"
-        )),
-    }
+    protocols
+        .get(protocol)?
+        .get_current_block_height(lightwalletd_host)
+        .await
 }
 
 /// Estimate the fee for a transfer to the given address with the given amount and optional memo.
 pub async fn estimate_fee(
-    wallet_recipient: &Recipient<WalletMessage>,
+    protocols: &ProtocolService,
     protocol: ProtocolId,
-    _to: &str,
-    _amount: u64,
-    _memo: Option<&str>,
+    to: &str,
+    amount: u64,
+    memo: Option<&str>,
     _lightwalletd_host: &str,
 ) -> Result<u64, String> {
-    match protocol {
-        ProtocolId::Zcash => {
-            // Build a proposal (without creating a PCZT) and extract the fee
-            let bytes = wallet_recipient
-                .ask(WalletMessage::EstimateFee {
-                    to: _to.to_string(),
-                    amount: _amount,
-                    memo: _memo.map(|m| m.to_string()),
-                })
-                .await
-                .map_err(|e| format!("estimate_fee failed: {e}"))?;
-            postcard::from_bytes(&bytes).map_err(|e| format!("deserialize fee failed: {e}"))
-        }
-        _ => Err(format!("estimate_fee not supported for {protocol:?}")),
-    }
+    protocols
+        .get(protocol)?
+        .estimate_fee(to.to_string(), amount, memo.map(|m| m.to_string()))
+        .await
 }

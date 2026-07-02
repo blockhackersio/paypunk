@@ -10,8 +10,6 @@ paypunk-types.workspace = true
 paypunk-chains-zcash.workspace = true
 paypunk-chains-ethereum.workspace = true
 keypunkd.workspace = true
-zcash_protocol.workspace = true
-zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"] }
 tactix.workspace = true
 tokio = { workspace = true, features = ["net", "io-util", "rt", "macros", "signal"] }
 serde = { workspace = true, features = ["derive"] }

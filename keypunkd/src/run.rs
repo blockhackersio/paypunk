@@ -31,11 +31,12 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut protocols = ProtocolService::new();
     protocols.register(
         ProtocolId::Zcash,
-        Box::new(paypunk_chains_zcash::protocol::ZcashProtocol {
-            params: zcash_protocol::consensus::Network::MainNetwork,
-            wallet_client: None,
-            lightwalletd_host: None,
-        }),
+        Box::new(paypunk_chains_zcash::protocol::ZcashProtocol::new(
+            zcash_protocol::consensus::Network::MainNetwork,
+            None,
+            None,
+            None,
+        )),
     );
     protocols.register(
         ProtocolId::Ethereum,

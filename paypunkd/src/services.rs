@@ -236,8 +236,11 @@ impl PaypunkService {
         }
     }
 
-    pub async fn sync(&self, protocol: ProtocolId) -> Result<(), String> {
-        match self.send(PaypunkdRequest::Sync { protocol }).await? {
+    pub async fn sync(&self, protocol: ProtocolId, config: Vec<u8>) -> Result<(), String> {
+        match self
+            .send(PaypunkdRequest::Sync { protocol, config })
+            .await?
+        {
             PaypunkdResponse::SyncAck => Ok(()),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response".to_string()),

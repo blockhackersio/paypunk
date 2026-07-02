@@ -62,4 +62,49 @@ impl ZcashWalletClient {
         let bytes = self.recipient.ask(WalletMessage::GetBalance).await?;
         postcard::from_bytes(&bytes).map_err(|e| format!("deserialize balance failed: {e}"))
     }
+
+    /// Fetch transaction history.
+    pub async fn get_history(
+        &self,
+        account: u32,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<Vec<u8>, String> {
+        self.recipient
+            .ask(WalletMessage::GetHistory {
+                account,
+                cursor,
+                limit,
+            })
+            .await
+    }
+
+    /// Get the current block height from lightwalletd.
+    pub async fn get_block_height(
+        &self,
+        lightwalletd_host: String,
+    ) -> Result<Vec<u8>, String> {
+        self.recipient
+            .ask(WalletMessage::GetBlockHeight { lightwalletd_host })
+            .await
+    }
+
+    /// Get the status of a transaction by txid.
+    pub async fn get_tx_status(&self, txid: String) -> Result<Vec<u8>, String> {
+        self.recipient
+            .ask(WalletMessage::GetTxStatus { txid })
+            .await
+    }
+
+    /// Estimate the fee for a transfer.
+    pub async fn estimate_fee(
+        &self,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+    ) -> Result<Vec<u8>, String> {
+        self.recipient
+            .ask(WalletMessage::EstimateFee { to, amount, memo })
+            .await
+    }
 }

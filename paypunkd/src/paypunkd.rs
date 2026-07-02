@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use keypunkd::crypto::Keypair;
-use paypunk_chains_zcash::wallet_actor::WalletMessage;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::ProtocolId;
 use tactix::{Actor, Ctx, Handler, Recipient};
@@ -21,12 +20,6 @@ pub struct Paypunkd {
     accounts_repo: Box<dyn AccountsRepository>,
     address_book_repo: Box<dyn AddressBookRepository>,
     keystore: Keypair,
-    // TODO: These are protocol specific concepts that MUST only be available behind the Zcash
-    // implementation of Protocol
-    zcash_wallet_recipient: Option<Recipient<WalletMessage>>,
-    zcash_fvk: Option<Vec<u8>>,
-    zcash_birthday: Option<u64>,
-    zcash_lightwalletd_host: Option<String>,
     failed_attempts: u32,
 }
 
@@ -36,7 +29,6 @@ impl Paypunkd {
         protocols: ProtocolService,
         db: Database,
         keystore: Keypair,
-        zcash_wallet_recipient: Recipient<WalletMessage>,
     ) -> Self {
         Self {
             keypunk_service: keypunkd::services::KeypunkService::new(recipient),
@@ -45,10 +37,6 @@ impl Paypunkd {
             accounts_repo: Box::new(SqliteAccountsRepository),
             address_book_repo: Box::new(SqliteAddressBookRepository),
             keystore,
-            zcash_wallet_recipient: Some(zcash_wallet_recipient),
-            zcash_fvk: None,
-            zcash_birthday: None,
-            zcash_lightwalletd_host: None,
             failed_attempts: 0,
         }
     }
@@ -297,91 +285,22 @@ impl Paypunkd {
         )
     }
 
-    async fn sync(&self, protocol: ProtocolId) -> PaypunkdResponse {
+    async fn sync(&self, protocol: ProtocolId, config: Vec<u8>) -> PaypunkdResponse {
         info!(?protocol, "handling Sync");
-        match protocol {
-            ProtocolId::Zcash => {
-                let recipient = match &self.zcash_wallet_recipient {
-                    Some(r) => r,
-                    None => {
-                        return PaypunkdResponse::Error {
-                            message: "Zcash wallet not initialized".to_string(),
-                        }
-                    }
-                };
-                let fvk = match &self.zcash_fvk {
-                    Some(f) => f.clone(),
-                    None => {
-                        return PaypunkdResponse::Error {
-                            message: "Zcash wallet not registered — call RegisterZcashWallet first"
-                                .to_string(),
-                        }
-                    }
-                };
-                let birthday = match self.zcash_birthday {
-                    Some(b) => b,
-                    None => {
-                        return PaypunkdResponse::Error {
-                            message: "Zcash wallet not registered — call RegisterZcashWallet first"
-                                .to_string(),
-                        }
-                    }
-                };
-                let host = match &self.zcash_lightwalletd_host {
-                    Some(h) => h.clone(),
-                    None => {
-                        return PaypunkdResponse::Error {
-                            message: "Zcash wallet not registered — call RegisterZcashWallet first"
-                                .to_string(),
-                        }
-                    }
-                };
-                self.respond(
-                    "sync",
-                    usecases::sync(recipient, fvk, birthday, host).await,
-                    |()| PaypunkdResponse::SyncAck,
-                )
-            }
-            _ => PaypunkdResponse::Error {
-                message: format!("sync not supported for {protocol:?}"),
-            },
-        }
+        self.respond(
+            "sync",
+            usecases::sync(&self.protocols, protocol, config).await,
+            |()| PaypunkdResponse::SyncAck,
+        )
     }
 
     async fn get_sync_status(&self, protocol: ProtocolId) -> PaypunkdResponse {
-        match protocol {
-            ProtocolId::Zcash => {
-                let recipient = match &self.zcash_wallet_recipient {
-                    Some(r) => r,
-                    None => {
-                        return PaypunkdResponse::Error {
-                            message: "Zcash wallet not initialized".to_string(),
-                        }
-                    }
-                };
-                self.respond(
-                    "get_sync_status",
-                    usecases::get_sync_status(recipient).await,
-                    |status| PaypunkdResponse::SyncStatusResult { status },
-                )
-            }
-            _ => PaypunkdResponse::Error {
-                message: format!("sync status not supported for {protocol:?}"),
-            },
-        }
-    }
-
-    async fn register_zcash_wallet(
-        &mut self,
-        fvk: Vec<u8>,
-        birthday_height: u64,
-        lightwalletd_host: String,
-    ) -> PaypunkdResponse {
-        info!("handling RegisterZcashWallet");
-        self.zcash_fvk = Some(fvk);
-        self.zcash_birthday = Some(birthday_height);
-        self.zcash_lightwalletd_host = Some(lightwalletd_host);
-        PaypunkdResponse::ZcashWalletRegistered
+        info!(?protocol, "handling GetSyncStatus");
+        self.respond(
+            "get_sync_status",
+            usecases::get_sync_status(&self.protocols, protocol).await,
+            |status| PaypunkdResponse::SyncStatusResult { status },
+        )
     }
 
     async fn get_history(
@@ -392,30 +311,15 @@ impl Paypunkd {
         limit: u32,
     ) -> PaypunkdResponse {
         info!(?protocol, account_id, "handling GetHistory");
-        match protocol {
-            ProtocolId::Zcash => {
-                let recipient = match &self.zcash_wallet_recipient {
-                    Some(r) => r,
-                    None => {
-                        return PaypunkdResponse::Error {
-                            message: "Zcash wallet not initialized".to_string(),
-                        }
-                    }
-                };
-                self.respond(
-                    "get_history",
-                    usecases::get_history(recipient, protocol, account_id, cursor, limit).await,
-                    |page| PaypunkdResponse::HistoryResult {
-                        entries: page.items,
-                        next_cursor: page.next_cursor,
-                        has_more: page.has_more,
-                    },
-                )
-            }
-            _ => PaypunkdResponse::Error {
-                message: format!("history not supported for {protocol:?}"),
+        self.respond(
+            "get_history",
+            usecases::get_history(&self.protocols, protocol, account_id, cursor, limit).await,
+            |page| PaypunkdResponse::HistoryResult {
+                entries: page.items,
+                next_cursor: page.next_cursor,
+                has_more: page.has_more,
             },
-        }
+        )
     }
 
     async fn get_lock_state(&self) -> PaypunkdResponse {
@@ -526,18 +430,10 @@ impl Paypunkd {
         lightwalletd_host: String,
     ) -> PaypunkdResponse {
         info!(?protocol, account, "handling CreateTransfer");
-        let recipient = match &self.zcash_wallet_recipient {
-            Some(r) => r,
-            None => {
-                return PaypunkdResponse::Error {
-                    message: "Zcash wallet not initialized".to_string(),
-                }
-            }
-        };
         self.respond(
             "create_transfer",
             usecases::create_transfer(
-                recipient,
+                &self.protocols,
                 protocol,
                 account,
                 &to,
@@ -559,18 +455,10 @@ impl Paypunkd {
         lightwalletd_host: String,
     ) -> PaypunkdResponse {
         info!(?protocol, "handling EstimateFee");
-        let recipient = match &self.zcash_wallet_recipient {
-            Some(r) => r,
-            None => {
-                return PaypunkdResponse::Error {
-                    message: "Zcash wallet not initialized".to_string(),
-                }
-            }
-        };
         self.respond(
             "estimate_fee",
             usecases::estimate_fee(
-                recipient,
+                &self.protocols,
                 protocol,
                 &to,
                 amount,
@@ -588,34 +476,18 @@ impl Paypunkd {
         lightwalletd_host: String,
     ) -> PaypunkdResponse {
         info!(?protocol, "handling GetCurrentBlockHeight");
-        let recipient = match &self.zcash_wallet_recipient {
-            Some(r) => r,
-            None => {
-                return PaypunkdResponse::Error {
-                    message: "Zcash wallet not initialized".to_string(),
-                }
-            }
-        };
         self.respond(
             "get_current_block_height",
-            usecases::get_current_block_height(recipient, protocol, lightwalletd_host).await,
+            usecases::get_current_block_height(&self.protocols, protocol, lightwalletd_host).await,
             |height| PaypunkdResponse::BlockHeightResult { height },
         )
     }
 
     async fn get_transaction_status(&self, protocol: ProtocolId, txid: String) -> PaypunkdResponse {
         info!(?protocol, "handling GetTransactionStatus");
-        let recipient = match &self.zcash_wallet_recipient {
-            Some(r) => r,
-            None => {
-                return PaypunkdResponse::Error {
-                    message: "Zcash wallet not initialized".to_string(),
-                }
-            }
-        };
         self.respond(
             "get_transaction_status",
-            usecases::get_transaction_status(recipient, protocol, txid).await,
+            usecases::get_transaction_status(&self.protocols, protocol, txid).await,
             |status| PaypunkdResponse::TransactionStatusResult { status },
         )
     }
@@ -853,16 +725,10 @@ impl Handler<IpcMessage> for Paypunkd {
                 )
                 .await
             }
-            PaypunkdRequest::Sync { protocol } => self.sync(protocol).await,
-            PaypunkdRequest::GetSyncStatus { protocol } => self.get_sync_status(protocol).await,
-            PaypunkdRequest::RegisterZcashWallet {
-                fvk,
-                birthday_height,
-                lightwalletd_host,
-            } => {
-                self.register_zcash_wallet(fvk, birthday_height, lightwalletd_host)
-                    .await
+            PaypunkdRequest::Sync { protocol, config } => {
+                self.sync(protocol, config).await
             }
+            PaypunkdRequest::GetSyncStatus { protocol } => self.get_sync_status(protocol).await,
             PaypunkdRequest::BulkDeriveAccounts {
                 encrypted_password,
                 client_public_key,
