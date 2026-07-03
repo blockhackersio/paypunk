@@ -115,11 +115,11 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         .finish();
     let proven_bytes = proven_pczt.serialize();
 
-    let protocol = ZcashProtocol {
-        params: zcash_protocol::consensus::Network::MainNetwork,
-        wallet_client: None,
-        lightwalletd_host: None,
-    };
+    let protocol = ZcashProtocol::new(
+        zcash_protocol::consensus::Network::MainNetwork,
+        None,
+        None,
+    );
 
     // ── 5. Sign via ZcashProtocol (SignerProtocol::sign) ────────────────
     let path = "m/44'/133'/0'";

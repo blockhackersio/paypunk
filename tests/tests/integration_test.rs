@@ -7,7 +7,6 @@ use paypunk_api::Client;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
-use paypunk_chains_zcash::wallet_actor::WalletMessage;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId};
 use paypunkd::database::Database;
@@ -20,20 +19,6 @@ use zeroize::Zeroizing;
 struct MockRpcClient {
     eth_balance: u128,
     erc20_balance: u128,
-}
-
-struct DummyWalletActor;
-
-impl Actor for DummyWalletActor {}
-
-impl tactix::Handler<WalletMessage> for DummyWalletActor {
-    async fn handle(
-        &mut self,
-        _msg: WalletMessage,
-        _ctx: &tactix::Ctx<Self>,
-    ) -> Result<Vec<u8>, String> {
-        Err("wallet not available in test".to_string())
-    }
 }
 
 impl MockRpcClient {
@@ -118,22 +103,22 @@ impl TestBuilder {
         let mut keypunkd_protocols = KeypunkdProtocolService::new();
         keypunkd_protocols.register(
             ProtocolId::Zcash,
-            Box::new(ZcashProtocol {
-                params: zcash_protocol::consensus::Network::MainNetwork,
-                wallet_client: None,
-                lightwalletd_host: None,
-            }),
+            Box::new(ZcashProtocol::new(
+                zcash_protocol::consensus::Network::MainNetwork,
+                None,
+                None,
+            )),
         );
         keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
 
         let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols).start();
         let keypunkd_recipient = keypunkd_addr.recipient();
 
-        let paypunkd_zcash = ZcashProtocol {
-            params: zcash_protocol::consensus::Network::MainNetwork,
-            wallet_client: None,
-            lightwalletd_host: None,
-        };
+        let paypunkd_zcash = ZcashProtocol::new(
+            zcash_protocol::consensus::Network::MainNetwork,
+            None,
+            None,
+        );
         let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
         let mut paypunkd_protocols = ProtocolService::new();
         paypunkd_protocols.register(Box::new(paypunkd_zcash));
@@ -144,16 +129,11 @@ impl TestBuilder {
         let db = Database::open(db_dir.path()).unwrap();
         let paypunkd_keystore = Keypair::new();
 
-        // Dummy wallet recipient that returns errors — actual sync tests use dedicated fixtures.
-        let dummy_wallet_actor = DummyWalletActor.start();
-        let dummy_wallet_recipient = dummy_wallet_actor.recipient();
-
         let paypunkd_addr = Paypunkd::new(
             keypunkd_recipient,
             paypunkd_protocols,
             db,
             paypunkd_keystore,
-            dummy_wallet_recipient,
         )
         .start();
         paypunkd_addr.recipient()
