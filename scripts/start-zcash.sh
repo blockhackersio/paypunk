@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 # ── Derive the Orchard UA from the Hardhat test mnemonic ──────────────
 echo "[start-zcash] Building derive-orchard tool…"
