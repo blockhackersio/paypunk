@@ -7,17 +7,17 @@
 }: {
   languages.rust.enable = true;
 
-  packages = with pkgs; [ bc ];
+  packages = with pkgs; [bc];
 
-  enterShell = ''
-    alias setup_test_wallet='${pkgs.bash}/bin/bash scripts/setup-test-wallet.sh'
-    alias start_ethereum='${pkgs.bash}/bin/bash scripts/start-ethereum.sh'
-    alias start_zcash='${pkgs.bash}/bin/bash scripts/start-zcash.sh'
-    alias get_balance='${pkgs.bash}/bin/bash scripts/get-balance.sh'
-    alias kp='${pkgs.bash}/bin/bash scripts/key-daemon.sh'
-    alias pp='${pkgs.bash}/bin/bash scripts/wallet-daemon.sh'
-    alias tui='${pkgs.bash}/bin/bash scripts/ui.sh'
-    alias cb='cargo build'
-    alias ct='cargo test'
-  '';
+  scripts = {
+    setup.exec = "${pkgs.bash}/bin/bash scripts/setup-test-wallet.sh";
+    ethereum.exec = "${pkgs.bash}/bin/bash scripts/start-ethereum.sh";
+    zcash.exec = "${pkgs.bash}/bin/bash scripts/start-zcash.sh";
+    bal.exec = "${pkgs.bash}/bin/bash scripts/get-balance.sh";
+    kp.exec = "${pkgs.bash}/bin/bash scripts/key-daemon.sh";
+    pp.exec = "${pkgs.bash}/bin/bash scripts/wallet-daemon.sh";
+    tui.exec = "${pkgs.bash}/bin/bash scripts/ui.sh";
+    cb.exec = "cargo build";
+    ct.exec = "cargo test";
+  };
 }
