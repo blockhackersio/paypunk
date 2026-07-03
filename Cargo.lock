@@ -2914,6 +2914,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "x25519-dalek",
+ "zcash_address",
  "zcash_protocol",
  "zeroize",
 ]

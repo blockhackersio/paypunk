@@ -105,6 +105,7 @@ impl TestBuilder {
             ProtocolId::Zcash,
             Box::new(ZcashProtocol::new(
                 zcash_protocol::consensus::Network::MainNetwork,
+                zcash_protocol::consensus::NetworkType::Main,
                 None,
                 None,
             )),
@@ -116,6 +117,7 @@ impl TestBuilder {
 
         let paypunkd_zcash = ZcashProtocol::new(
             zcash_protocol::consensus::Network::MainNetwork,
+            zcash_protocol::consensus::NetworkType::Main,
             None,
             None,
         );

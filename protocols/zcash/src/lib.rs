@@ -74,15 +74,28 @@ pub async fn create_protocol(
     lightwalletd_host: String,
     zcash_network: &str,
 ) -> Result<ZcashProtocol, String> {
-    let params = match zcash_network.to_lowercase().as_str() {
-        "mainnet" => zcash_protocol::consensus::Network::MainNetwork,
-        "testnet" => zcash_protocol::consensus::Network::TestNetwork,
+    let (params, network_type) = match zcash_network.to_lowercase().as_str() {
+        "mainnet" => (
+            zcash_protocol::consensus::Network::MainNetwork,
+            zcash_protocol::consensus::NetworkType::Main,
+        ),
+        "testnet" => (
+            zcash_protocol::consensus::Network::TestNetwork,
+            zcash_protocol::consensus::NetworkType::Test,
+        ),
+        "regtest" => (
+            zcash_protocol::consensus::Network::TestNetwork,
+            zcash_protocol::consensus::NetworkType::Regtest,
+        ),
         _ => {
             tracing::warn!(
-                "unknown zcash network '{}', defaulting to testnet",
+                "unknown zcash network '{}', defaulting to regtest",
                 zcash_network
             );
-            zcash_protocol::consensus::Network::TestNetwork
+            (
+                zcash_protocol::consensus::Network::TestNetwork,
+                zcash_protocol::consensus::NetworkType::Regtest,
+            )
         }
     };
 
@@ -96,7 +109,7 @@ pub async fn create_protocol(
     let wallet_actor = WalletDbActor::new(wallet_db, params, zcash_db_path).start();
     let recipient: Recipient<WalletMessage> = wallet_actor.clone().recipient();
 
-    let protocol = ZcashProtocol::new(params, Some(recipient), Some(lightwalletd_host));
+    let protocol = ZcashProtocol::new(params, network_type, Some(recipient), Some(lightwalletd_host));
 
     Ok(protocol)
 }

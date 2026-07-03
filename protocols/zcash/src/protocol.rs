@@ -11,13 +11,13 @@ use pczt::roles::{
 };
 use tactix::{Recipient, Sender};
 use zcash_keys::keys::UnifiedSpendingKey;
-use zcash_protocol::consensus::Parameters;
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::wallet_actor::WalletMessage;
 
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
+    network_type: zcash_protocol::consensus::NetworkType,
     wallet_recipient: Option<Recipient<WalletMessage>>,
     pub lightwalletd_host: Option<String>,
 }
@@ -27,11 +27,13 @@ impl ZcashProtocol {
 
     pub fn new(
         params: zcash_protocol::consensus::Network,
+        network_type: zcash_protocol::consensus::NetworkType,
         wallet_recipient: Option<Recipient<WalletMessage>>,
         lightwalletd_host: Option<String>,
     ) -> Self {
         Self {
             params,
+            network_type,
             wallet_recipient,
             lightwalletd_host,
         }
@@ -54,14 +56,18 @@ impl ZcashProtocol {
 #[async_trait]
 impl SignerProtocol for ZcashProtocol {
     async fn chain(&self) -> ChainId {
-        match self.params {
-            zcash_protocol::consensus::Network::MainNetwork => ChainId {
+        match self.network_type {
+            zcash_protocol::consensus::NetworkType::Main => ChainId {
                 namespace: "zcash".to_string(),
                 reference: "mainnet".to_string(),
             },
-            zcash_protocol::consensus::Network::TestNetwork => ChainId {
+            zcash_protocol::consensus::NetworkType::Test => ChainId {
                 namespace: "zcash".to_string(),
                 reference: "testnet".to_string(),
+            },
+            zcash_protocol::consensus::NetworkType::Regtest => ChainId {
+                namespace: "zcash".to_string(),
+                reference: "regtest".to_string(),
             },
         }
     }
@@ -271,14 +277,18 @@ impl Protocol for ZcashProtocol {
     // ── Protocol metadata ───────────────────────────────────────────────────
 
     fn chain_id(&self) -> ChainId {
-        match self.params {
-            zcash_protocol::consensus::Network::MainNetwork => ChainId {
+        match self.network_type {
+            zcash_protocol::consensus::NetworkType::Main => ChainId {
                 namespace: "zcash".to_string(),
                 reference: "mainnet".to_string(),
             },
-            zcash_protocol::consensus::Network::TestNetwork => ChainId {
+            zcash_protocol::consensus::NetworkType::Test => ChainId {
                 namespace: "zcash".to_string(),
                 reference: "testnet".to_string(),
+            },
+            zcash_protocol::consensus::NetworkType::Regtest => ChainId {
+                namespace: "zcash".to_string(),
+                reference: "regtest".to_string(),
             },
         }
     }
@@ -324,8 +334,7 @@ impl Protocol for ZcashProtocol {
     // ── Key operations ──────────────────────────────────────────────────────
 
     fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String> {
-        let net = self.params.network_type();
-        crate::address::derive_from_fvk(vk, index, net).map_err(|e| e.to_string())
+        crate::address::derive_from_fvk(vk, index, self.network_type).map_err(|e| e.to_string())
     }
 
     // ── Chain sync ──────────────────────────────────────────────────────────

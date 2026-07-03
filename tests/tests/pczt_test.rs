@@ -117,6 +117,7 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 
     let protocol = ZcashProtocol::new(
         zcash_protocol::consensus::Network::MainNetwork,
+        zcash_protocol::consensus::NetworkType::Main,
         None,
         None,
     );

@@ -46,7 +46,7 @@ fn default_lightwalletd_host() -> String {
 }
 
 fn default_zcash_network() -> String {
-    "testnet".to_string()
+    "regtest".to_string()
 }
 
 impl Default for PaypunkConfig {
@@ -136,8 +136,8 @@ ethereum_rpc_url = "http://127.0.0.1:8545"
 # Zcash lightwalletd host (default: http://127.0.0.1:9067)
 lightwalletd_host = "http://127.0.0.1:9067"
 
-# Zcash network (testnet or mainnet)
-zcash_network = "testnet"
+# Zcash network (regtest, testnet, or mainnet)
+zcash_network = "regtest"
 "#;
 
         std::fs::write(&config_path, contents)

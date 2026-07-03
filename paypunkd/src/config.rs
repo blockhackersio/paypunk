@@ -53,7 +53,7 @@ impl ConfigSource for HardcodedConfig {
     }
 
     fn zcash_network(&self) -> &str {
-        "testnet"
+        "regtest"
     }
 }
 
