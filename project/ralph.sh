@@ -10,3 +10,5 @@ while true; do
   echo "Steps remaining: $count"
   opencode run "execute ./project/ralph.md" --dangerously-skip-permissions
 done
+
+curl -d "finished ralphing" ntfy.sh/ftsx5142999420
