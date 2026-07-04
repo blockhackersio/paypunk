@@ -180,6 +180,14 @@ pub trait Protocol: Send + Sync {
     async fn start_background_sync(&self, _accounts: &[Account]) -> Result<(), String> {
         Ok(())
     }
+
+    /// Register a newly created account and sync it.
+    ///
+    /// Called after `create_account` so the protocol can import the viewing key
+    /// into its own database and scan the chain for the account's notes.
+    async fn sync_account(&self, _viewing_key: &[u8], _birthday_height: u64) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 // ── SignerProtocol trait (keypunkd side) ─────────────────────────────────────

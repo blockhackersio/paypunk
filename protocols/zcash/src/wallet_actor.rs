@@ -215,28 +215,22 @@ impl WalletDbActor {
             let existing = db
                 .get_account_ids()
                 .map_err(|e| format!("get_account_ids failed: {e}"))?;
-            if existing.is_empty() {
-                let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
-                info!("sync: importing account UFVK at birthday {birthday:?}");
-                db.import_account_ufvk(
-                    "Zcash Account 0",
-                    &ufvk,
-                    &account_birthday,
-                    AccountPurpose::Spending { derivation: None },
-                    None,
-                )
-                .map_err(|e| format!("import_account_ufvk failed: {e}"))?;
-            } else {
-                info!("sync: account already registered, skipping import");
-            }
-        }
+            let account_index = existing.len() as u32;
+            let account_name = format!("Zcash Account {account_index}");
+            let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
 
-        // Update chain tip
-        {
-            let mut db = self.db.lock().map_err(|e| e.to_string())?;
-            info!("sync: updating chain tip to {latest:?}");
-            db.update_chain_tip(latest)
-                .map_err(|e| format!("update_chain_tip failed: {e}"))?;
+            // Always attempt to import — handles both first account and subsequent accounts.
+            // If the UFVK is already registered, the import is a no-op / duplicate-skip.
+            match db.import_account_ufvk(
+                &account_name,
+                &ufvk,
+                &account_birthday,
+                AccountPurpose::Spending { derivation: None },
+                None,
+            ) {
+                Ok(_acct) => info!("sync: imported UFVK as '{account_name}'"),
+                Err(e) => info!("sync: UFVK import skipped (already registered?): {e}"),
+            }
         }
 
         // Fetch compact blocks from birthday to latest
@@ -260,6 +254,14 @@ impl WalletDbActor {
             block_count,
         )
         .map_err(|e| format!("scan_cached_blocks failed: {e}"))?;
+
+        // Update chain tip AFTER scanning so shard state is consistent
+        {
+            let mut db = self.db.lock().map_err(|e| e.to_string())?;
+            info!("sync: updating chain tip to {latest:?}");
+            db.update_chain_tip(latest)
+                .map_err(|e| format!("update_chain_tip failed: {e}"))?;
+        }
 
         info!("sync: scan complete");
         let msg = format!(
@@ -285,6 +287,24 @@ impl Handler<WalletMessage> for WalletDbActor {
             } => {
                 let mut db = self.db.lock().map_err(|e| e.to_string())?;
 
+                // Debug: log wallet summary before proposing
+                match db.get_wallet_summary(ConfirmationsPolicy::MIN) {
+                    Ok(Some(summary)) => {
+                        for (aid, ab) in summary.account_balances() {
+                            let ob = ab.orchard_balance();
+                            info!(
+                                "ProposeAndBuild: account={:?} orchard spendable={} pending_change={} pending_spendable={}",
+                                aid,
+                                u64::from(ob.spendable_value()),
+                                u64::from(ob.change_pending_confirmation()),
+                                u64::from(ob.value_pending_spendability()),
+                            );
+                        }
+                    }
+                    Ok(None) => info!("ProposeAndBuild: wallet summary is None (sync first?)"),
+                    Err(e) => info!("ProposeAndBuild: get_wallet_summary error: {e}"),
+                }
+
                 let to_addr = zcash_address::ZcashAddress::try_from_encoded(&to)
                     .map_err(|e| format!("invalid recipient address: {e}"))?;
 
@@ -298,6 +318,13 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let account_ids = db
                     .get_account_ids()
                     .map_err(|e| format!("get_account_ids failed: {e}"))?;
+                info!(
+                    "ProposeAndBuild: account_ids={:?} using account_id={:?} amount={} to={}",
+                    account_ids,
+                    account_ids.first(),
+                    amount,
+                    to,
+                );
                 let account_id = account_ids
                     .first()
                     .ok_or("no accounts in wallet")?

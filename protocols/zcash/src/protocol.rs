@@ -489,6 +489,27 @@ impl Protocol for ZcashProtocol {
 
         Ok(())
     }
+
+    async fn sync_account(&self, viewing_key: &[u8], birthday_height: u64) -> Result<(), String> {
+        let host = self
+            .lightwalletd_host
+            .as_ref()
+            .ok_or_else(|| "lightwalletd host not configured".to_string())?;
+
+        if viewing_key.len() != 96 {
+            return Err(format!(
+                "expected 96-byte Orchard FVK, got {} bytes",
+                viewing_key.len(),
+            ));
+        }
+
+        let mut config = Vec::with_capacity(104 + host.len());
+        config.extend_from_slice(viewing_key);
+        config.extend_from_slice(&birthday_height.to_le_bytes());
+        config.extend_from_slice(host.as_bytes());
+
+        self.sync_with_config(config).await
+    }
 }
 
 enum KeyRef {

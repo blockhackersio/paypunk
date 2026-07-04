@@ -226,21 +226,43 @@ impl Paypunkd {
             ?birthday_height,
             "creating account"
         );
-        self.respond(
-            "create_account",
-            usecases::create_account(
-                &self.db,
-                &self.protocols,
-                self.accounts_repo.as_ref(),
-                protocol,
-                derivation_path,
-                account_index,
-                name,
-                birthday_height,
-            )
-            .await,
-            |account| PaypunkdResponse::AccountCreated { account },
+
+        let result = usecases::create_account(
+            &self.db,
+            &self.protocols,
+            self.accounts_repo.as_ref(),
+            protocol,
+            derivation_path,
+            account_index,
+            name,
+            birthday_height,
         )
+        .await;
+
+        match result {
+            Ok(account) => {
+                // Trigger a chain sync for the newly created account so its
+                // viewing key is registered in the protocol's wallet DB and
+                // the chain is scanned for incoming notes.
+                if let Ok(proto) = self.protocols.get(protocol) {
+                    let birthday = birthday_height.unwrap_or(0);
+                    if let Err(e) = proto
+                        .sync_account(&account.viewing_key, birthday)
+                        .await
+                    {
+                        warn!(
+                            ?protocol,
+                            account = %account.id,
+                            error = %e,
+                            "sync_account after create_account failed"
+                        );
+                    }
+                }
+
+                PaypunkdResponse::AccountCreated { account }
+            }
+            Err(e) => PaypunkdResponse::Error { message: e },
+        }
     }
 
     async fn list_accounts(&self) -> PaypunkdResponse {

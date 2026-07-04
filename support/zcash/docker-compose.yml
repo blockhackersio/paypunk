@@ -91,7 +91,7 @@ services:
       ZCASHD_PORT: "18232"
       RPC_USER: zcashrpc
       RPC_PASS: notsecure
-      BLOCK_INTERVAL: "3"
+      BLOCK_INTERVAL: "1"
     restart: unless-stopped
 
 volumes:

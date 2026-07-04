@@ -151,7 +151,7 @@ impl Screen for HomeScreen {
                 }
             }
             KeyCode::Char('a') => {
-                let _ = api.add_account().await;
+                let _ = api.add_zcash_account(0).await;
                 api.refresh_home().await;
                 self.state = api.home_state().await;
                 if let ApiState::Loaded(ref data) = self.state {

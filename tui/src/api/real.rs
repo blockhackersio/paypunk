@@ -254,10 +254,10 @@ impl WalletApi for RealWalletApi {
         for a in &accounts {
             *protocol_counts.entry(a.protocol).or_insert(0) += 1;
         }
-        // Pick the protocol with the most accounts (to add the next one), or first available
+        // Pick the protocol with the fewest accounts (to balance them), or first available
         let (target_protocol, next_index) = protocol_counts
             .iter()
-            .max_by_key(|(_, &count)| count)
+            .min_by_key(|(_, &count)| count)
             .map(|(p, &count)| (*p, count as u32))
             .unwrap_or((ProtocolId::Ethereum, 0));
         let path = self.client.derivation_path(target_protocol, next_index);

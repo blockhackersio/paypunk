@@ -73,6 +73,20 @@ fi
 log "Rescanning wallet…"
 zcli rescanblockchain 0 >/dev/null 2>&1 || zcli rescanblockchain >/dev/null 2>&1 || true
 
+# Wait for rescan to complete before proceeding
+log "Waiting for rescan to complete…"
+for i in $(seq 1 120); do
+  SCANNING=$(zcli getblockchaininfo 2>/dev/null | node -e "
+    const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    console.log(JSON.stringify(r.scanning));
+  " 2>/dev/null || echo "unknown")
+  if [[ "$SCANNING" == "false" ]] || [[ -z "$SCANNING" ]] || [[ "$SCANNING" == "null" ]]; then
+    log "Rescan complete."
+    break
+  fi
+  sleep 2
+done
+
 # ── Shield coinbase funds into Orchard ───────────────────────────────
 #
 # ORCHARD_UA is a uregtest1... address derived from the test mnemonic,
@@ -101,6 +115,7 @@ if [[ -n "${ORCHARD_UA:-}" ]]; then
         [[ "$STATUS" == "failed" ]] && { warn "Shielding failed"; break; }
         sleep 2
       done
+      zcli generate 1 >/dev/null
       zcli generate 1 >/dev/null
       log "Shielding complete."
     fi
@@ -135,6 +150,7 @@ elif [[ "$SHIELD" == "true" ]]; then
           [[ "$STATUS" == "failed" ]] && { warn "Shielding failed"; break; }
           sleep 2
         done
+        zcli generate 1 >/dev/null
         zcli generate 1 >/dev/null
       fi
     fi
