@@ -247,7 +247,7 @@ impl Paypunkd {
                 if let Ok(proto) = self.protocols.get(protocol) {
                     let birthday = birthday_height.unwrap_or(0);
                     if let Err(e) = proto
-                        .sync_account(&account.viewing_key, birthday)
+                        .sync_account(&account.viewing_key, birthday, &account.address)
                         .await
                     {
                         warn!(

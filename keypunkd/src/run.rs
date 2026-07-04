@@ -11,6 +11,7 @@ use tracing_subscriber::EnvFilter;
 pub struct Config {
     pub socket_path: String,
     pub data_dir: String,
+    pub zcash_network: String,
 }
 
 pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
@@ -28,12 +29,37 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             .into_boxed_path(),
     );
 
+    let (params, network_type) = match config.zcash_network.to_lowercase().as_str() {
+        "mainnet" => (
+            zcash_protocol::consensus::Network::MainNetwork,
+            zcash_protocol::consensus::NetworkType::Main,
+        ),
+        "testnet" => (
+            zcash_protocol::consensus::Network::TestNetwork,
+            zcash_protocol::consensus::NetworkType::Test,
+        ),
+        "regtest" => (
+            zcash_protocol::consensus::Network::TestNetwork,
+            zcash_protocol::consensus::NetworkType::Regtest,
+        ),
+        _ => {
+            tracing::warn!(
+                "unknown zcash network '{}', defaulting to regtest",
+                config.zcash_network
+            );
+            (
+                zcash_protocol::consensus::Network::TestNetwork,
+                zcash_protocol::consensus::NetworkType::Regtest,
+            )
+        }
+    };
+
     let mut protocols = ProtocolService::new();
     protocols.register(
         ProtocolId::Zcash,
         Box::new(paypunk_chains_zcash::protocol::ZcashProtocol::new(
-            zcash_protocol::consensus::Network::MainNetwork,
-            zcash_protocol::consensus::NetworkType::Main,
+            params,
+            network_type,
             None,
             None,
         )),

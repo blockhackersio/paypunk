@@ -63,6 +63,7 @@ async fn ensure_daemons(
 
     let exe =
         std::env::current_exe().map_err(|e| format!("Failed to get current exe path: {e}"))?;
+    let config = ConfigLoader::load_or_default();
 
     // Clean stale sockets before spawning
     let _ = fs::remove_file(keypunkd_socket);
@@ -71,6 +72,8 @@ async fn ensure_daemons(
     println!("Starting keypunkd...");
     let mut keypunkd = Command::new(&exe)
         .arg("keypunkd")
+        .arg("--zcash-network")
+        .arg(&config.zcash_network)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -185,6 +188,8 @@ enum Commands {
         socket_path: Option<String>,
         #[arg(short, long)]
         data_dir: Option<String>,
+        #[arg(short, long)]
+        zcash_network: Option<String>,
     },
     /// Launch paypunkd (app daemon) as a child process
     Paypunkd {
@@ -239,6 +244,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut keypunkd_child = Command::new(&exe)
                 .arg("keypunkd")
+                .arg("--zcash-network")
+                .arg(&config.zcash_network)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -300,14 +307,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Keypunkd {
             socket_path,
             data_dir,
+            zcash_network,
         }) => {
             let config = ConfigLoader::load_or_default();
             let socket = socket_path.unwrap_or(config.keypunkd_socket_path);
             let dir = data_dir.unwrap_or(config.data_dir);
+            let znet = zcash_network.unwrap_or(config.zcash_network);
 
             keypunkd::run::run(keypunkd::run::Config {
                 socket_path: socket,
                 data_dir: dir,
+                zcash_network: znet,
             })
             .await
         }
@@ -489,7 +499,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ProtocolId::Zcash => ("zcash:mainnet", "zcash:mainnet/slip44:133"),
                         _ => return Err(format!("unsupported protocol: {protocol}").into()),
                     };
-                    let address = format!("{}:{}", caip_chain, account);
+                    let expected_path = client.derivation_path(protocol_id, account);
+                    let accounts = client.list_accounts().await?;
+                    let matched = accounts.iter().find(|a| {
+                        a.protocol == protocol_id && a.derivation_path == expected_path
+                    });
+                    let address = match matched {
+                        Some(a) => format!("{}:{}", caip_chain, a.address),
+                        None => {
+                            return Err(format!(
+                                "account {} not found for protocol {protocol}. Create it first.",
+                                account
+                            )
+                            .into());
+                        }
+                    };
                     let balance = client.get_balance(address, caip_asset.to_string()).await?;
                     println!(
                         "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",

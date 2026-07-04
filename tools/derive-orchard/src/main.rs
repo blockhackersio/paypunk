@@ -7,6 +7,7 @@ use zcash_address::unified::{self, Encoding};
 use zcash_protocol::consensus::NetworkType;
 
 const DEFAULT_MNEMONIC: &str = "test test test test test test test test test test test junk";
+const DEFAULT_COIN_TYPE: u32 = 133;
 
 fn main() {
     let mnemonic = env::var("MNEMONIC").unwrap_or_else(|_| DEFAULT_MNEMONIC.to_string());
@@ -22,9 +23,13 @@ fn main() {
         .unwrap_or_else(|_| "0".into())
         .parse()
         .expect("valid diversifier index");
+    let coin_type: u32 = env::var("COIN_TYPE")
+        .unwrap_or_else(|_| DEFAULT_COIN_TYPE.to_string())
+        .parse()
+        .expect("valid coin type");
 
     let account_id = zip32::AccountId::try_from(account).expect("valid account");
-    let sk = SpendingKey::from_zip32_seed(&seed, 133, account_id).expect("ZIP-32 derivation");
+    let sk = SpendingKey::from_zip32_seed(&seed, coin_type, account_id).expect("ZIP-32 derivation");
     let fvk = FullViewingKey::from(&sk);
 
     // Orchard UA at the given diversifier index (regtest encoding)
@@ -53,6 +58,7 @@ fn main() {
         "orchard_spending_key_hex": sk_hex,
         "account": account,
         "index": index,
+        "coin_type": coin_type,
     });
     println!(
         "{}",

@@ -1,97 +1,37 @@
-# ── Zcash Regtest Dev Stack ───────────────────────────────────────────
+# Zcash regtest funding stack: a single zcashd node (chain + Orchard shielding)
+# fronted by lightwalletd (the gRPC endpoint your wallet syncs against).
 #
-# Usage:
-#   docker compose up                  # start everything + mine blocks
-#   docker compose up -d               # start detached
-#   docker compose up --build          # rebuild after changes
-#
-#   # Shield funds into Orchard:
-#   SHIELD_FUNDS=true docker compose up
-#
-#   # Mine more blocks after setup:
-#   docker compose exec zcashd zcash-cli -datadir=/data -rpcuser=zcashrpc -rpcpassword=notsecure \
-#     generatetoaddress 10 <MINING_ADDR>
-#
-#   # Clean reset:
-#   docker compose down -v && docker compose up --build
-#
-# Notes:
-#   - The block-miner service generates 1 block every 3s by default so that
-#     Orchard notes become spendable quickly. Set BLOCK_INTERVAL to adjust.
-#   - Ports exposed to the host:
-#   9067  → lightwalletd gRPC (no TLS)
-#   18232 → zcashd RPC
-
+#   make up                 # build + start
+#   make fund UA=<orchard-ua>  # mine + shield coinbase into your wallet's UA
+#   make reset              # wipe and start clean
 services:
-  # ── zcashd (regtest) ────────────────────────────────────────────────
   zcashd:
     build:
-      context: ./docker/zcashd
+      context: ./zcashd
     volumes:
       - zcashd-data:/data
       - zcash-params:/root/.zcash-params
     ports:
-      - "18232:18232"
+      - "18232:18232"          # zcashd JSON-RPC
     healthcheck:
-      test: ["CMD", "zcash-cli", "-datadir=/data", "-rpcuser=zcashrpc", "-rpcpassword=notsecure", "getblockchaininfo"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/18232"]
       interval: 5s
       timeout: 3s
-      retries: 30
-      start_period: 30s
+      retries: 40
+      start_period: 40s
     restart: unless-stopped
 
-  # ── setup (one-shot) ────────────────────────────────────────────────
-  # Derives keys from the Hardhat mnemonic, imports them, mines blocks.
-  setup:
-    build:
-      context: ./docker/setup
-    depends_on:
-      zcashd:
-        condition: service_healthy
-    environment:
-      ZCASHD_HOST: zcashd
-      ZCASHD_PORT: "18232"
-      RPC_USER: zcashrpc
-      RPC_PASS: notsecure
-      BLOCKS_TO_MINE: "200"
-      NUM_KEYS: "5"
-      SHIELD_FUNDS: "${SHIELD_FUNDS:-false}"
-      ORCHARD_UA: "${ORCHARD_UA:-}"
-    restart: "no"
-
-  # ── lightwalletd ────────────────────────────────────────────────────
   lightwalletd:
     build:
-      context: ./docker/lightwalletd
+      context: ./lightwalletd
     depends_on:
       zcashd:
         condition: service_healthy
     volumes:
       - lwd-data:/data
-      - ./docker/lightwalletd/zcash-lwd.conf:/etc/lightwalletd/zcash.conf:ro
-    environment:
-      ZCASHD_HOST: zcashd
-      ZCASHD_PORT: "18232"
-      CONF_PATH: /etc/lightwalletd/zcash.conf
-      GRPC_BIND: "0.0.0.0:9067"
+      - ./lightwalletd/zcash.conf:/etc/lightwalletd/zcash.conf:ro
     ports:
-      - "9067:9067"
-    restart: unless-stopped
-
-  # ── block-miner (regtest auto-miner) ─────────────────────────────────
-  # Generates 1 block every N seconds so pending notes become spendable.
-  block-miner:
-    build:
-      context: ./docker/block-miner
-    depends_on:
-      zcashd:
-        condition: service_healthy
-    environment:
-      ZCASHD_HOST: zcashd
-      ZCASHD_PORT: "18232"
-      RPC_USER: zcashrpc
-      RPC_PASS: notsecure
-      BLOCK_INTERVAL: "1"
+      - "9067:9067"            # lightwalletd gRPC (no TLS) -> point your wallet here
     restart: unless-stopped
 
 volumes:

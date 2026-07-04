@@ -1,113 +1,80 @@
-# Zcash Regtest Docker Stack
+# Zcash regtest funding stack (zcashd)
 
-A fully containerized Zcash development environment funded from the
-Hardhat "test junk" mnemonic. One command gives you a running `zcashd`
-regtest node, `lightwalletd` gRPC endpoint, and pre-funded deterministic
-addresses.
+A single-node regtest environment for testing a **shielded-only** wallet against
+the Orchard pool: mine funds, shield them straight into your wallet's Orchard
+unified address, then exercise your account-to-account send.
 
-## Quick Start
+- **zcashd** — the node. Drives the chain, mines, and does the `t → Orchard`
+  shielding your wallet can't do itself.
+- **lightwalletd** — the gRPC endpoint your wallet syncs against (`:9067`).
 
-```bash
-./start-zcash.sh
-```
+## Prerequisites
 
-Or directly:
+- Docker Engine + Compose v2
+- `jq` on the host (used by `fund.sh`)
 
-```bash
-docker compose up --build
-```
-
-First run takes a while (downloads ~1.7 GB of Zcash parameters + builds
-lightwalletd from source). Subsequent runs use cached layers and volumes.
-
-## What Happens
-
-1. **zcashd** starts in regtest mode with all network upgrades (through
-   NU5/Orchard) active at block 1.
-2. **setup** (one-shot container) derives 5 transparent addresses from
-   the mnemonic `test test test ... test junk` using BIP-44
-   `m/44'/133'/0'/0/{0..4}` for reference, then mines 200 blocks to the
-   wallet's internal transparent address (zcashd 6.x generates its own
-   random wallet seed on first run).
-3. **setup then shields coinbase UTXOs** into the Orchard UA derived
-   from the same mnemonic (ZIP-32, account 0, diversifier index 0) via
-   `z_shieldcoinbase` — this is the same address your wallet derives,
-   so `paypunkd` will see the balance after syncing.
-4. **lightwalletd** starts on port 9067 (gRPC, no TLS), connected to
-   zcashd.
-5. **block-miner** generates 1 block every 3 seconds (configurable via
-   `BLOCK_INTERVAL`) so that Orchard notes become spendable shortly
-   after being received.
-
-## Exposed Ports
-
-| Port  | Service       | Protocol       |
-|-------|---------------|----------------|
-| 9067  | lightwalletd  | gRPC (no TLS)  |
-| 18232 | zcashd        | JSON-RPC       |
-
-## Usage
+## Quick start
 
 ```bash
-# Start with automatic Orchard shielding (recommended — gives your wallet 100 ZEC)
-./start-zcash.sh
+cd support/zcash
 
-# Start detached
-./start-zcash.sh -d
-
-# Start with extra ZEC shielded into Orchard (via SHIELD_FUNDS fallback)
-SHIELD_FUNDS=true docker compose up --build
-
-# Mine more blocks
-docker compose exec zcashd \
-  zcash-cli -datadir=/data -rpcuser=zcashrpc -rpcpassword=notsecure \
-  generatetoaddress 10 <MINING_ADDR>
-
-# Check balance
-docker compose exec zcashd \
-  zcash-cli -datadir=/data -rpcuser=zcashrpc -rpcpassword=notsecure \
-  getbalance
-
-# Full reset (wipe all data)
-docker compose down -v
-docker compose up --build
-
-# View setup logs
-docker compose logs setup
+make up                          # build + start (first build fetches ~1.7GB params)
+make fund UA=<your-orchard-ua>   # mine to maturity + shield into your UA
+make info                        # confirm height + Orchard pool value
 ```
 
-## Connecting Your Client
+`<your-orchard-ua>` is a regtest unified address **from your wallet's seed**
+(a `uregtest1...` address with an Orchard receiver). The funds land at an
+address your wallet controls, so after syncing it can spend them.
 
-Point any lightwalletd-compatible client at:
+Wipe and start over:
+
+```bash
+make reset && make up
+```
+
+## Connect your wallet
 
 ```
-host: 127.0.0.1
-port: 9067
-TLS:  disabled
+server = 127.0.0.1:9067
 ```
 
-The gRPC API (`GetBlockRange`, `GetTransaction`, `SendTransaction`, etc.)
-is identical to mainnet.
+lightwalletd here is plaintext (`--no-tls-very-insecure`). If your client
+defaults to TLS, disable it for this endpoint or it won't connect.
 
-## File Structure
+Then run your actual test: sync, confirm the Orchard balance in account 0, and
+send account 0 → account 1.
+
+## How funding works
+
+`fund.sh` mines past coinbase maturity (100 blocks), then:
 
 ```
-├── docker-compose.yml
-└── docker/
-    ├── zcashd/
-    │   ├── Dockerfile
-    │   ├── zcash.conf
-    │   └── entrypoint-zcashd.sh
-    ├── lightwalletd/
-    │   ├── Dockerfile
-    │   ├── zcash-lwd.conf
-    │   └── entrypoint-lwd.sh
-    ├── block-miner/
-    │   ├── Dockerfile
-    │   └── entrypoint.sh
-    └── setup/
-        ├── Dockerfile
-        ├── setup-init.sh
-        ├── derive-keys.mjs
-        └── package.json
+z_shieldcoinbase "*" <UA> null 0 null "AllowRevealedSenders"
 ```
+
+This sweeps every mature coinbase UTXO directly into the Orchard receiver of
+your UA in one shielding transaction (no Sapling hop), waits for the operation
+to succeed, and mines a few blocks to confirm it.
+
+If your zcashd build rejects a unified address as the `z_shieldcoinbase`
+destination, shield to a Sapling `zregtestsapling...` address first and then
+`z_sendmany` that to your Orchard UA — but current zcashd accepts the UA
+directly, so try the one-step path first.
+
+## Handy commands
+
+```bash
+make cli ARGS="getblockcount"
+make cli ARGS="getblockchaininfo"
+make logs
+```
+
+## Notes
+
+- Regtest only. The open RPC bind and `notsecure` password must never be used
+  outside a local throwaway network.
+- Orchard is active from block 1 (all upgrades through NU6.2 activated in
+  `zcashd/zcash.conf`).
+- If `generate` errors as disabled on your zcashd version, add
+  `allowdeprecated=generate` to `zcashd/zcash.conf` and `make reset && make up`.

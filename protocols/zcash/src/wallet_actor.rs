@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -15,12 +16,15 @@ use zcash_client_backend::data_api::error::Error as DataApiError;
 use zcash_client_backend::data_api::wallet::create_pczt_from_proposal;
 use zcash_client_backend::data_api::wallet::propose_standard_transfer_to_address;
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
-use zcash_client_backend::data_api::{AccountBirthday, AccountPurpose, WalletRead, WalletWrite};
+use zcash_client_backend::data_api::{
+    Account, AccountBirthday, AccountPurpose, WalletRead, WalletWrite,
+};
 use zcash_client_backend::fees::StandardFeeRule;
 use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_sqlite::error::SqliteClientError;
 use zcash_client_sqlite::util::SystemClock;
+use zcash_client_sqlite::AccountUuid;
 use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
@@ -51,8 +55,10 @@ pub enum WalletMessage {
     },
     /// Get the current sync status.
     GetStatus,
-    /// Get the balance for all accounts.
-    GetBalance,
+    /// Get the balance for a specific UFVK.
+    GetBalance {
+        viewing_key: Vec<u8>,
+    },
     /// Fetch transaction history for the given account.
     GetHistory {
         account: u32,
@@ -114,6 +120,7 @@ pub struct WalletDbActor {
     pub current_height: AtomicU64,
     pub target_height: AtomicU64,
     pub db_path: PathBuf,
+    fvk_to_account_id: Mutex<HashMap<Vec<u8>, AccountUuid>>,
 }
 
 impl WalletDbActor {
@@ -129,6 +136,7 @@ impl WalletDbActor {
             current_height: AtomicU64::new(0),
             target_height: AtomicU64::new(0),
             db_path,
+            fvk_to_account_id: Mutex::new(HashMap::new()),
         }
     }
 
@@ -212,24 +220,37 @@ impl WalletDbActor {
         // Register the account in WalletDb if not already registered
         {
             let mut db = self.db.lock().map_err(|e| e.to_string())?;
-            let existing = db
-                .get_account_ids()
-                .map_err(|e| format!("get_account_ids failed: {e}"))?;
-            let account_index = existing.len() as u32;
-            let account_name = format!("Zcash Account {account_index}");
+            let account_name = format!("Zcash Account {}", self.fvk_to_account_id.lock().map_err(|e| e.to_string())?.len());
             let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
 
-            // Always attempt to import — handles both first account and subsequent accounts.
-            // If the UFVK is already registered, the import is a no-op / duplicate-skip.
-            match db.import_account_ufvk(
+            let account_uuid = match db.import_account_ufvk(
                 &account_name,
                 &ufvk,
                 &account_birthday,
                 AccountPurpose::Spending { derivation: None },
                 None,
             ) {
-                Ok(_acct) => info!("sync: imported UFVK as '{account_name}'"),
-                Err(e) => info!("sync: UFVK import skipped (already registered?): {e}"),
+                Ok(acct) => {
+                    info!("sync: imported UFVK as '{account_name}'");
+                    acct.id()
+                }
+                Err(e) => {
+                    info!("sync: UFVK import skipped (already registered?): {e}");
+                    // Look up the existing account by UFVK.
+                    let acct = db
+                        .get_account_for_ufvk(&ufvk)
+                        .map_err(|e| format!("failed to query account by UFVK: {e}"))?
+                        .ok_or_else(|| "account not found after import".to_string())?;
+                    acct.id()
+                }
+            };
+
+            {
+                let mut fvk_map = self
+                    .fvk_to_account_id
+                    .lock()
+                    .map_err(|e| e.to_string())?;
+                fvk_map.insert(fvk_bytes.to_vec(), account_uuid);
             }
         }
 
@@ -261,6 +282,17 @@ impl WalletDbActor {
             info!("sync: updating chain tip to {latest:?}");
             db.update_chain_tip(latest)
                 .map_err(|e| format!("update_chain_tip failed: {e}"))?;
+        }
+
+        // Mark the scanned range as fully scanned in the scan queue so that
+        // notes become spendable immediately (not just on the next sync).
+        if let Ok(scan_conn) = rusqlite::Connection::open(&self.db_path) {
+            let _ = scan_conn.execute(
+                "UPDATE scan_queue SET priority = 10 \
+                 WHERE block_range_start >= ?1 AND block_range_end <= ?2 \
+                 AND priority = 50",
+                rusqlite::params![u32::from(birthday), u32::from(latest) + 1],
+            );
         }
 
         info!("sync: scan complete");
@@ -411,38 +443,60 @@ impl Handler<WalletMessage> for WalletDbActor {
                 };
                 postcard::to_allocvec(&status).map_err(|e| format!("serialize status failed: {e}"))
             }
-            WalletMessage::GetBalance => {
+            WalletMessage::GetBalance { viewing_key } => {
                 info!("WalletMessage::GetBalance received by wallet actor");
+
+                let target_uuid = {
+                    let fvk_map = self
+                        .fvk_to_account_id
+                        .lock()
+                        .map_err(|e| e.to_string())?;
+                    fvk_map.get(&viewing_key).copied()
+                };
+
+                let target_uuid = match target_uuid {
+                    Some(uuid) => uuid,
+                    None => {
+                        info!("WalletMessage::GetBalance: unknown viewing key, returning zero");
+                        let balance = paypunk_types::Balance {
+                            spendable: Amount(0),
+                            pending: Amount(0),
+                            total: Amount(0),
+                        };
+                        return postcard::to_allocvec(&balance)
+                            .map_err(|e| format!("serialize balance failed: {e}"));
+                    }
+                };
+
                 let db = self.db.lock().map_err(|e| e.to_string())?;
                 let summary = db
                     .get_wallet_summary(ConfirmationsPolicy::MIN)
                     .map_err(|e| format!("get_wallet_summary failed: {e}"))?
                     .ok_or("wallet summary not available — sync first")?;
 
-                // Sum Orchard balances across all accounts
-                let mut total_spendable: u128 = 0;
-                let mut total_pending: u128 = 0;
-                let mut total_value: u128 = 0;
-                info!("WalletMessage::GetBalance summing orchard balances...");
-                for (_account_id, acct_balance) in summary.account_balances() {
-                    let ob = acct_balance.orchard_balance();
-                    let spendable: u64 = u64::from(ob.spendable_value());
-                    let pending_change: u64 = u64::from(ob.change_pending_confirmation());
-                    let pending_spendable: u64 = u64::from(ob.value_pending_spendability());
-                    total_spendable += spendable as u128;
-                    total_pending += (pending_change + pending_spendable) as u128;
-                    total_value += (spendable + pending_change + pending_spendable) as u128;
-                }
+                let acct_balance = summary.account_balances().get(&target_uuid);
+
+                let (spendable, pending, total) = match acct_balance {
+                    Some(bal) => {
+                        let ob = bal.orchard_balance();
+                        let s: u64 = u64::from(ob.spendable_value());
+                        let pc: u64 = u64::from(ob.change_pending_confirmation());
+                        let ps: u64 = u64::from(ob.value_pending_spendability());
+                        let pending = pc + ps;
+                        (s as u128, pending as u128, (s + pending) as u128)
+                    }
+                    None => (0, 0, 0),
+                };
 
                 info!(
-                    "WalletMessage::GetBalance: spendable={}, pending={}, value={}",
-                    total_spendable, total_pending, total_value
+                    "WalletMessage::GetBalance: uuid={:?} spendable={}, pending={}, value={}",
+                    target_uuid, spendable, pending, total
                 );
 
                 let balance = paypunk_types::Balance {
-                    spendable: Amount(total_spendable),
-                    pending: Amount(total_pending),
-                    total: Amount(total_value),
+                    spendable: Amount(spendable),
+                    pending: Amount(pending),
+                    total: Amount(total),
                 };
 
                 postcard::to_allocvec(&balance)

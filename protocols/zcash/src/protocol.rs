@@ -1,4 +1,7 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use async_trait::async_trait;
 use paypunk_types::{
@@ -20,6 +23,7 @@ pub struct ZcashProtocol {
     network_type: zcash_protocol::consensus::NetworkType,
     wallet_recipient: Option<Recipient<WalletMessage>>,
     pub lightwalletd_host: Option<String>,
+    address_viewing_keys: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
 
 impl ZcashProtocol {
@@ -36,6 +40,7 @@ impl ZcashProtocol {
             network_type,
             wallet_recipient,
             lightwalletd_host,
+            address_viewing_keys: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -253,14 +258,38 @@ impl Protocol for ZcashProtocol {
 
     async fn get_balance(
         &self,
-        _address: &str,
+        address: &str,
         _asset: &str,
     ) -> Result<paypunk_types::Balance, String> {
         let wallet = self
             .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
-        let bytes = wallet.ask(WalletMessage::GetBalance).await?;
+
+        let parsed = paypunk_types::caip::AccountId::parse(address)
+            .map_err(|e| format!("invalid CAIP-10 address: {e}"))?;
+
+        let viewing_key = {
+            let map = self.address_viewing_keys.lock().map_err(|e| e.to_string())?;
+            map.get(&parsed.account_address).cloned()
+        };
+
+        let viewing_key = match viewing_key {
+            Some(vk) => vk,
+            None => {
+                return Ok(paypunk_types::Balance {
+                    spendable: paypunk_types::Amount(0),
+                    pending: paypunk_types::Amount(0),
+                    total: paypunk_types::Amount(0),
+                });
+            }
+        };
+
+        let bytes = wallet
+            .ask(WalletMessage::GetBalance {
+                viewing_key,
+            })
+            .await?;
         postcard::from_bytes(&bytes).map_err(|e| format!("deserialize balance failed: {e}"))
     }
 
@@ -470,6 +499,16 @@ impl Protocol for ZcashProtocol {
             .as_ref()
             .ok_or_else(|| "lightwalletd host not configured".to_string())?;
 
+        {
+            let mut map = self
+                .address_viewing_keys
+                .lock()
+                .map_err(|e| e.to_string())?;
+            for account in accounts.iter().filter(|a| a.protocol == ProtocolId::Zcash) {
+                map.insert(account.address.clone(), account.viewing_key.clone());
+            }
+        }
+
         for account in accounts.iter().filter(|a| a.protocol == ProtocolId::Zcash) {
             if account.viewing_key.len() != 96 {
                 return Err(format!(
@@ -490,7 +529,12 @@ impl Protocol for ZcashProtocol {
         Ok(())
     }
 
-    async fn sync_account(&self, viewing_key: &[u8], birthday_height: u64) -> Result<(), String> {
+    async fn sync_account(
+        &self,
+        viewing_key: &[u8],
+        birthday_height: u64,
+        address: &str,
+    ) -> Result<(), String> {
         let host = self
             .lightwalletd_host
             .as_ref()
@@ -501,6 +545,14 @@ impl Protocol for ZcashProtocol {
                 "expected 96-byte Orchard FVK, got {} bytes",
                 viewing_key.len(),
             ));
+        }
+
+        {
+            let mut map = self
+                .address_viewing_keys
+                .lock()
+                .map_err(|e| e.to_string())?;
+            map.insert(address.to_string(), viewing_key.to_vec());
         }
 
         let mut config = Vec::with_capacity(104 + host.len());
