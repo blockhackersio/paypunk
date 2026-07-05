@@ -64,7 +64,12 @@ $PAYPUNK restore-seed --mnemonic "$MNEMONIC" --password "$PASSWORD"
 echo "==> Unlocking wallet and deriving accounts..."
 $PAYPUNK unlock --password "$PASSWORD"
 
-# ── 6. Record sender's initial balance ──────────────────────────────────────
+# ── 6. Create recipient account ─────────────────────────────────────────────
+echo "==> Creating recipient account (account 1)..."
+$PAYPUNK create-account --protocol zcash --account-index 1 --name "Zcash Account 1" 2>&1
+echo "   Recipient account created"
+
+# ── 7. Record sender's initial balance ──────────────────────────────────────
 echo "==> Recording sender's initial balance..."
 SENDER_INITIAL=$($PAYPUNK get-balance --protocol zcash --address "$FROM" 2>&1)
 echo "   Sender: $SENDER_INITIAL"
