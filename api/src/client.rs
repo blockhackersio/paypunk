@@ -176,12 +176,6 @@ impl Client {
         self.service.get_protocol_metadata().await
     }
 
-    /// Trigger a sync for the given protocol with protocol-specific config bytes.
-    /// For Zcash: config = 96-byte FVK + 8-byte LE birthday_height + lightwalletd host string.
-    pub async fn sync(&self, protocol: ProtocolId, config: Vec<u8>) -> Result<(), String> {
-        self.service.sync(protocol, config).await
-    }
-
     /// Get the sync status for the given protocol.
     pub async fn get_sync_status(&self, protocol: ProtocolId) -> Result<SyncStatus, String> {
         self.service.get_sync_status(protocol).await

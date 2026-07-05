@@ -52,7 +52,6 @@ pub trait WalletApi {
     async fn add_address_book_entry(&self, name: String, address: String, protocol: String);
 
     // Sync
-    async fn sync(&self, protocol: &str) -> Result<(), ApiError>;
     async fn get_sync_status(&self, protocol: &str) -> SyncStatus;
 
     // History

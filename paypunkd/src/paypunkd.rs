@@ -307,15 +307,6 @@ impl Paypunkd {
         )
     }
 
-    async fn sync(&self, protocol: ProtocolId, config: Vec<u8>) -> PaypunkdResponse {
-        info!(?protocol, "handling Sync");
-        self.respond(
-            "sync",
-            usecases::sync(&self.protocols, protocol, config).await,
-            |()| PaypunkdResponse::SyncAck,
-        )
-    }
-
     async fn get_sync_status(&self, protocol: ProtocolId) -> PaypunkdResponse {
         self.respond(
             "get_sync_status",
@@ -777,7 +768,6 @@ impl Handler<IpcMessage> for Paypunkd {
                 )
                 .await
             }
-            PaypunkdRequest::Sync { protocol, config } => self.sync(protocol, config).await,
             PaypunkdRequest::GetSyncStatus { protocol } => self.get_sync_status(protocol).await,
             PaypunkdRequest::BulkDeriveAccounts {
                 encrypted_password,

@@ -118,6 +118,7 @@ pub struct WalletDbActor {
     pub target_height: AtomicU64,
     pub db_path: PathBuf,
     fvk_to_account_id: HashMap<Vec<u8>, AccountUuid>,
+    confirmations_policy: ConfirmationsPolicy,
 }
 
 impl WalletDbActor {
@@ -125,6 +126,7 @@ impl WalletDbActor {
         db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
         params: Network,
         db_path: PathBuf,
+        confirmations_policy: ConfirmationsPolicy,
     ) -> Self {
         Self {
             db,
@@ -134,6 +136,7 @@ impl WalletDbActor {
             target_height: AtomicU64::new(0),
             db_path,
             fvk_to_account_id: HashMap::new(),
+            confirmations_policy,
         }
     }
 
@@ -309,7 +312,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                 memo,
             } => {
                 // Debug: log wallet summary before proposing
-                match self.db.get_wallet_summary(ConfirmationsPolicy::MIN) {
+                match self.db.get_wallet_summary(self.confirmations_policy) {
                     Ok(Some(summary)) => {
                         for (aid, ab) in summary.account_balances() {
                             let ob = ab.orchard_balance();
@@ -368,7 +371,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                     &self.params,
                     StandardFeeRule::Zip317,
                     account_id,
-                    ConfirmationsPolicy::MIN,
+                    self.confirmations_policy,
                     &zcash_addr,
                     amount_zat,
                     memo,
@@ -455,7 +458,7 @@ impl Handler<WalletMessage> for WalletDbActor {
 
                 let summary = self
                     .db
-                    .get_wallet_summary(ConfirmationsPolicy::MIN)
+                    .get_wallet_summary(self.confirmations_policy)
                     .map_err(|e| format!("get_wallet_summary failed: {e}"))?
                     .ok_or("wallet summary not available — sync first")?;
 
@@ -636,7 +639,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                     &self.params,
                     StandardFeeRule::Zip317,
                     account_id,
-                    ConfirmationsPolicy::MIN,
+                    self.confirmations_policy,
                     &zcash_addr,
                     amount_zat,
                     memo,

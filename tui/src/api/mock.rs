@@ -474,10 +474,6 @@ impl WalletApi for MockWalletApi {
         }
     }
 
-    async fn sync(&self, _protocol: &str) -> Result<(), ApiError> {
-        Ok(())
-    }
-
     async fn get_sync_status(&self, _protocol: &str) -> SyncStatus {
         SyncStatus {
             is_syncing: false,

@@ -130,15 +130,6 @@ pub async fn approve_signature(
 
 // ── Local protocol operations ──────────────────────────────────────────────
 
-/// Trigger a chain sync for the given protocol.
-pub async fn sync(
-    protocols: &ProtocolService,
-    protocol: ProtocolId,
-    config: Vec<u8>,
-) -> Result<(), String> {
-    protocols.get(protocol)?.sync_with_config(config).await
-}
-
 /// Get the current sync status for the given protocol.
 pub async fn get_sync_status(
     protocols: &ProtocolService,

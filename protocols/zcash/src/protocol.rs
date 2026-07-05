@@ -56,6 +56,30 @@ impl ZcashProtocol {
             .parse()
             .map_err(|_| format!("invalid account index in path: {path}"))
     }
+
+    // ── Chain sync ──────────────────────────────────────────────────────────
+
+    async fn sync_via_wallet(
+        &self,
+        fvk: Vec<u8>,
+        birthday_height: u64,
+        lightwalletd_host: String,
+    ) -> Result<(), String> {
+        let wallet = self
+            .wallet_recipient
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        let bytes: Vec<u8> = wallet
+            .ask(WalletMessage::Sync {
+                fvk,
+                birthday_height,
+                lightwalletd_host,
+            })
+            .await?;
+        let _msg =
+            String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -368,37 +392,6 @@ impl Protocol for ZcashProtocol {
 
     // ── Chain sync ──────────────────────────────────────────────────────────
 
-    async fn sync_with_config(&self, config: Vec<u8>) -> Result<(), String> {
-        if config.len() < 104 {
-            return Err(format!(
-                "sync config too short: expected at least 104 bytes, got {}",
-                config.len()
-            ));
-        }
-        let fvk = config[..96].to_vec();
-        let birthday_bytes: [u8; 8] = config[96..104]
-            .try_into()
-            .map_err(|_| "invalid birthday bytes".to_string())?;
-        let birthday = u64::from_le_bytes(birthday_bytes);
-        let host = String::from_utf8(config[104..].to_vec())
-            .map_err(|_| "invalid lightwalletd host".to_string())?;
-
-        let wallet = self
-            .wallet_recipient
-            .as_ref()
-            .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet
-            .ask(WalletMessage::Sync {
-                fvk,
-                birthday_height: birthday,
-                lightwalletd_host: host,
-            })
-            .await?;
-        let _msg =
-            String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
-        Ok(())
-    }
-
     async fn get_sync_status(&self) -> Result<SyncStatus, String> {
         let wallet = self
             .wallet_recipient
@@ -518,12 +511,12 @@ impl Protocol for ZcashProtocol {
                 ));
             }
 
-            let mut config = Vec::with_capacity(104 + host.len());
-            config.extend_from_slice(&account.viewing_key);
-            config.extend_from_slice(&0u64.to_le_bytes());
-            config.extend_from_slice(host.as_bytes());
-
-            self.sync_with_config(config).await?;
+            self.sync_via_wallet(
+                account.viewing_key.clone(),
+                0, // birthday_height — default for auto-created accounts
+                host.clone(),
+            )
+            .await?;
         }
 
         Ok(())
@@ -555,12 +548,12 @@ impl Protocol for ZcashProtocol {
             map.insert(address.to_string(), viewing_key.to_vec());
         }
 
-        let mut config = Vec::with_capacity(104 + host.len());
-        config.extend_from_slice(viewing_key);
-        config.extend_from_slice(&birthday_height.to_le_bytes());
-        config.extend_from_slice(host.as_bytes());
-
-        self.sync_with_config(config).await
+        self.sync_via_wallet(
+            viewing_key.to_vec(),
+            birthday_height,
+            host.clone(),
+        )
+        .await
     }
 }
 

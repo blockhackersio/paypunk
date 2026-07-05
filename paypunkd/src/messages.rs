@@ -69,13 +69,6 @@ pub enum PaypunkdRequest {
     GetPaypunkdEncryptionKey,
     HasSeed,
     GetSupportedProtocols,
-    // Trigger a chain sync for the given protocol
-    Sync {
-        protocol: ProtocolId,
-        /// Protocol-specific sync configuration bytes.
-        /// For Zcash: 96-byte FVK + 8-byte LE birthday_height + lightwalletd host string.
-        config: Vec<u8>,
-    },
     // Poll sync status for the given protocol
     GetSyncStatus {
         protocol: ProtocolId,
@@ -207,7 +200,6 @@ pub enum PaypunkdResponse {
     AccountsBulkDerived {
         accounts: Vec<Account>,
     },
-    SyncAck,
     SyncStatusResult {
         status: SyncStatus,
     },

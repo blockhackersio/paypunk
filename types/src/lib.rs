@@ -102,11 +102,6 @@ pub trait Protocol: Send + Sync {
     fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String>;
 
     // ── Chain sync ──────────────────────────────────────────────────────────
-    /// Trigger a chain sync for the given protocol with protocol-specific config bytes.
-    async fn sync_with_config(&self, _config: Vec<u8>) -> Result<(), String> {
-        Err(format!("sync not supported for {:?}", self.protocol_id()))
-    }
-
     /// Get the current sync status.
     async fn get_sync_status(&self) -> Result<SyncStatus, String> {
         Err(format!(

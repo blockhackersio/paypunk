@@ -628,15 +628,6 @@ impl WalletApi for RealWalletApi {
             .await;
     }
 
-    async fn sync(&self, protocol: &str) -> Result<(), ApiError> {
-        let protocol_id = match protocol {
-            "Zcash" => paypunk_types::ProtocolId::Zcash,
-            "Ethereum" => paypunk_types::ProtocolId::Ethereum,
-            _ => return Err(ApiError(format!("unknown protocol: {protocol}"))),
-        };
-        self.client.sync(protocol_id, vec![]).await.map_err(ApiError)
-    }
-
     async fn get_sync_status(&self, protocol: &str) -> SyncStatus {
         let protocol_id = match protocol {
             "Zcash" => paypunk_types::ProtocolId::Zcash,

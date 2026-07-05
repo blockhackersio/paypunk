@@ -6,6 +6,7 @@ pub mod wallet_actor;
 use std::path::Path;
 
 use tactix::{Actor, Recipient, Sender};
+use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 
 pub use protocol::ZcashProtocol;
 pub use wallet_actor::{WalletDbActor, WalletMessage};
@@ -106,7 +107,7 @@ pub async fn create_protocol(
 
     let wallet_db = open_wallet_db(&zcash_db_path, params)?;
 
-    let wallet_actor = WalletDbActor::new(wallet_db, params, zcash_db_path).start();
+    let wallet_actor = WalletDbActor::new(wallet_db, params, zcash_db_path, ConfirmationsPolicy::default()).start();
     let recipient: Recipient<WalletMessage> = wallet_actor.clone().recipient();
 
     let protocol = ZcashProtocol::new(params, network_type, Some(recipient), Some(lightwalletd_host));
