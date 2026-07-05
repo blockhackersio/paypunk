@@ -293,6 +293,10 @@ impl Protocol for ZcashProtocol {
         let parsed = paypunk_types::caip::AccountId::parse(address)
             .map_err(|e| format!("invalid CAIP-10 address: {e}"))?;
 
+        // Validate the raw Zcash address format before proceeding
+        zcash_address::ZcashAddress::try_from_encoded(&parsed.account_address)
+            .map_err(|e| format!("invalid Zcash address: {e}"))?;
+
         let viewing_key = {
             let map = self.address_viewing_keys.lock().map_err(|e| e.to_string())?;
             map.get(&parsed.account_address).cloned()

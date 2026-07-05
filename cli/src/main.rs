@@ -179,6 +179,9 @@ enum Commands {
         protocol: String,
         #[arg(short, long, default_value_t = 0)]
         account: u32,
+        /// Zcash address to query (overrides --account)
+        #[arg(long)]
+        address: Option<String>,
     },
     /// Launch the terminal user interface
     Tui,
@@ -485,7 +488,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("ApproveSignature must be used interactively after SubmitIntent");
                     println!("Re-run with a Submit* command first");
                 }
-                Commands::GetBalance { protocol, account } => {
+                Commands::GetBalance {
+                    protocol,
+                    account,
+                    address,
+                } => {
                     let protocol_id = match protocol.to_lowercase().as_str() {
                         "zcash" => ProtocolId::Zcash,
                         "bitcoin" => ProtocolId::Bitcoin,
@@ -499,24 +506,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ProtocolId::Zcash => ("zcash:mainnet", "zcash:mainnet/slip44:133"),
                         _ => return Err(format!("unsupported protocol: {protocol}").into()),
                     };
-                    let expected_path = client.derivation_path(protocol_id, account);
-                    let accounts = client.list_accounts().await?;
-                    let matched = accounts.iter().find(|a| {
-                        a.protocol == protocol_id && a.derivation_path == expected_path
-                    });
-                    let address = match matched {
-                        Some(a) => format!("{}:{}", caip_chain, a.address),
+                    let address = match address {
+                        Some(raw) => format!("{}:{}", caip_chain, raw),
                         None => {
-                            return Err(format!(
-                                "account {} not found for protocol {protocol}. Create it first.",
-                                account
-                            )
-                            .into());
+                            let expected_path = client.derivation_path(protocol_id, account);
+                            let accounts = client.list_accounts().await?;
+                            let matched = accounts.iter().find(|a| {
+                                a.protocol == protocol_id && a.derivation_path == expected_path
+                            });
+                            match matched {
+                                Some(a) => format!("{}:{}", caip_chain, a.address),
+                                None => {
+                                    return Err(format!(
+                                        "account {} not found for protocol {protocol}. Create it first.",
+                                        account
+                                    )
+                                    .into());
+                                }
+                            }
                         }
                     };
                     let balance = client.get_balance(address, caip_asset.to_string()).await?;
                     println!(
-                        "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",
+                        "Balance (protocol={protocol}): spendable={}, pending={}, total={}",
                         balance.spendable.0,
                         balance.pending.0,
                         balance.total.0,
