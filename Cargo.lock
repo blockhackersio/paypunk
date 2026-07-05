@@ -5370,9 +5370,9 @@ dependencies = [
 
 [[package]]
 name = "tactix"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c70839e87fbaeca1da3fbd21988205de2c4232f223e91382194c96819330450d"
+checksum = "adfe3d73154efdf3e27ce12c6bf6e8a1dac9148248e8c5e2b7f9f83850a52132"
 dependencies = [
  "anyhow",
  "async-trait",

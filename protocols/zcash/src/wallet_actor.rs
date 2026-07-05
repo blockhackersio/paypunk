@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use rand_core::OsRng;
 use tactix::{Actor, Ctx, Handler, Message};
@@ -56,9 +55,7 @@ pub enum WalletMessage {
     /// Get the current sync status.
     GetStatus,
     /// Get the balance for a specific UFVK.
-    GetBalance {
-        viewing_key: Vec<u8>,
-    },
+    GetBalance { viewing_key: Vec<u8> },
     /// Fetch transaction history for the given account.
     GetHistory {
         account: u32,
@@ -112,15 +109,15 @@ impl BlockSource for VecBlockSource {
     }
 }
 
-/// Tactix actor wrapping `zcash_client_sqlite::WalletDb` behind a Mutex.
+/// Tactix actor wrapping `zcash_client_sqlite::WalletDb`.
 pub struct WalletDbActor {
-    pub db: Mutex<WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>>,
+    pub db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
     pub params: Network,
     pub is_syncing: AtomicBool,
     pub current_height: AtomicU64,
     pub target_height: AtomicU64,
     pub db_path: PathBuf,
-    fvk_to_account_id: Mutex<HashMap<Vec<u8>, AccountUuid>>,
+    fvk_to_account_id: HashMap<Vec<u8>, AccountUuid>,
 }
 
 impl WalletDbActor {
@@ -130,20 +127,20 @@ impl WalletDbActor {
         db_path: PathBuf,
     ) -> Self {
         Self {
-            db: Mutex::new(db),
+            db,
             params,
             is_syncing: AtomicBool::new(false),
             current_height: AtomicU64::new(0),
             target_height: AtomicU64::new(0),
             db_path,
-            fvk_to_account_id: Mutex::new(HashMap::new()),
+            fvk_to_account_id: HashMap::new(),
         }
     }
 
     /// If the wallet DB file was deleted (e.g. by `paypunk reset` while the
     /// daemon is running), reinitialize the connection so writes don't go to
     /// an orphaned inode.
-    fn ensure_db_file_exists(&self) -> Result<(), String> {
+    fn ensure_db_file_exists(&mut self) -> Result<(), String> {
         if !self.db_path.exists() {
             tracing::warn!("wallet DB file deleted, reinitializing");
             if let Some(parent) = self.db_path.parent() {
@@ -159,14 +156,13 @@ impl WalletDbActor {
             .map_err(|e| format!("failed to recreate wallet db: {e}"))?;
             zcash_client_sqlite::wallet::init::init_wallet_db(&mut new_db, None)
                 .map_err(|e| format!("failed to init wallet db: {e}"))?;
-            let mut db = self.db.lock().map_err(|e| e.to_string())?;
-            *db = new_db;
+            self.db = new_db;
         }
         Ok(())
     }
 
     async fn try_sync(
-        &self,
+        &mut self,
         fvk: Vec<u8>,
         birthday_height: u64,
         lightwalletd_host: String,
@@ -219,11 +215,10 @@ impl WalletDbActor {
 
         // Register the account in WalletDb if not already registered
         {
-            let mut db = self.db.lock().map_err(|e| e.to_string())?;
-            let account_name = format!("Zcash Account {}", self.fvk_to_account_id.lock().map_err(|e| e.to_string())?.len());
+            let account_name = format!("Zcash Account {}", self.fvk_to_account_id.len());
             let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
 
-            let account_uuid = match db.import_account_ufvk(
+            let account_uuid = match self.db.import_account_ufvk(
                 &account_name,
                 &ufvk,
                 &account_birthday,
@@ -237,7 +232,8 @@ impl WalletDbActor {
                 Err(e) => {
                     info!("sync: UFVK import skipped (already registered?): {e}");
                     // Look up the existing account by UFVK.
-                    let acct = db
+                    let acct = self
+                        .db
                         .get_account_for_ufvk(&ufvk)
                         .map_err(|e| format!("failed to query account by UFVK: {e}"))?
                         .ok_or_else(|| "account not found after import".to_string())?;
@@ -245,13 +241,8 @@ impl WalletDbActor {
                 }
             };
 
-            {
-                let mut fvk_map = self
-                    .fvk_to_account_id
-                    .lock()
-                    .map_err(|e| e.to_string())?;
-                fvk_map.insert(fvk_bytes.to_vec(), account_uuid);
-            }
+            self.fvk_to_account_id
+                .insert(fvk_bytes.to_vec(), account_uuid);
         }
 
         // Fetch compact blocks from birthday to latest
@@ -269,7 +260,7 @@ impl WalletDbActor {
         let _scan_summary = scan_cached_blocks(
             &self.params,
             &block_source,
-            &mut *self.db.lock().map_err(|e| e.to_string())?,
+            &mut self.db,
             birthday,
             &chain_state,
             block_count,
@@ -278,9 +269,9 @@ impl WalletDbActor {
 
         // Update chain tip AFTER scanning so shard state is consistent
         {
-            let mut db = self.db.lock().map_err(|e| e.to_string())?;
             info!("sync: updating chain tip to {latest:?}");
-            db.update_chain_tip(latest)
+            self.db
+                .update_chain_tip(latest)
                 .map_err(|e| format!("update_chain_tip failed: {e}"))?;
         }
 
@@ -317,10 +308,8 @@ impl Handler<WalletMessage> for WalletDbActor {
                 amount,
                 memo,
             } => {
-                let mut db = self.db.lock().map_err(|e| e.to_string())?;
-
                 // Debug: log wallet summary before proposing
-                match db.get_wallet_summary(ConfirmationsPolicy::MIN) {
+                match self.db.get_wallet_summary(ConfirmationsPolicy::MIN) {
                     Ok(Some(summary)) => {
                         for (aid, ab) in summary.account_balances() {
                             let ob = ab.orchard_balance();
@@ -347,7 +336,8 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let amount_zat = zcash_protocol::value::Zatoshis::from_u64(amount)
                     .map_err(|_| "invalid amount".to_string())?;
 
-                let account_ids = db
+                let account_ids = self
+                    .db
                     .get_account_ids()
                     .map_err(|e| format!("get_account_ids failed: {e}"))?;
                 info!(
@@ -374,7 +364,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                     Network,
                     SqliteClientError,
                 >(
-                    &mut *db,
+                    &mut self.db,
                     &self.params,
                     StandardFeeRule::Zip317,
                     account_id,
@@ -399,7 +389,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                     SqliteClientError,
                     ReceivedNoteId,
                 >(
-                    &mut *db,
+                    &mut self.db,
                     &self.params,
                     account_id,
                     OvkPolicy::Sender,
@@ -425,7 +415,8 @@ impl Handler<WalletMessage> for WalletDbActor {
 
                 match &sync_result {
                     Ok(msg) => {
-                        self.current_height.store(self.target_height.load(Ordering::SeqCst), Ordering::SeqCst);
+                        self.current_height
+                            .store(self.target_height.load(Ordering::SeqCst), Ordering::SeqCst);
                         self.is_syncing.store(false, Ordering::SeqCst);
                         Ok(msg.clone().into_bytes())
                     }
@@ -446,13 +437,7 @@ impl Handler<WalletMessage> for WalletDbActor {
             WalletMessage::GetBalance { viewing_key } => {
                 info!("WalletMessage::GetBalance received by wallet actor");
 
-                let target_uuid = {
-                    let fvk_map = self
-                        .fvk_to_account_id
-                        .lock()
-                        .map_err(|e| e.to_string())?;
-                    fvk_map.get(&viewing_key).copied()
-                };
+                let target_uuid = self.fvk_to_account_id.get(&viewing_key).copied();
 
                 let target_uuid = match target_uuid {
                     Some(uuid) => uuid,
@@ -468,8 +453,8 @@ impl Handler<WalletMessage> for WalletDbActor {
                     }
                 };
 
-                let db = self.db.lock().map_err(|e| e.to_string())?;
-                let summary = db
+                let summary = self
+                    .db
                     .get_wallet_summary(ConfirmationsPolicy::MIN)
                     .map_err(|e| format!("get_wallet_summary failed: {e}"))?
                     .ok_or("wallet summary not available — sync first")?;
@@ -616,8 +601,6 @@ impl Handler<WalletMessage> for WalletDbActor {
                 postcard::to_allocvec(&status).map_err(|e| format!("serialize status failed: {e}"))
             }
             WalletMessage::EstimateFee { to, amount, memo } => {
-                let mut db = self.db.lock().map_err(|e| e.to_string())?;
-
                 let to_addr = zcash_address::ZcashAddress::try_from_encoded(&to)
                     .map_err(|e| format!("invalid recipient address: {e}"))?;
 
@@ -628,7 +611,8 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let amount_zat = zcash_protocol::value::Zatoshis::from_u64(amount)
                     .map_err(|_| "invalid amount".to_string())?;
 
-                let account_ids = db
+                let account_ids = self
+                    .db
                     .get_account_ids()
                     .map_err(|e| format!("get_account_ids failed: {e}"))?;
                 let account_id = account_ids
@@ -648,7 +632,7 @@ impl Handler<WalletMessage> for WalletDbActor {
                     Network,
                     SqliteClientError,
                 >(
-                    &mut *db,
+                    &mut self.db,
                     &self.params,
                     StandardFeeRule::Zip317,
                     account_id,

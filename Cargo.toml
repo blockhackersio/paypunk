@@ -21,7 +21,7 @@ license = "AGPL-3.0-only"
 [workspace.dependencies]
 # Async / runtime
 tokio = "1"
-tactix = "1.0"
+tactix = "1.0.3"
 
 # Serialization
 serde = "1"
