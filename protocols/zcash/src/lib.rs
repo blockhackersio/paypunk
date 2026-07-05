@@ -38,6 +38,82 @@ fn open_wallet_db(
         .map_err(|e| format!("{e}"))?;
         zcash_client_sqlite::wallet::init::init_wallet_db(&mut db, None)
             .map_err(|e| format!("{e}"))?;
+
+        // Patch orchard shard scan range views to use a NU5 activation height of 0
+        // instead of the hardcoded testnet value (1842420). On regtest, all upgrades
+        // activate at block 1, but the zcash_protocol crate's TestNetwork has NU5 at
+        // 1842420. This causes the view's INNER JOIN condition
+        //   subtree_start_height < scan_queue.block_range_end
+        // to evaluate to 1842420 < N (where N is a small regtest height), producing
+        // zero rows and making all notes non-spendable.
+        {
+            let conn = rusqlite::Connection::open(db_path)
+                .map_err(|e| format!("failed to open db for view patch: {e}"))?;
+            conn.execute_batch(
+                "DROP VIEW IF EXISTS v_orchard_shards_scan_state;
+                 DROP VIEW IF EXISTS v_orchard_shard_unscanned_ranges;
+                 DROP VIEW IF EXISTS v_orchard_shard_scan_ranges;
+
+                 CREATE VIEW v_orchard_shard_scan_ranges AS
+                 SELECT
+                     shard.shard_index,
+                     shard.shard_index << 16 AS start_position,
+                     (shard.shard_index + 1) << 16 AS end_position_exclusive,
+                     IFNULL(prev_shard.subtree_end_height, 0) AS subtree_start_height,
+                     shard.subtree_end_height,
+                     shard.contains_marked,
+                     scan_queue.block_range_start,
+                     scan_queue.block_range_end,
+                     scan_queue.priority
+                 FROM orchard_tree_shards shard
+                 LEFT OUTER JOIN orchard_tree_shards prev_shard
+                     ON shard.shard_index = prev_shard.shard_index + 1
+                 INNER JOIN scan_queue ON (
+                     IFNULL(prev_shard.subtree_end_height, 0) < scan_queue.block_range_end AND
+                     (
+                         scan_queue.block_range_start <= shard.subtree_end_height OR
+                         shard.subtree_end_height IS NULL
+                     )
+                 );
+
+                 CREATE VIEW v_orchard_shard_unscanned_ranges AS
+                 WITH wallet_birthday AS (SELECT MIN(birthday_height) AS height FROM accounts)
+                 SELECT
+                     shard_index,
+                     start_position,
+                     end_position_exclusive,
+                     subtree_start_height,
+                     subtree_end_height,
+                     contains_marked,
+                     block_range_start,
+                     block_range_end,
+                     priority
+                 FROM v_orchard_shard_scan_ranges
+                 INNER JOIN wallet_birthday
+                 WHERE priority > 10
+                 AND block_range_end > wallet_birthday.height;
+
+                 CREATE VIEW v_orchard_shards_scan_state AS
+                 SELECT
+                     shard_index,
+                     start_position,
+                     end_position_exclusive,
+                     subtree_start_height,
+                     subtree_end_height,
+                     contains_marked,
+                     MAX(priority) AS max_priority
+                 FROM v_orchard_shard_scan_ranges
+                 GROUP BY
+                     shard_index,
+                     start_position,
+                     end_position_exclusive,
+                     subtree_start_height,
+                     subtree_end_height,
+                     contains_marked;",
+            )
+            .map_err(|e| format!("failed to patch orchard views: {e}"))?;
+        }
+
         Ok(db)
     })();
 

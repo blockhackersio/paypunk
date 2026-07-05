@@ -27,7 +27,19 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let (secret, public) = keystore.keypair();
 
     info!("connecting to keypunkd");
-    let keypunkd = IpcSender::connect(&config.keypunkd_socket).await?;
+    let keypunkd = {
+        let mut retries = 0;
+        loop {
+            match IpcSender::connect(&config.keypunkd_socket).await {
+                Ok(sender) => break sender,
+                Err(e) if retries < 30 => {
+                    retries += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    };
     let recipient = keypunkd.recipient();
 
     // Create protocols
