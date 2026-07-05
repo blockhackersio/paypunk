@@ -111,7 +111,12 @@ echo "==> Mining a block to confirm the transfer..."
 (cd support/zcash && docker compose exec -T zcashd zcash-cli -datadir=/data generate 1) >/dev/null
 echo "   Block mined"
 
-# ── 11. Query post-transfer balances ─────────────────────────────────────────
+# ── 11. Re-sync wallet to detect the incoming transaction ────────────────────
+echo "==> Re-syncing wallet after mining..."
+$PAYPUNK unlock --password "$PASSWORD" >/dev/null 2>&1 || true
+echo "   Sync complete"
+
+# ── 12. Query post-transfer balances ─────────────────────────────────────────
 echo "==> Querying post-transfer balances..."
 SENDER_FINAL=$($PAYPUNK get-balance --protocol zcash --address "$FROM" 2>&1)
 echo "   Sender: $SENDER_FINAL"

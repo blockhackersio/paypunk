@@ -9,8 +9,8 @@ use paypunk_types::{
     ProtocolId, SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
 };
 use pczt::roles::{
-    signer::Signer, spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
-    verifier::Verifier,
+    prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
+    tx_extractor::TransactionExtractor, verifier::Verifier,
 };
 use tactix::{Recipient, Sender};
 use zcash_keys::keys::UnifiedSpendingKey;
@@ -113,19 +113,20 @@ impl SignerProtocol for ZcashProtocol {
     }
 
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String> {
-        let _pczt = pczt::Pczt::parse(artifact).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+        let pczt = pczt::Pczt::parse(artifact).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+
+        let (value_sum, negative) = pczt.orchard().value_sum();
+        let fee = if *negative { 0u64 } else { *value_sum };
 
         // Extract information from the PCZT to build an ArtifactSummary
-        // For now, extract what we can from the Orchard bundle
         let to = "Zcash address (see PCZT)".to_string();
         let amount = "0".to_string();
-        let fee = "0".to_string();
         let memo = None;
 
         let summary = ArtifactSummary {
             to,
             amount,
-            fee,
+            fee: fee.to_string(),
             nonce: 0,
             memo,
             protocol: ProtocolId::Zcash,
@@ -177,6 +178,13 @@ impl ZcashProtocol {
                 Ok(())
             })
             .map_err(|e| format!("Verifier::with_orchard failed: {e:?}"))?
+            .finish();
+
+        // Generate Orchard proof before signing
+        let orchard_pk = orchard::circuit::ProvingKey::build();
+        let pczt = Prover::new(pczt)
+            .create_orchard_proof(&orchard_pk)
+            .map_err(|e| format!("Prover::create_orchard_proof failed: {e:?}"))?
             .finish();
 
         let ask = orchard::keys::SpendAuthorizingKey::from(usk.orchard());
@@ -278,6 +286,24 @@ impl Protocol for ZcashProtocol {
             .map_err(|e| format!("tx serialize failed: {e}"))?;
 
         Ok(raw_tx)
+    }
+
+    async fn store_and_finalize(&self, signed_pczt: &[u8]) -> Result<Vec<u8>, String> {
+        tracing::info!(
+            "store_and_finalize: first bytes {:?} len={}",
+            &signed_pczt[..signed_pczt.len().min(8)],
+            signed_pczt.len()
+        );
+        // Store the transaction in the wallet DB
+        if let Some(wallet) = &self.wallet_recipient {
+            wallet
+                .ask(WalletMessage::StoreTransaction {
+                    pczt_bytes: signed_pczt.to_vec(),
+                })
+                .await?;
+        }
+        // Then finalize and return raw tx bytes
+        self.finalize(signed_pczt)
     }
 
     async fn get_balance(

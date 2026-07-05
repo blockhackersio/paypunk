@@ -12,7 +12,7 @@ paypunk-types.workspace = true
 orchard.workspace = true
 async-trait.workspace = true
 zcash_address.workspace = true
-zcash_protocol.workspace = true
+zcash_protocol = { workspace = true, features = ["local-consensus"] }
 zcash_primitives = { workspace = true, features = ["transparent-inputs"] }
 zcash_keys = { workspace = true, features = ["orchard", "sapling", "transparent-inputs"] }
 zcash_proofs = { workspace = true, features = ["bundled-prover"] }

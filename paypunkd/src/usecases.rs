@@ -473,7 +473,7 @@ pub async fn broadcast_transaction(
     protocol: ProtocolId,
     raw_tx: &[u8],
 ) -> Result<String, String> {
-    let finalized = protocols.get(protocol)?.finalize(raw_tx)?;
+    let finalized = protocols.get(protocol)?.store_and_finalize(raw_tx).await?;
     protocols.get(protocol)?.broadcast(&finalized).await
 }
 

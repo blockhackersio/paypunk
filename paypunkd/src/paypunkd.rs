@@ -585,29 +585,28 @@ impl Paypunkd {
                         );
                     }
 
-                    // Create the first account for each registered protocol automatically
+                    // Create accounts for all pre-derived keys
                     for pid in self.protocols.protocols() {
                         let proto = match self.protocols.get(pid) {
                             Ok(p) => p,
                             Err(_) => continue,
                         };
-                        let path = proto.default_derivation_path(0);
-                        let account_index = 0;
-                        let name = proto.default_account_name(0);
+                        for account_index in 0..30 {
+                            let path = proto.default_derivation_path(account_index);
+                            let name = proto.default_account_name(account_index);
 
-                        let _ = usecases::create_account(
-                            &self.db,
-                            &self.protocols,
-                            self.accounts_repo.as_ref(),
-                            pid,
-                            path,
-                            account_index,
-                            name,
-                            // Does the birthday need to be associated with the seed?
-                            // Or is it better to keep a separate birthday for each account?
-                            None, // birthday_height — default for auto-created accounts
-                        )
-                        .await;
+                            let _ = usecases::create_account(
+                                &self.db,
+                                &self.protocols,
+                                self.accounts_repo.as_ref(),
+                                pid,
+                                path,
+                                account_index,
+                                name,
+                                None,
+                            )
+                            .await;
+                        }
                     }
 
                     // Re-list accounts (with viewing keys) and notify each protocol
