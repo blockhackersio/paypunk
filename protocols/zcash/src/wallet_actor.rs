@@ -278,13 +278,12 @@ impl WalletDbActor {
                 .map_err(|e| format!("update_chain_tip failed: {e}"))?;
         }
 
-        // Mark the scanned range as fully scanned in the scan queue so that
-        // notes become spendable immediately (not just on the next sync).
+        // Mark all scan queue entries in the scanned range as complete so
+        // that notes become spendable immediately (not just on the next sync).
         if let Ok(scan_conn) = rusqlite::Connection::open(&self.db_path) {
             let _ = scan_conn.execute(
                 "UPDATE scan_queue SET priority = 10 \
-                 WHERE block_range_start >= ?1 AND block_range_end <= ?2 \
-                 AND priority = 50",
+                 WHERE block_range_start >= ?1 AND block_range_end <= ?2",
                 rusqlite::params![u32::from(birthday), u32::from(latest) + 1],
             );
         }
