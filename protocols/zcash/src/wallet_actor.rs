@@ -367,17 +367,30 @@ impl Handler<WalletMessage> for WalletDbActor {
                     .db
                     .get_account_ids()
                     .map_err(|e| format!("get_account_ids failed: {e}"))?;
-                info!(
-                    "ProposeAndBuild: account_ids={:?} using account_id={:?} amount={} to={}",
-                    account_ids,
-                    account_ids.first(),
-                    amount,
-                    to,
-                );
+
+                // Find the first account with sufficient spendable balance
+                let summary = self
+                    .db
+                    .get_wallet_summary(self.confirmations_policy)
+                    .map_err(|e| format!("get_wallet_summary failed: {e}"))?
+                    .ok_or("wallet summary not available")?;
+
                 let account_id = account_ids
-                    .first()
-                    .ok_or("no accounts in wallet")?
+                    .iter()
+                    .find(|aid| {
+                        summary
+                            .account_balances()
+                            .get(aid)
+                            .map(|b| u64::from(b.orchard_balance().spendable_value()) >= amount)
+                            .unwrap_or(false)
+                    })
+                    .ok_or("no account with sufficient balance")?
                     .to_owned();
+
+                info!(
+                    "ProposeAndBuild: using account_id={:?} amount={} to={}",
+                    account_id, amount, to,
+                );
 
                 let memo = memo
                     .as_deref()

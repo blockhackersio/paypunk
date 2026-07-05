@@ -113,19 +113,20 @@ impl SignerProtocol for ZcashProtocol {
     }
 
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String> {
-        let _pczt = pczt::Pczt::parse(artifact).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+        let pczt = pczt::Pczt::parse(artifact).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+
+        let (value_sum, negative) = pczt.orchard().value_sum();
+        let fee = if *negative { 0u64 } else { *value_sum };
 
         // Extract information from the PCZT to build an ArtifactSummary
-        // For now, extract what we can from the Orchard bundle
         let to = "Zcash address (see PCZT)".to_string();
         let amount = "0".to_string();
-        let fee = "0".to_string();
         let memo = None;
 
         let summary = ArtifactSummary {
             to,
             amount,
-            fee,
+            fee: fee.to_string(),
             nonce: 0,
             memo,
             protocol: ProtocolId::Zcash,
@@ -347,15 +348,6 @@ impl Protocol for ZcashProtocol {
     }
 
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
-        // Store the transaction in the wallet DB first
-        if let Some(wallet) = &self.wallet_recipient {
-            wallet
-                .ask(WalletMessage::StoreTransaction {
-                    pczt_bytes: finalized_tx.to_vec(),
-                })
-                .await?;
-        }
-
         let host = self
             .lightwalletd_host
             .as_ref()
