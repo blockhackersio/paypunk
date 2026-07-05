@@ -77,6 +77,9 @@ pub trait Protocol: Send + Sync {
 
     // ── Transaction operations ──────────────────────────────────────────────
     async fn build(&self, intent: &Intent) -> Result<Vec<u8>, String>;
+    /// Store a signed PCZT in the wallet database and finalize it,
+    /// returning the raw transaction bytes ready for broadcast.
+    async fn store_and_finalize(&self, signed_pczt: &[u8]) -> Result<Vec<u8>, String>;
     fn finalize(&self, signed: &[u8]) -> Result<Vec<u8>, String>;
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String>;
 

@@ -103,6 +103,10 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
         Ok(out)
     }
 
+    async fn store_and_finalize(&self, signed_pczt: &[u8]) -> Result<Vec<u8>, String> {
+        self.finalize(signed_pczt)
+    }
+
     async fn get_balance(
         &self,
         address: &str,

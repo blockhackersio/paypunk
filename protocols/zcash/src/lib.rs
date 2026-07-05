@@ -178,7 +178,7 @@ pub async fn create_protocol(
         zcash_protocol::consensus::NetworkType::Regtest => ConfirmationsPolicy::MIN,
         _ => ConfirmationsPolicy::default(),
     };
-    let wallet_actor = WalletDbActor::new(wallet_db, params, zcash_db_path, confirmations).start();
+    let wallet_actor = WalletDbActor::new(wallet_db, params, network_type, zcash_db_path, confirmations).start();
     let recipient: Recipient<WalletMessage> = wallet_actor.clone().recipient();
 
     let protocol = ZcashProtocol::new(params, network_type, Some(recipient), Some(lightwalletd_host));

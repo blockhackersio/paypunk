@@ -9,8 +9,8 @@ use paypunk_types::{
     ProtocolId, SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
 };
 use pczt::roles::{
-    signer::Signer, spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor,
-    verifier::Verifier,
+    prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
+    tx_extractor::TransactionExtractor, verifier::Verifier,
 };
 use tactix::{Recipient, Sender};
 use zcash_keys::keys::UnifiedSpendingKey;
@@ -179,6 +179,13 @@ impl ZcashProtocol {
             .map_err(|e| format!("Verifier::with_orchard failed: {e:?}"))?
             .finish();
 
+        // Generate Orchard proof before signing
+        let orchard_pk = orchard::circuit::ProvingKey::build();
+        let pczt = Prover::new(pczt)
+            .create_orchard_proof(&orchard_pk)
+            .map_err(|e| format!("Prover::create_orchard_proof failed: {e:?}"))?
+            .finish();
+
         let ask = orchard::keys::SpendAuthorizingKey::from(usk.orchard());
 
         if keys.is_empty() {
@@ -280,6 +287,24 @@ impl Protocol for ZcashProtocol {
         Ok(raw_tx)
     }
 
+    async fn store_and_finalize(&self, signed_pczt: &[u8]) -> Result<Vec<u8>, String> {
+        tracing::info!(
+            "store_and_finalize: first bytes {:?} len={}",
+            &signed_pczt[..signed_pczt.len().min(8)],
+            signed_pczt.len()
+        );
+        // Store the transaction in the wallet DB
+        if let Some(wallet) = &self.wallet_recipient {
+            wallet
+                .ask(WalletMessage::StoreTransaction {
+                    pczt_bytes: signed_pczt.to_vec(),
+                })
+                .await?;
+        }
+        // Then finalize and return raw tx bytes
+        self.finalize(signed_pczt)
+    }
+
     async fn get_balance(
         &self,
         address: &str,
@@ -322,6 +347,15 @@ impl Protocol for ZcashProtocol {
     }
 
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
+        // Store the transaction in the wallet DB first
+        if let Some(wallet) = &self.wallet_recipient {
+            wallet
+                .ask(WalletMessage::StoreTransaction {
+                    pczt_bytes: finalized_tx.to_vec(),
+                })
+                .await?;
+        }
+
         let host = self
             .lightwalletd_host
             .as_ref()

@@ -13,6 +13,7 @@ use zcash_client_backend::data_api::chain::{
 };
 use zcash_client_backend::data_api::error::Error as DataApiError;
 use zcash_client_backend::data_api::wallet::create_pczt_from_proposal;
+use zcash_client_backend::data_api::wallet::extract_and_store_transaction_from_pczt;
 use zcash_client_backend::data_api::wallet::propose_standard_transfer_to_address;
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 use zcash_client_backend::data_api::{
@@ -27,7 +28,8 @@ use zcash_client_sqlite::AccountUuid;
 use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
-use zcash_protocol::consensus::{BlockHeight, Network};
+use zcash_protocol::consensus::{BlockHeight, Network, NetworkType};
+use zcash_protocol::local_consensus::LocalNetwork;
 use zcash_protocol::memo::Memo;
 use zcash_protocol::ShieldedProtocol;
 
@@ -64,6 +66,10 @@ pub enum WalletMessage {
     },
     /// Get the current block height from lightwalletd.
     GetBlockHeight { lightwalletd_host: String },
+    /// Extract and store a signed PCZT in the wallet DB, returning raw tx bytes.
+    StoreTransaction {
+        pczt_bytes: Vec<u8>,
+    },
     /// Get the status of a transaction by its txid.
     GetTxStatus { txid: String },
     /// Estimate the fee for a transfer.
@@ -113,6 +119,7 @@ impl BlockSource for VecBlockSource {
 pub struct WalletDbActor {
     pub db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
     pub params: Network,
+    pub network_type: NetworkType,
     pub is_syncing: AtomicBool,
     pub current_height: AtomicU64,
     pub target_height: AtomicU64,
@@ -125,18 +132,36 @@ impl WalletDbActor {
     pub fn new(
         db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
         params: Network,
+        network_type: NetworkType,
         db_path: PathBuf,
         confirmations_policy: ConfirmationsPolicy,
     ) -> Self {
         Self {
             db,
             params,
+            network_type,
             is_syncing: AtomicBool::new(false),
             current_height: AtomicU64::new(0),
             target_height: AtomicU64::new(0),
             db_path,
             fvk_to_account_id: HashMap::new(),
             confirmations_policy,
+        }
+    }
+
+    /// Return the appropriate consensus parameters for transaction building.
+    /// On regtest, all network upgrades activate at block 1, matching the
+    /// `zcash.conf` used by the local regtest stack.
+    fn build_params(&self) -> LocalNetwork {
+        LocalNetwork {
+            overwinter: Some(BlockHeight::from_u32(1)),
+            sapling: Some(BlockHeight::from_u32(1)),
+            blossom: Some(BlockHeight::from_u32(1)),
+            heartwood: Some(BlockHeight::from_u32(1)),
+            canopy: Some(BlockHeight::from_u32(1)),
+            nu5: Some(BlockHeight::from_u32(1)),
+            nu6: Some(BlockHeight::from_u32(1)),
+            nu6_1: Some(BlockHeight::from_u32(1)),
         }
     }
 
@@ -361,13 +386,14 @@ impl Handler<WalletMessage> for WalletDbActor {
                     .map_err(|e| format!("invalid memo: {e}"))?
                     .map(zcash_protocol::memo::MemoBytes::from);
 
+                let build_params = self.build_params();
                 let proposal = propose_standard_transfer_to_address::<
                     WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-                    Network,
+                    LocalNetwork,
                     SqliteClientError,
                 >(
                     &mut self.db,
-                    &self.params,
+                    &build_params,
                     StandardFeeRule::Zip317,
                     account_id,
                     self.confirmations_policy,
@@ -385,14 +411,14 @@ impl Handler<WalletMessage> for WalletDbActor {
 
                 let pczt = create_pczt_from_proposal::<
                     WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-                    Network,
+                    LocalNetwork,
                     SqliteClientError,
                     StandardFeeRule,
                     SqliteClientError,
                     ReceivedNoteId,
                 >(
                     &mut self.db,
-                    &self.params,
+                    &build_params,
                     account_id,
                     OvkPolicy::Sender,
                     &proposal,
@@ -578,6 +604,23 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let height_u64: u64 = height.into();
                 postcard::to_allocvec(&paypunk_types::BlockHeight(height_u64))
                     .map_err(|e| format!("serialize height failed: {e}"))
+            }
+            WalletMessage::StoreTransaction { pczt_bytes } => {
+                let pczt = pczt::Pczt::parse(&pczt_bytes)
+                    .map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+                let orchard_vk = orchard::circuit::VerifyingKey::build();
+                let txid = extract_and_store_transaction_from_pczt::<
+                    WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+                    ReceivedNoteId,
+                >(
+                    &mut self.db,
+                    pczt,
+                    None,
+                    Some(&orchard_vk),
+                )
+                .map_err(|e| format!("store transaction failed: {e}"))?;
+                let txid_hex = hex::encode(txid.as_ref());
+                Ok(txid_hex.into_bytes())
             }
             WalletMessage::GetTxStatus { txid } => {
                 let reader = rusqlite::Connection::open(&self.db_path)
