@@ -591,7 +591,7 @@ impl Paypunkd {
                             Ok(p) => p,
                             Err(_) => continue,
                         };
-                        for account_index in 0..30 {
+                        for account_index in 0..1 {
                             let path = proto.default_derivation_path(account_index);
                             let name = proto.default_account_name(account_index);
 

@@ -276,6 +276,19 @@ enum Commands {
     },
     /// Remove all wallet data (seed, database, accounts) — resets to clean state
     Reset,
+    /// List all accounts in the wallet
+    ListAccounts,
+    /// Create a new account from a pre-derived viewing key
+    CreateAccount {
+        #[arg(short, long, default_value = "zcash")]
+        protocol: String,
+        #[arg(long, default_value_t = 0)]
+        account_index: u32,
+        #[arg(short, long)]
+        name: Option<String>,
+        #[arg(long)]
+        birthday_height: Option<u64>,
+    },
     /// Unlock the wallet and derive accounts
     Unlock {
         #[arg(short, long)]
@@ -495,7 +508,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     client.restore_seed(mnemonic, password).await?;
                     println!("Seed restored successfully");
                 }
-                // TODO: Remove one of these commands the protocol should be derived from the asset type
                 Commands::SubmitTransfer {
                     to,
                     amount,
@@ -552,10 +564,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = ConfigLoader::load_or_default();
                     let data_dir = config.data_dir.clone();
                     let pending = load_pending_intent(&data_dir)?;
-                    println!(
-                        "Approving signature for {:?}...",
-                        pending.protocol
-                    );
+                    println!("Approving signature for {:?}...", pending.protocol);
                     let signed_artifact = client
                         .approve_signature(
                             &pending.raw_artifact,
@@ -613,9 +622,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let balance = client.get_balance(address, caip_asset.to_string()).await?;
                     println!(
                         "Balance (protocol={protocol}): spendable={}, pending={}, total={}",
-                        balance.spendable.0,
-                        balance.pending.0,
-                        balance.total.0,
+                        balance.spendable.0, balance.pending.0, balance.total.0,
+                    );
+                }
+                Commands::ListAccounts => {
+                    let accounts = client.list_accounts().await?;
+                    if accounts.is_empty() {
+                        println!("No accounts found.");
+                    } else {
+                        for a in &accounts {
+                            println!(
+                                "{} | {:?} | {} | {} | {}",
+                                a.id, a.protocol, a.derivation_path, a.name, a.address,
+                            );
+                        }
+                    }
+                }
+                Commands::CreateAccount {
+                    protocol,
+                    account_index,
+                    name,
+                    birthday_height,
+                } => {
+                    let protocol_id = match protocol.to_lowercase().as_str() {
+                        "zcash" => ProtocolId::Zcash,
+                        "bitcoin" => ProtocolId::Bitcoin,
+                        "ethereum" => ProtocolId::Ethereum,
+                        "monero" => ProtocolId::Monero,
+                        "solana" => ProtocolId::Solana,
+                        _ => return Err(format!("Unknown protocol: {protocol}").into()),
+                    };
+                    let path = client.derivation_path(protocol_id, account_index);
+                    let name =
+                        name.unwrap_or_else(|| format!("{protocol_id:?} Account {account_index}"));
+                    let account = client
+                        .create_account(protocol_id, path, account_index, name, birthday_height)
+                        .await?;
+                    println!(
+                        "Account created: {} | {:?} | {} | {} | {}",
+                        account.id,
+                        account.protocol,
+                        account.derivation_path,
+                        account.name,
+                        account.address,
                     );
                 }
                 Commands::Reset => unreachable!(),
