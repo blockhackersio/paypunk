@@ -74,4 +74,9 @@ if [ -z "$TOTAL" ] || [ "$TOTAL" -eq 0 ]; then
   exit 1
 fi
 
+if [ -z "$SPENDABLE" ] || [ "$SPENDABLE" -eq 0 ]; then
+  echo "!! FAIL: spendable is zero — expected non-zero spendable balance"
+  exit 1
+fi
+
 echo "==> PASS: balance = $TOTAL zatoshi (spendable=$SPENDABLE, pending=$PENDING)"
