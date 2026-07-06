@@ -23,6 +23,7 @@ pub struct ZcashProtocol {
     network_type: zcash_protocol::consensus::NetworkType,
     wallet_recipient: Option<Recipient<WalletMessage>>,
     pub lightwalletd_host: Option<String>,
+    pub zcashd_rpc_url: Option<String>,
     address_viewing_keys: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
 
@@ -34,12 +35,14 @@ impl ZcashProtocol {
         network_type: zcash_protocol::consensus::NetworkType,
         wallet_recipient: Option<Recipient<WalletMessage>>,
         lightwalletd_host: Option<String>,
+        zcashd_rpc_url: Option<String>,
     ) -> Self {
         Self {
             params,
             network_type,
             wallet_recipient,
             lightwalletd_host,
+            zcashd_rpc_url,
             address_viewing_keys: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -354,7 +357,21 @@ impl Protocol for ZcashProtocol {
             .ok_or_else(|| "lightwalletd not configured".to_string())?;
 
         let mut lsp = crate::lsp_client::LspClient::connect(host, self.params).await?;
-        lsp.broadcast_tx(finalized_tx).await
+        let result = lsp.broadcast_tx(finalized_tx).await?;
+
+        // On regtest, mine a block so the transaction is confirmed immediately.
+        if self.network_type == zcash_protocol::consensus::NetworkType::Regtest {
+            if let Some(rpc_url) = &self.zcashd_rpc_url {
+                tracing::info!("regtest: mining a block after broadcast");
+                if let Err(e) = mine_block(rpc_url).await {
+                    tracing::warn!(?e, "regtest mine_block failed (non-fatal)");
+                }
+            } else {
+                tracing::warn!("regtest detected but no zcashd_rpc_url configured, skipping block mining");
+            }
+        }
+
+        Ok(result)
     }
 
     // ── Protocol metadata ───────────────────────────────────────────────────
@@ -436,15 +453,17 @@ impl Protocol for ZcashProtocol {
             .lightwalletd_host
             .clone()
             .ok_or_else(|| "lightwalletd host not configured".to_string())?;
-        let fvk = {
+        let fvks: Vec<Vec<u8>> = {
             let keys = self
                 .address_viewing_keys
                 .lock()
                 .map_err(|e| e.to_string())?;
-            keys.values().next().cloned()
+            keys.values().cloned().collect()
         };
-        if let Some(fvk) = fvk {
-            self.sync_via_wallet(fvk, 0, host).await?;
+        for fvk in fvks {
+            if let Err(e) = self.sync_via_wallet(fvk, 0, host.clone()).await {
+                tracing::warn!(?e, "trigger_sync: account sync failed (non-fatal)");
+            }
         }
         Ok(())
     }
@@ -607,4 +626,39 @@ impl Protocol for ZcashProtocol {
 
 enum KeyRef {
     Orchard { index: usize },
+}
+
+/// Mine a single block on regtest via zcashd JSON-RPC.
+async fn mine_block(rpc_url: &str) -> Result<(), String> {
+    let body = serde_json::json!({
+        "jsonrpc": "1.0",
+        "id": "paypunk",
+        "method": "generate",
+        "params": [1],
+    });
+
+    let client = reqwest::Client::builder()
+        .build()
+        .map_err(|e| format!("failed to build reqwest client: {e}"))?;
+
+    let response = client
+        .post(rpc_url)
+        .basic_auth("zcashrpc", Some("notsecure"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("zcashd RPC call failed: {e}"))?;
+
+    let status = response.status();
+    let text: String = response
+        .text()
+        .await
+        .map_err(|e| format!("failed to read response: {e}"))?;
+
+    if !status.is_success() {
+        return Err(format!("zcashd RPC returned {status}: {text}"));
+    }
+
+    tracing::info!("regtest: block mined successfully");
+    Ok(())
 }

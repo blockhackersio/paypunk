@@ -108,6 +108,7 @@ impl TestBuilder {
                 zcash_protocol::consensus::NetworkType::Main,
                 None,
                 None,
+                None,
             )),
         );
         keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
@@ -118,6 +119,7 @@ impl TestBuilder {
         let paypunkd_zcash = ZcashProtocol::new(
             zcash_protocol::consensus::Network::MainNetwork,
             zcash_protocol::consensus::NetworkType::Main,
+            None,
             None,
             None,
         );
