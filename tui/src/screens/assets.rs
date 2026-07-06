@@ -24,11 +24,6 @@ enum AssetsFocus {
     Table,
 }
 
-struct OptimisticDeduction {
-    amount_raw: String,
-    address: String,
-}
-
 pub struct AssetsScreen {
     account: AccountInfo,
     data: Option<AssetsData>,
@@ -36,7 +31,6 @@ pub struct AssetsScreen {
     focus: AssetsFocus,
     protocol: String,
     sync_status: SyncStatus,
-    optimistic_deduction: Option<OptimisticDeduction>,
 }
 
 impl AssetsScreen {
@@ -53,7 +47,6 @@ impl AssetsScreen {
             focus: AssetsFocus::Buttons(0),
             protocol,
             sync_status: SyncStatus::default(),
-            optimistic_deduction: None,
         }
     }
 }
@@ -76,34 +69,7 @@ impl Screen for AssetsScreen {
     }
 
     async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
-        let mut data = api.get_assets(&self.account.account_id).await;
-
-        // Check for pending deduction from a send
-        if let Some((amount_raw, address)) = api.take_pending_deduction().await {
-            self.optimistic_deduction = Some(OptimisticDeduction {
-                amount_raw,
-                address,
-            });
-        } else {
-            self.optimistic_deduction = None;
-        }
-
-        // Apply optimistic deduction to balance display
-        if let Some(ref deduction) = self.optimistic_deduction {
-            for asset in &mut data.assets {
-                let parts: Vec<&str> = asset.holdings_amount.split(' ').collect();
-                if parts.len() >= 2 {
-                    let value: f64 = parts[0].parse().unwrap_or(0.0);
-                    let ticker = parts[1];
-                    let decimals = if ticker == "ZEC" { 8 } else { 18 };
-                    let divisor = 10u128.pow(decimals) as f64;
-                    let deduction_val =
-                        deduction.amount_raw.parse::<f64>().unwrap_or(0.0) / divisor;
-                    let new_val = value - deduction_val;
-                    asset.holdings_amount = format!("{:.8} {} (pending)", new_val, ticker);
-                }
-            }
-        }
+        let data = api.get_assets(&self.account.account_id).await;
 
         let items: Vec<Box<dyn Component<AssetAction>>> = data
             .assets
@@ -115,7 +81,18 @@ impl Screen for AssetsScreen {
     }
 
     async fn tick(&mut self, api: &mut dyn WalletApi) {
+        let prev = self.sync_status.is_syncing;
         self.sync_status = api.get_sync_status(&self.protocol).await;
+        if prev && !self.sync_status.is_syncing {
+            let data = api.get_assets(&self.account.account_id).await;
+            let items: Vec<Box<dyn Component<AssetAction>>> = data
+                .assets
+                .iter()
+                .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
+                .collect();
+            self.list = List::new(items).row_height(2);
+            self.data = Some(data);
+        }
     }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {

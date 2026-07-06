@@ -113,7 +113,7 @@ echo "$APPROVE_OUTPUT"
 
 # ── 10. Mine a block to confirm the transaction ──────────────────────────────
 echo "==> Mining a block to confirm the transfer..."
-(cd support/zcash && docker compose exec -T zcashd zcash-cli -datadir=/data generate 1) >/dev/null
+./scripts/mine-block.sh 1 >/dev/null
 echo "   Block mined"
 
 # ── 11. Re-sync wallet to detect the incoming transaction ────────────────────

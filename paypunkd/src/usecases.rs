@@ -474,7 +474,12 @@ pub async fn broadcast_transaction(
     raw_tx: &[u8],
 ) -> Result<String, String> {
     let finalized = protocols.get(protocol)?.store_and_finalize(raw_tx).await?;
-    protocols.get(protocol)?.broadcast(&finalized).await
+    let tx_hash = protocols.get(protocol)?.broadcast(&finalized).await?;
+    // Re-sync after broadcast so the receiving wallet picks up the incoming payment.
+    if let Err(e) = protocols.get(protocol)?.trigger_sync().await {
+        info!(?protocol, ?e, "post-broadcast sync failed (non-fatal)");
+    }
+    Ok(tx_hash)
 }
 
 /// Query the on-chain status of a transaction by its ID.

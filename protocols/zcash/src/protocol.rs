@@ -431,6 +431,24 @@ impl Protocol for ZcashProtocol {
         postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
     }
 
+    async fn trigger_sync(&self) -> Result<(), String> {
+        let host = self
+            .lightwalletd_host
+            .clone()
+            .ok_or_else(|| "lightwalletd host not configured".to_string())?;
+        let fvk = {
+            let keys = self
+                .address_viewing_keys
+                .lock()
+                .map_err(|e| e.to_string())?;
+            keys.values().next().cloned()
+        };
+        if let Some(fvk) = fvk {
+            self.sync_via_wallet(fvk, 0, host).await?;
+        }
+        Ok(())
+    }
+
     // ── Transfer operations ──────────────────────────────────────────────────
 
     async fn create_transfer(
