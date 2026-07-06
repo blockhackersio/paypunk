@@ -2,7 +2,7 @@ use super::types::*;
 use super::WalletApi;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
 use std::sync::Mutex;
 
 struct MockData {

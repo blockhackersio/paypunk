@@ -32,7 +32,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             match IpcSender::connect(&config.keypunkd_socket).await {
                 Ok(sender) => break sender,
-                Err(e) if retries < 30 => {
+                Err(_e) if retries < 30 => {
                     retries += 1;
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 }

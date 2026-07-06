@@ -178,6 +178,7 @@ impl<T: EthRpcClient> Protocol for EthereumProtocol<T> {
 }
 
 /// Encode an ERC-20 `transfer(address,uint256)` call.
+#[allow(dead_code)]
 fn encode_erc20_transfer(recipient: &Address, amount: u64) -> alloy_primitives::Bytes {
     let mut data = Vec::with_capacity(68);
     // transfer(address,uint256) selector: 0xa9059cbb
