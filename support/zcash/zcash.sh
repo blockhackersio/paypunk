@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# zcash.sh — start the regtest stack, wait for readiness, and fund an Orchard UA.
-# Leaves the node running in the background for wallet testing.
+# zcash.sh — start the regtest stack, wait for readiness, fund an Orchard UA,
+# then mine 1 block/sec until Ctrl+C.
 #
 # Edit UA below to your wallet's Orchard unified address (uregtest1...).
 set -euo pipefail
@@ -11,9 +11,11 @@ BLOCKS="${1:-120}"
 
 cleanup() {
   local rc=$?
+  echo ""
+  echo "==> Shutting down…"
+  docker compose down
   if [ $rc -ne 0 ]; then
     echo "!! zcash.sh failed (exit $rc)."
-    echo "   Run 'docker compose down' to stop containers."
   fi
 }
 trap cleanup EXIT
@@ -37,8 +39,13 @@ echo "==> Funding ${UA}…"
 ./fund.sh "$UA" "$BLOCKS"
 
 echo ""
-echo "==> Stack is up and funded."
+echo "==> Stack is up. Mining 1 block/sec (Ctrl+C to stop)…"
 echo "    zcashd RPC:      127.0.0.1:18232"
 echo "    lightwalletd:    127.0.0.1:9067 (plaintext)"
-echo "    Stop with:       docker compose down"
-echo "    Wipe + restart:  make reset && make up"
+echo ""
+
+while true; do
+  sleep 1
+  HEIGHT=$(docker compose exec -T zcashd zcash-cli -datadir=/data generate 1 | jq -r '.[0]')
+  echo "[$(date '+%H:%M:%S')] mined block ${HEIGHT}"
+done

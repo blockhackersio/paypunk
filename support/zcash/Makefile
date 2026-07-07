@@ -39,3 +39,6 @@ fund:
 # Ad-hoc CLI: make cli ARGS="getblockcount"
 cli:
 	docker compose exec -T zcashd zcash-cli -datadir=/data $(ARGS)
+
+mine:
+	./mine.sh
