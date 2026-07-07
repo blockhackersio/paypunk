@@ -45,13 +45,14 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // Create protocols
     let mut protocols = ProtocolService::new();
 
-    let zcash = paypunk_chains_zcash::create_protocol(
+    let zcash_stack = paypunk_chains_zcash::create_protocol(
         std::path::Path::new(&config.data_dir),
         config.lightwalletd_host.clone(),
         &config.zcash_network,
     )
     .await?;
-    let zcash_scan_recipient = zcash.scan_recipient();
+    let zcash = zcash_stack.protocol;
+    let zcash_scan_recipient = Some(zcash_stack.sync_recipient);
     protocols.register(Box::new(zcash));
 
     let eth_client =
@@ -74,7 +75,15 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             loop {
                 interval.tick().await;
-                let _ = scan_recipient.ask(paypunk_chains_zcash::ScanMessage::Sync).await;
+                let _ = scan_recipient.ask(paypunk_chains_zcash::Sync).await;
+                match scan_recipient.ask(paypunk_chains_zcash::Sync).await {
+                    Ok(msg) => {
+                        tracing::info!(?msg, "sync cycle completed");
+                    }
+                    Err(e) => {
+                        tracing::error!(?e, "sync cycle failed");
+                    }
+                }
             }
         });
         info!("background sync loop started (interval={interval_secs}s, scan actor)");

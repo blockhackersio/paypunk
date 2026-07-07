@@ -17,17 +17,80 @@ use tokio;
 use zcash_keys::keys::UnifiedSpendingKey;
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::scan_actor::ScanMessage;
-use crate::wallet_actor::WalletMessage;
+use crate::scan_actor::SyncNewAccount;
+use crate::wallet_actor::{
+    EstimateFee, GetBalance, GetBlockHeight, GetHistory, GetStatus, GetTxStatus,
+    ProposeAndBuild, RegisterAccount, StoreTransaction,
+};
 
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
     network_type: zcash_protocol::consensus::NetworkType,
-    wallet_recipient: Option<Arc<Recipient<WalletMessage>>>,
-    scan_recipient: Option<Arc<Recipient<ScanMessage>>>,
+    wallet_recipient: Option<Arc<dyn WalletMessageSender>>,
+    scan_recipient: Option<Arc<Recipient<SyncNewAccount>>>,
     pub lightwalletd_host: Option<String>,
     pub zcashd_rpc_url: Option<String>,
     address_viewing_keys: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+}
+
+/// Trait to abstract over sending individual wallet messages.
+/// Allows `ZcashProtocol` to hold a single `Arc<dyn WalletMessageSender>`
+/// instead of a separate recipient for each message type.
+#[async_trait]
+pub trait WalletMessageSender: Send + Sync {
+    async fn propose_and_build(&self, msg: ProposeAndBuild) -> Result<Vec<u8>, String>;
+    async fn register_account(&self, msg: RegisterAccount) -> Result<String, String>;
+    async fn get_status(&self, msg: GetStatus) -> Result<SyncStatus, String>;
+    async fn get_balance(&self, msg: GetBalance) -> Result<paypunk_types::Balance, String>;
+    async fn get_history(&self, msg: GetHistory) -> Result<Page<HistoryEntry>, String>;
+    async fn get_block_height(&self, msg: GetBlockHeight) -> Result<paypunk_types::BlockHeight, String>;
+    async fn store_transaction(&self, msg: StoreTransaction) -> Result<String, String>;
+    async fn get_tx_status(&self, msg: GetTxStatus) -> Result<TxStatus, String>;
+    async fn estimate_fee(&self, msg: EstimateFee) -> Result<u64, String>;
+}
+
+/// Concrete implementation that dispatches to individual tactix recipients.
+pub struct WalletMessageSenderImpl {
+    pub propose_and_build: Recipient<ProposeAndBuild>,
+    pub register_account: Recipient<RegisterAccount>,
+    pub get_status: Recipient<GetStatus>,
+    pub get_balance: Recipient<GetBalance>,
+    pub get_history: Recipient<GetHistory>,
+    pub get_block_height: Recipient<GetBlockHeight>,
+    pub store_transaction: Recipient<StoreTransaction>,
+    pub get_tx_status: Recipient<GetTxStatus>,
+    pub estimate_fee: Recipient<EstimateFee>,
+}
+
+#[async_trait]
+impl WalletMessageSender for WalletMessageSenderImpl {
+    async fn propose_and_build(&self, msg: ProposeAndBuild) -> Result<Vec<u8>, String> {
+        self.propose_and_build.ask(msg).await
+    }
+    async fn register_account(&self, msg: RegisterAccount) -> Result<String, String> {
+        self.register_account.ask(msg).await
+    }
+    async fn get_status(&self, msg: GetStatus) -> Result<SyncStatus, String> {
+        self.get_status.ask(msg).await
+    }
+    async fn get_balance(&self, msg: GetBalance) -> Result<paypunk_types::Balance, String> {
+        self.get_balance.ask(msg).await
+    }
+    async fn get_history(&self, msg: GetHistory) -> Result<Page<HistoryEntry>, String> {
+        self.get_history.ask(msg).await
+    }
+    async fn get_block_height(&self, msg: GetBlockHeight) -> Result<paypunk_types::BlockHeight, String> {
+        self.get_block_height.ask(msg).await
+    }
+    async fn store_transaction(&self, msg: StoreTransaction) -> Result<String, String> {
+        self.store_transaction.ask(msg).await
+    }
+    async fn get_tx_status(&self, msg: GetTxStatus) -> Result<TxStatus, String> {
+        self.get_tx_status.ask(msg).await
+    }
+    async fn estimate_fee(&self, msg: EstimateFee) -> Result<u64, String> {
+        self.estimate_fee.ask(msg).await
+    }
 }
 
 impl ZcashProtocol {
@@ -36,15 +99,15 @@ impl ZcashProtocol {
     pub fn new(
         params: zcash_protocol::consensus::Network,
         network_type: zcash_protocol::consensus::NetworkType,
-        wallet_recipient: Option<Recipient<WalletMessage>>,
-        scan_recipient: Option<Recipient<ScanMessage>>,
+        wallet_recipient: Option<Arc<dyn WalletMessageSender>>,
+        scan_recipient: Option<Recipient<SyncNewAccount>>,
         lightwalletd_host: Option<String>,
         zcashd_rpc_url: Option<String>,
     ) -> Self {
         Self {
             params,
             network_type,
-            wallet_recipient: wallet_recipient.map(Arc::new),
+            wallet_recipient,
             scan_recipient: scan_recipient.map(Arc::new),
             lightwalletd_host,
             zcashd_rpc_url,
@@ -52,11 +115,11 @@ impl ZcashProtocol {
         }
     }
 
-    pub fn wallet_recipient(&self) -> Option<Arc<Recipient<WalletMessage>>> {
+    pub fn wallet_recipient(&self) -> Option<Arc<dyn WalletMessageSender>> {
         self.wallet_recipient.clone()
     }
 
-    pub fn scan_recipient(&self) -> Option<Arc<Recipient<ScanMessage>>> {
+    pub fn scan_recipient(&self) -> Option<Arc<Recipient<SyncNewAccount>>> {
         self.scan_recipient.clone()
     }
 
@@ -243,7 +306,7 @@ impl Protocol for ZcashProtocol {
                 let amount_zat = (amount_f64 * 100_000_000.0) as u64;
 
                 wallet
-                    .ask(WalletMessage::ProposeAndBuild {
+                    .propose_and_build(ProposeAndBuild {
                         public_key: vec![],
                         account,
                         to: to.clone(),
@@ -289,7 +352,7 @@ impl Protocol for ZcashProtocol {
         // Store the transaction in the wallet DB
         if let Some(wallet) = &self.wallet_recipient {
             wallet
-                .ask(WalletMessage::StoreTransaction {
+                .store_transaction(StoreTransaction {
                     pczt_bytes: signed_pczt.to_vec(),
                 })
                 .await?;
@@ -331,12 +394,12 @@ impl Protocol for ZcashProtocol {
             }
         };
 
-        let bytes = wallet
-            .ask(WalletMessage::GetBalance {
+        let balance = wallet
+            .get_balance(GetBalance {
                 viewing_key,
             })
             .await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize balance failed: {e}"))
+        Ok(balance)
     }
 
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
@@ -433,8 +496,8 @@ impl Protocol for ZcashProtocol {
             .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes = wallet.ask(WalletMessage::GetStatus).await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
+        let status = wallet.get_status(GetStatus).await?;
+        Ok(status)
     }
 
     // ── Transfer operations ──────────────────────────────────────────────────
@@ -451,7 +514,7 @@ impl Protocol for ZcashProtocol {
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
         wallet
-            .ask(WalletMessage::ProposeAndBuild {
+            .propose_and_build(ProposeAndBuild {
                 public_key: vec![],
                 account,
                 to,
@@ -471,10 +534,10 @@ impl Protocol for ZcashProtocol {
             .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet
-            .ask(WalletMessage::EstimateFee { to, amount, memo })
+        let fee: u64 = wallet
+            .estimate_fee(EstimateFee { to, amount, memo })
             .await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize fee failed: {e}"))
+        Ok(fee)
     }
 
     // ── History & status ────────────────────────────────────────────────────
@@ -489,14 +552,14 @@ impl Protocol for ZcashProtocol {
             .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet
-            .ask(WalletMessage::GetHistory {
+        let page: Page<HistoryEntry> = wallet
+            .get_history(GetHistory {
                 account,
                 cursor,
                 limit,
             })
             .await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize history failed: {e}"))
+        Ok(page)
     }
 
     async fn get_transaction_status(&self, txid: String) -> Result<TxStatus, String> {
@@ -504,8 +567,8 @@ impl Protocol for ZcashProtocol {
             .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet.ask(WalletMessage::GetTxStatus { txid }).await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
+        let status: TxStatus = wallet.get_tx_status(GetTxStatus { txid }).await?;
+        Ok(status)
     }
 
     async fn get_current_block_height(
@@ -516,10 +579,10 @@ impl Protocol for ZcashProtocol {
             .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet
-            .ask(WalletMessage::GetBlockHeight { lightwalletd_host })
+        let height: paypunk_types::BlockHeight = wallet
+            .get_block_height(GetBlockHeight { lightwalletd_host })
             .await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize height failed: {e}"))
+        Ok(height)
     }
 
     async fn sync_account(
@@ -548,8 +611,8 @@ impl Protocol for ZcashProtocol {
             .wallet_recipient
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let _bytes: Vec<u8> = wallet
-            .ask(WalletMessage::RegisterAccount {
+        let _ = wallet
+            .register_account(RegisterAccount {
                 fvk: viewing_key.to_vec(),
                 birthday_height,
             })
@@ -559,7 +622,7 @@ impl Protocol for ZcashProtocol {
         if let Some(scan) = &self.scan_recipient {
             let scan = scan.clone();
             tokio::spawn(async move {
-                let _ = scan.ask(ScanMessage::SyncNewAccount { birthday_height }).await;
+                let _ = scan.ask(SyncNewAccount { birthday_height }).await;
             });
         }
 

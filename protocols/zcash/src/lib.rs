@@ -5,14 +5,18 @@ pub mod scan_actor;
 pub mod wallet_actor;
 
 use std::path::Path;
+use std::sync::Arc;
 
 use tactix::{Actor, Recipient, Sender};
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 use zcash_protocol::consensus::NetworkType;
 
 pub use protocol::ZcashProtocol;
-pub use scan_actor::ScanMessage;
-pub use wallet_actor::{WalletDbActor, WalletMessage};
+pub use scan_actor::{Sync, SyncNewAccount};
+pub use wallet_actor::{
+    EstimateFee, GetBalance, GetBlockHeight, GetChainTip, GetHistory, GetStatus, GetTxStatus,
+    ProposeAndBuild, RegisterAccount, ScanBlocks, ScanUpdate, StoreTransaction, WalletDbActor,
+};
 
 /// Patch the orchard shard scan range views for regtest, where all upgrades activate
 /// at block 1 but the zcash_protocol crate's TestNetwork has NU5 at 1842420.
@@ -138,13 +142,20 @@ fn open_wallet_db(
     }
 }
 
+/// Result of creating a fully-initialized Zcash protocol stack.
+pub struct ZcashStack {
+    pub protocol: ZcashProtocol,
+    /// Recipient for `Sync` messages (used by the background sync loop in paypunkd).
+    pub sync_recipient: Recipient<Sync>,
+}
+
 /// Create a fully-initialized Zcash protocol with a running WalletDbActor
 /// and ScanActor.
 pub async fn create_protocol(
     data_dir: &Path,
     lightwalletd_host: String,
     zcash_network: &str,
-) -> Result<ZcashProtocol, String> {
+) -> Result<ZcashStack, String> {
     let (params, network_type) = match zcash_network.to_lowercase().as_str() {
         "mainnet" => (
             zcash_protocol::consensus::Network::MainNetwork,
@@ -192,32 +203,56 @@ pub async fn create_protocol(
         lightwalletd_host.clone(),
     )
     .start();
-    let wallet_recipient: Recipient<WalletMessage> = wallet_actor.clone().recipient();
 
-    // Open a second WalletDb connection for the scan actor
-    let scan_db = open_wallet_db(&zcash_db_path, params, network_type)?;
+    // Create typed recipients for each message type
+    let propose_and_build: Recipient<ProposeAndBuild> = wallet_actor.clone().recipient();
+    let register_account: Recipient<RegisterAccount> = wallet_actor.clone().recipient();
+    let get_status: Recipient<GetStatus> = wallet_actor.clone().recipient();
+    let get_balance: Recipient<GetBalance> = wallet_actor.clone().recipient();
+    let get_history: Recipient<GetHistory> = wallet_actor.clone().recipient();
+    let get_block_height: Recipient<GetBlockHeight> = wallet_actor.clone().recipient();
+    let store_transaction: Recipient<StoreTransaction> = wallet_actor.clone().recipient();
+    let get_tx_status: Recipient<GetTxStatus> = wallet_actor.clone().recipient();
+    let estimate_fee: Recipient<EstimateFee> = wallet_actor.clone().recipient();
+    let get_chain_tip: Recipient<GetChainTip> = wallet_actor.clone().recipient();
+    let scan_blocks: Recipient<ScanBlocks> = wallet_actor.clone().recipient();
 
-    // Start the scan actor (handles chain scanning independently)
+    let wallet_sender = Arc::new(protocol::WalletMessageSenderImpl {
+        propose_and_build,
+        register_account,
+        get_status,
+        get_balance,
+        get_history,
+        get_block_height,
+        store_transaction,
+        get_tx_status,
+        estimate_fee,
+    });
+
+    // Start the scan actor (fetches blocks, delegates DB writes to WalletDbActor)
     let scan_actor = scan_actor::ScanActor::new(
-        scan_db,
         params,
-        zcash_db_path,
         lightwalletd_host.clone(),
-        wallet_recipient.clone(),
+        get_chain_tip,
+        scan_blocks,
     )
     .start();
-    let scan_recipient: Recipient<ScanMessage> = scan_actor.clone().recipient();
+    let scan_sync_recipient: Recipient<Sync> = scan_actor.clone().recipient();
+    let scan_recipient: Recipient<SyncNewAccount> = scan_actor.clone().recipient();
 
     let protocol = ZcashProtocol::new(
         params,
         network_type,
-        Some(wallet_recipient),
+        Some(wallet_sender),
         Some(scan_recipient),
         Some(lightwalletd_host),
         Some("http://127.0.0.1:18232".to_string()),
     );
 
-    Ok(protocol)
+    Ok(ZcashStack {
+        protocol,
+        sync_recipient: scan_sync_recipient,
+    })
 }
 
 /// Return the standard Zcash derivation path for a given account index.
