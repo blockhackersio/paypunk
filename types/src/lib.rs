@@ -113,12 +113,6 @@ pub trait Protocol: Send + Sync {
         ))
     }
 
-    /// Trigger a chain re-sync (e.g. after broadcasting a transaction).
-    /// Default implementation is a no-op.
-    async fn trigger_sync(&self) -> Result<(), String> {
-        Ok(())
-    }
-
     // ── Transfer operations ──────────────────────────────────────────────────
     /// Create a transfer for the given account.
     async fn create_transfer(
@@ -176,13 +170,6 @@ pub trait Protocol: Send + Sync {
             "get_current_block_height not supported for {:?}",
             self.protocol_id()
         ))
-    }
-
-    // ── Lifecycle hooks ───────────────────────────────────────────────────────
-    /// Called after the wallet is unlocked and accounts are available.
-    /// Protocols can use this to trigger sync, fetch data, etc.
-    async fn start_background_sync(&self, _accounts: &[Account]) -> Result<(), String> {
-        Ok(())
     }
 
     /// Register a newly created account and sync it.

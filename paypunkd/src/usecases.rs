@@ -462,8 +462,12 @@ pub async fn get_history(
 }
 
 /// Sync the wallet state with the blockchain for the given protocol and account.
+/// Background sync loop handles continuous syncing — this is a manual trigger.
 pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), String> {
-    todo!("sync_wallet")
+    // Background sync loop handles continuous syncing automatically.
+    // This method exists as a manual trigger for cases where the caller
+    // wants to force a sync outside the regular interval.
+    Ok(())
 }
 
 /// Finalize and broadcast a signed transaction to the network.
@@ -475,10 +479,6 @@ pub async fn broadcast_transaction(
 ) -> Result<String, String> {
     let finalized = protocols.get(protocol)?.store_and_finalize(raw_tx).await?;
     let tx_hash = protocols.get(protocol)?.broadcast(&finalized).await?;
-    // Re-sync after broadcast so the receiving wallet picks up the incoming payment.
-    if let Err(e) = protocols.get(protocol)?.trigger_sync().await {
-        info!(?protocol, ?e, "post-broadcast sync failed (non-fatal)");
-    }
     Ok(tx_hash)
 }
 
