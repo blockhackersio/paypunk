@@ -2,25 +2,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
 
 use rand_core::OsRng;
 use tactix::{Actor, Ctx, Handler, Message};
 use tracing::info;
 use zcash_address::unified::{Encoding, Fvk, Ufvk};
-use zcash_client_backend::data_api::chain::{
-    error::Error as ChainError, scan_cached_blocks, BlockSource,
-};
 use zcash_client_backend::data_api::error::Error as DataApiError;
 use zcash_client_backend::data_api::wallet::create_pczt_from_proposal;
 use zcash_client_backend::data_api::wallet::extract_and_store_transaction_from_pczt;
 use zcash_client_backend::data_api::wallet::propose_standard_transfer_to_address;
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 use zcash_client_backend::data_api::{
-    Account, AccountBirthday, AccountPurpose, WalletRead, WalletWrite,
+    AccountBirthday, AccountPurpose, WalletRead, WalletWrite,
 };
 use zcash_client_backend::fees::StandardFeeRule;
-use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_sqlite::error::SqliteClientError;
 use zcash_client_sqlite::util::SystemClock;
@@ -48,16 +43,13 @@ pub enum WalletMessage {
         amount: u64,
         memo: Option<String>,
     },
-    /// Register a new account (parse FVK, get tree state, import into WalletDb,
-    /// store in self.accounts, and do initial full sync from birthday to tip).
+    /// Register a new account (parse FVK, get tree state, import into WalletDb).
+    /// Scanning is delegated to the ScanActor.
     RegisterAccount {
         fvk: Vec<u8>,
         birthday_height: u64,
     },
-    /// Incremental sync from current chain tip using stored accounts.
-    /// No-op if no accounts registered.
-    Sync,
-    /// Get the current sync status.
+    /// Get the current sync status (updated by ScanActor via ScanUpdate).
     GetStatus,
     /// Get the balance for a specific UFVK.
     GetBalance { viewing_key: Vec<u8> },
@@ -81,51 +73,22 @@ pub enum WalletMessage {
         amount: u64,
         memo: Option<String>,
     },
-}
-
-/// In-memory block source holding pre-fetched compact blocks.
-struct VecBlockSource {
-    blocks: Arc<Vec<CompactBlock>>,
-}
-
-impl BlockSource for VecBlockSource {
-    type Error = String;
-
-    fn with_blocks<F, WalletErrT>(
-        &self,
-        from_height: Option<BlockHeight>,
-        limit: Option<usize>,
-        mut with_block: F,
-    ) -> Result<(), ChainError<WalletErrT, Self::Error>>
-    where
-        F: FnMut(CompactBlock) -> Result<(), ChainError<WalletErrT, Self::Error>>,
-    {
-        let from = from_height.map(u64::from).unwrap_or(0);
-        let limit = limit.unwrap_or(usize::MAX);
-        let mut count = 0;
-        for block in self.blocks.iter() {
-            let h = block.height;
-            if h >= from && count < limit {
-                with_block(block.clone()).map_err(|e| match e {
-                    ChainError::Wallet(e) => ChainError::Wallet(e),
-                    ChainError::BlockSource(e) => ChainError::BlockSource(e),
-                    ChainError::Scan(e) => ChainError::Scan(e),
-                })?;
-                count += 1;
-            }
-        }
-        Ok(())
-    }
+    /// Update sync status from the ScanActor (fire-and-forget).
+    ScanUpdate(SyncStatus),
 }
 
 /// Tactix actor wrapping `zcash_client_sqlite::WalletDb`.
+///
+/// Handles non-scan operations: balance queries, transfer building, history.
+/// Chain scanning is delegated to `ScanActor` so that the wallet remains
+/// responsive during long sync operations.
 pub struct WalletDbActor {
     pub db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
     pub params: Network,
     pub network_type: NetworkType,
-    pub is_syncing: AtomicBool,
     pub current_height: AtomicU64,
     pub target_height: AtomicU64,
+    pub is_syncing: AtomicBool,
     pub db_path: PathBuf,
     fvk_to_account_id: HashMap<Vec<u8>, AccountUuid>,
     confirmations_policy: ConfirmationsPolicy,
@@ -205,14 +168,6 @@ impl WalletDbActor {
         // If the DB file was deleted out from under us, reinitialize first.
         self.ensure_db_file_exists()?;
 
-        info!("register_account: connecting to lightwalletd at {}", self.lightwalletd_host);
-        let mut lsp = LspClient::connect(&self.lightwalletd_host, self.params).await?;
-        info!("register_account: connected, getting latest height");
-        let latest = lsp.get_latest_height().await?;
-        let latest_u64: u64 = latest.into();
-        self.target_height.store(latest_u64, Ordering::SeqCst);
-        info!("register_account: latest height = {latest_u64}");
-
         let birthday = if birthday_height == 0 {
             info!("register_account: birthday_height is 0, defaulting to block 2");
             BlockHeight::from_u32(2)
@@ -233,12 +188,14 @@ impl WalletDbActor {
         let ufvk = UnifiedFullViewingKey::parse(&ufvk_container)
             .map_err(|e| format!("failed to parse UFVK: {e}"))?;
 
+        // Fetch tree state at birthday-1 for the account birthday
+        info!("register_account: getting tree state from lightwalletd");
+        let mut lsp = LspClient::connect(&self.lightwalletd_host, self.params).await?;
         let prev_height = if birthday > BlockHeight::from_u32(0) {
             birthday - 1
         } else {
             birthday
         };
-        info!("register_account: getting tree state at height {prev_height:?}");
         let tree_state = lsp.get_tree_state(prev_height).await?;
         let chain_state = tree_state
             .to_chain_state()
@@ -246,7 +203,7 @@ impl WalletDbActor {
 
         {
             let account_name = format!("Zcash Account {}", self.fvk_to_account_id.len());
-            let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
+            let account_birthday = AccountBirthday::from_parts(chain_state, None);
 
             let account_uuid = match self.db.import_account_ufvk(
                 &account_name,
@@ -277,134 +234,11 @@ impl WalletDbActor {
         // Store account for incremental sync (use adjusted birthday, not raw input)
         self.accounts.push((fvk_bytes.to_vec(), u64::from(birthday)));
 
-        // Do initial full sync from birthday to tip
-        info!("register_account: fetching blocks from {birthday:?} to {latest:?}");
-        let blocks = lsp.get_block_range(birthday, latest).await?;
-        let block_count = blocks.len();
-        info!("register_account: fetched {block_count} blocks");
-
-        let block_source = VecBlockSource {
-            blocks: Arc::new(blocks),
-        };
-
-        info!("register_account: scanning {block_count} blocks");
-        let _scan_summary = scan_cached_blocks(
-            &self.params,
-            &block_source,
-            &mut self.db,
-            birthday,
-            &chain_state,
-            block_count,
-        )
-        .map_err(|e| format!("scan_cached_blocks failed: {e}"))?;
-
-        {
-            info!("register_account: updating chain tip to {latest:?}");
-            self.db
-                .update_chain_tip(latest)
-                .map_err(|e| format!("update_chain_tip failed: {e}"))?;
-        }
-
-        info!("register_account: scan complete");
+        info!("register_account: FVK imported, scanning delegated to ScanActor");
         let msg = format!(
-            "registered account, synced from block {} to {}",
+            "registered account with birthday at block {}",
             u64::from(birthday),
-            latest_u64
         );
-        Ok(msg)
-    }
-
-    async fn sync_from_tip(&mut self) -> Result<String, String> {
-        if self.accounts.is_empty() {
-            return Ok("no accounts registered, skipping sync".to_string());
-        }
-
-        self.ensure_db_file_exists()?;
-
-        info!("sync_from_tip: connecting to lightwalletd at {}", self.lightwalletd_host);
-        let mut lsp = LspClient::connect(&self.lightwalletd_host, self.params).await?;
-        let latest = lsp.get_latest_height().await?;
-        let latest_u64: u64 = latest.into();
-        self.target_height.store(latest_u64, Ordering::SeqCst);
-        info!("sync_from_tip: latest height = {latest_u64}");
-
-        // Get current chain tip from wallet DB
-        let chain_tip = self
-            .db
-            .chain_height()
-            .map_err(|e| format!("chain_height failed: {e}"))?;
-
-        let from_height = match chain_tip {
-            Some(tip) => {
-                // Start from the next block after the current tip
-                let next = tip + 1;
-                info!("sync_from_tip: current chain tip is {tip:?}, fetching from {next:?}");
-                next
-            }
-            None => {
-                info!("sync_from_tip: no chain tip, nothing to sync");
-                self.current_height.store(latest_u64, Ordering::SeqCst);
-                return Ok("no chain tip, nothing to sync".to_string());
-            }
-        };
-
-        if from_height > latest {
-            info!("sync_from_tip: already at tip (height={latest_u64})");
-            self.current_height.store(latest_u64, Ordering::SeqCst);
-            return Ok(format!("already at tip (height={latest_u64})"));
-        }
-
-        // Fetch blocks from from_height to latest
-        info!("sync_from_tip: fetching blocks from {from_height:?} to {latest:?}");
-        let blocks = lsp.get_block_range(from_height, latest).await?;
-        let block_count = blocks.len();
-        info!("sync_from_tip: fetched {block_count} blocks");
-
-        if block_count == 0 {
-            self.current_height.store(latest_u64, Ordering::SeqCst);
-            return Ok("no new blocks".to_string());
-        }
-
-        let block_source = VecBlockSource {
-            blocks: Arc::new(blocks),
-        };
-
-        // Scan from where we left off
-        let scan_start = from_height;
-
-        // Get tree state at from_height - 1
-        let prev_height = if from_height > BlockHeight::from_u32(0) {
-            from_height - 1
-        } else {
-            from_height
-        };
-        let tree_state = lsp.get_tree_state(prev_height).await?;
-        let chain_state = tree_state
-            .to_chain_state()
-            .map_err(|e| format!("invalid tree state: {e}"))?;
-
-        info!("sync_from_tip: scanning {block_count} blocks");
-        let _scan_summary = scan_cached_blocks(
-            &self.params,
-            &block_source,
-            &mut self.db,
-            scan_start,
-            &chain_state,
-            block_count,
-        )
-        .map_err(|e| format!("scan_cached_blocks failed: {e}"))?;
-
-        {
-            info!("sync_from_tip: updating chain tip to {latest:?}");
-            self.db
-                .update_chain_tip(latest)
-                .map_err(|e| format!("update_chain_tip failed: {e}"))?;
-        }
-
-        self.current_height.store(latest_u64, Ordering::SeqCst);
-        info!("sync_from_tip: scan complete");
-
-        let msg = format!("synced to block {}", latest_u64);
         Ok(msg)
     }
 }
@@ -552,50 +386,10 @@ impl Handler<WalletMessage> for WalletDbActor {
                 fvk,
                 birthday_height,
             } => {
-                if self.is_syncing.load(Ordering::SeqCst) {
-                    return Err("sync already in progress".to_string());
-                }
-
-                self.is_syncing.store(true, Ordering::SeqCst);
-                self.current_height.store(0, Ordering::SeqCst);
-
-                let sync_result = self.register_account(fvk, birthday_height).await;
-
-                match &sync_result {
-                    Ok(msg) => {
-                        self.current_height
-                            .store(self.target_height.load(Ordering::SeqCst), Ordering::SeqCst);
-                        self.is_syncing.store(false, Ordering::SeqCst);
-                        Ok(msg.clone().into_bytes())
-                    }
-                    Err(e) => {
-                        self.is_syncing.store(false, Ordering::SeqCst);
-                        Err(e.clone())
-                    }
-                }
-            }
-            WalletMessage::Sync => {
-                if self.is_syncing.load(Ordering::SeqCst) {
-                    return Err("sync already in progress".to_string());
-                }
-
-                if self.accounts.is_empty() {
-                    return Ok("no accounts registered".to_string().into_bytes());
-                }
-
-                self.is_syncing.store(true, Ordering::SeqCst);
-
-                let sync_result = self.sync_from_tip().await;
-
-                match &sync_result {
-                    Ok(msg) => {
-                        self.is_syncing.store(false, Ordering::SeqCst);
-                        Ok(msg.clone().into_bytes())
-                    }
-                    Err(e) => {
-                        self.is_syncing.store(false, Ordering::SeqCst);
-                        Err(e.clone())
-                    }
+                let result = self.register_account(fvk, birthday_height).await;
+                match result {
+                    Ok(msg) => Ok(msg.into_bytes()),
+                    Err(e) => Err(e),
                 }
             }
             WalletMessage::GetStatus => {
@@ -605,6 +399,12 @@ impl Handler<WalletMessage> for WalletDbActor {
                     target_height: self.target_height.load(Ordering::SeqCst),
                 };
                 postcard::to_allocvec(&status).map_err(|e| format!("serialize status failed: {e}"))
+            }
+            WalletMessage::ScanUpdate(status) => {
+                self.is_syncing.store(status.is_syncing, Ordering::SeqCst);
+                self.current_height.store(status.current_height, Ordering::SeqCst);
+                self.target_height.store(status.target_height, Ordering::SeqCst);
+                Ok("ok".to_string().into_bytes())
             }
             WalletMessage::GetBalance { viewing_key } => {
                 info!("WalletMessage::GetBalance received by wallet actor");

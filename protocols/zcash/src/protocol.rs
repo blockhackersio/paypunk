@@ -13,15 +13,18 @@ use pczt::roles::{
     tx_extractor::TransactionExtractor, verifier::Verifier,
 };
 use tactix::{Recipient, Sender};
+use tokio;
 use zcash_keys::keys::UnifiedSpendingKey;
 use zip32::fingerprint::SeedFingerprint;
 
+use crate::scan_actor::ScanMessage;
 use crate::wallet_actor::WalletMessage;
 
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
     network_type: zcash_protocol::consensus::NetworkType,
     wallet_recipient: Option<Arc<Recipient<WalletMessage>>>,
+    scan_recipient: Option<Arc<Recipient<ScanMessage>>>,
     pub lightwalletd_host: Option<String>,
     pub zcashd_rpc_url: Option<String>,
     address_viewing_keys: Arc<Mutex<HashMap<String, Vec<u8>>>>,
@@ -34,6 +37,7 @@ impl ZcashProtocol {
         params: zcash_protocol::consensus::Network,
         network_type: zcash_protocol::consensus::NetworkType,
         wallet_recipient: Option<Recipient<WalletMessage>>,
+        scan_recipient: Option<Recipient<ScanMessage>>,
         lightwalletd_host: Option<String>,
         zcashd_rpc_url: Option<String>,
     ) -> Self {
@@ -41,6 +45,7 @@ impl ZcashProtocol {
             params,
             network_type,
             wallet_recipient: wallet_recipient.map(Arc::new),
+            scan_recipient: scan_recipient.map(Arc::new),
             lightwalletd_host,
             zcashd_rpc_url,
             address_viewing_keys: Arc::new(Mutex::new(HashMap::new())),
@@ -49,6 +54,10 @@ impl ZcashProtocol {
 
     pub fn wallet_recipient(&self) -> Option<Arc<Recipient<WalletMessage>>> {
         self.wallet_recipient.clone()
+    }
+
+    pub fn scan_recipient(&self) -> Option<Arc<Recipient<ScanMessage>>> {
+        self.scan_recipient.clone()
     }
 
     /// Extract the account index from a BIP44-style derivation path.
@@ -534,6 +543,7 @@ impl Protocol for ZcashProtocol {
             map.insert(address.to_string(), viewing_key.to_vec());
         }
 
+        // Import FVK into the wallet DB (fast, non-blocking)
         let wallet = self
             .wallet_recipient
             .as_ref()
@@ -544,6 +554,15 @@ impl Protocol for ZcashProtocol {
                 birthday_height,
             })
             .await?;
+
+        // Trigger initial scan in the background (non-blocking for the caller)
+        if let Some(scan) = &self.scan_recipient {
+            let scan = scan.clone();
+            tokio::spawn(async move {
+                let _ = scan.ask(ScanMessage::SyncNewAccount { birthday_height }).await;
+            });
+        }
+
         Ok(())
     }
 }

@@ -51,7 +51,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         &config.zcash_network,
     )
     .await?;
-    let zcash_recipient = zcash.wallet_recipient();
+    let zcash_scan_recipient = zcash.scan_recipient();
     protocols.register(Box::new(zcash));
 
     let eth_client =
@@ -66,17 +66,18 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let paypunkd = Paypunkd::new(recipient, protocols, db, keystore).start();
 
-    // Background sync loop
-    if let Some(recipient) = zcash_recipient {
+    // Background sync loop — sends to ScanActor so scanning doesn't block
+    // the WalletDbActor from handling other requests.
+    if let Some(scan_recipient) = zcash_scan_recipient {
         let interval_secs = 10u64;
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             loop {
                 interval.tick().await;
-                let _ = recipient.ask(paypunk_chains_zcash::WalletMessage::Sync).await;
+                let _ = scan_recipient.ask(paypunk_chains_zcash::ScanMessage::Sync).await;
             }
         });
-        info!("background sync loop started (interval={interval_secs}s)");
+        info!("background sync loop started (interval={interval_secs}s, scan actor)");
     }
 
     let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;

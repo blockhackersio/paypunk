@@ -1,6 +1,7 @@
 pub mod address;
 pub mod lsp_client;
 pub mod protocol;
+pub mod scan_actor;
 pub mod wallet_actor;
 
 use std::path::Path;
@@ -10,6 +11,7 @@ use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 use zcash_protocol::consensus::NetworkType;
 
 pub use protocol::ZcashProtocol;
+pub use scan_actor::ScanMessage;
 pub use wallet_actor::{WalletDbActor, WalletMessage};
 
 /// Patch the orchard shard scan range views for regtest, where all upgrades activate
@@ -136,7 +138,8 @@ fn open_wallet_db(
     }
 }
 
-/// Create a fully-initialized Zcash protocol with a running WalletDbActor.
+/// Create a fully-initialized Zcash protocol with a running WalletDbActor
+/// and ScanActor.
 pub async fn create_protocol(
     data_dir: &Path,
     lightwalletd_host: String,
@@ -178,13 +181,38 @@ pub async fn create_protocol(
         zcash_protocol::consensus::NetworkType::Regtest => ConfirmationsPolicy::MIN,
         _ => ConfirmationsPolicy::default(),
     };
-    let wallet_actor = WalletDbActor::new(wallet_db, params, network_type, zcash_db_path, confirmations, lightwalletd_host.clone()).start();
-    let recipient: Recipient<WalletMessage> = wallet_actor.clone().recipient();
+
+    // Start the wallet actor (handles non-scan operations)
+    let wallet_actor = WalletDbActor::new(
+        wallet_db,
+        params,
+        network_type,
+        zcash_db_path.clone(),
+        confirmations,
+        lightwalletd_host.clone(),
+    )
+    .start();
+    let wallet_recipient: Recipient<WalletMessage> = wallet_actor.clone().recipient();
+
+    // Open a second WalletDb connection for the scan actor
+    let scan_db = open_wallet_db(&zcash_db_path, params, network_type)?;
+
+    // Start the scan actor (handles chain scanning independently)
+    let scan_actor = scan_actor::ScanActor::new(
+        scan_db,
+        params,
+        zcash_db_path,
+        lightwalletd_host.clone(),
+        wallet_recipient.clone(),
+    )
+    .start();
+    let scan_recipient: Recipient<ScanMessage> = scan_actor.clone().recipient();
 
     let protocol = ZcashProtocol::new(
         params,
         network_type,
-        Some(recipient),
+        Some(wallet_recipient),
+        Some(scan_recipient),
         Some(lightwalletd_host),
         Some("http://127.0.0.1:18232".to_string()),
     );
