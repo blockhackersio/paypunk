@@ -323,6 +323,28 @@ impl WalletDbActor {
     }
 }
 
+/// Try to find an account in the WalletDb by its 96-byte Orchard FVK.
+fn lookup_account_by_fvk(
+    db: &mut WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+    fvk_bytes: &[u8],
+) -> Result<Option<AccountUuid>, String> {
+    let bytes: [u8; 96] = fvk_bytes
+        .try_into()
+        .map_err(|_| "FVK must be 96 bytes".to_string())?;
+
+    let ufvk_item = zcash_address::unified::Fvk::Orchard(bytes);
+    let ufvk_container = zcash_address::unified::Ufvk::try_from_items(vec![ufvk_item])
+        .map_err(|e| format!("failed to build UFVK container: {e}"))?;
+    let ufvk = UnifiedFullViewingKey::parse(&ufvk_container)
+        .map_err(|e| format!("failed to parse UFVK: {e}"))?;
+
+    match db.get_account_for_ufvk(&ufvk) {
+        Ok(Some(acct)) => Ok(Some(acct.id())),
+        Ok(None) => Ok(None),
+        Err(e) => Err(format!("get_account_for_ufvk failed: {e}")),
+    }
+}
+
 impl Actor for WalletDbActor {}
 
 impl Handler<WalletMessage> for WalletDbActor {
@@ -483,14 +505,39 @@ impl Handler<WalletMessage> for WalletDbActor {
                 let target_uuid = match target_uuid {
                     Some(uuid) => uuid,
                     None => {
-                        info!("WalletMessage::GetBalance: unknown viewing key, returning zero");
-                        let balance = paypunk_types::Balance {
-                            spendable: Amount(0),
-                            pending: Amount(0),
-                            total: Amount(0),
-                        };
-                        return postcard::to_allocvec(&balance)
-                            .map_err(|e| format!("serialize balance failed: {e}"));
+                        // Not found in in-memory map — try to look up the account
+                        // in the WalletDb directly. This handles the case where
+                        // sync_account added the viewing key to the protocol's
+                        // address_viewing_keys map but the sync itself failed
+                        // (e.g. "sync already in progress"), so the wallet actor
+                        // never registered it in fvk_to_account_id.
+                        info!("WalletMessage::GetBalance: fvk not in memory map, querying WalletDb");
+                        match lookup_account_by_fvk(&mut self.db, &viewing_key) {
+                            Ok(Some(uuid)) => {
+                                self.fvk_to_account_id.insert(viewing_key.clone(), uuid);
+                                uuid
+                            }
+                            Ok(None) => {
+                                info!("WalletMessage::GetBalance: viewing key not found in WalletDb, returning zero");
+                                let balance = paypunk_types::Balance {
+                                    spendable: Amount(0),
+                                    pending: Amount(0),
+                                    total: Amount(0),
+                                };
+                                return postcard::to_allocvec(&balance)
+                                    .map_err(|e| format!("serialize balance failed: {e}"));
+                            }
+                            Err(e) => {
+                                info!("WalletMessage::GetBalance: WalletDb lookup failed: {e}");
+                                let balance = paypunk_types::Balance {
+                                    spendable: Amount(0),
+                                    pending: Amount(0),
+                                    total: Amount(0),
+                                };
+                                return postcard::to_allocvec(&balance)
+                                    .map_err(|e| format!("serialize balance failed: {e}"));
+                            }
+                        }
                     }
                 };
 

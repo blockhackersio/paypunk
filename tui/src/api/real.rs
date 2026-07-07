@@ -22,7 +22,6 @@ pub struct RealWalletApi {
     pending: std::sync::Mutex<Option<PendingSend>>,
     pending_mnemonic: std::sync::Mutex<Option<Zeroizing<String>>>,
     protocol_metadata: std::sync::Mutex<HashMap<ProtocolId, ProtocolMetadata>>,
-    pending_deduction: std::sync::Mutex<Option<(String, String)>>,
 }
 
 impl RealWalletApi {
@@ -33,7 +32,6 @@ impl RealWalletApi {
             pending: std::sync::Mutex::new(None),
             pending_mnemonic: std::sync::Mutex::new(None),
             protocol_metadata: std::sync::Mutex::new(HashMap::new()),
-            pending_deduction: std::sync::Mutex::new(None),
         })
     }
 
@@ -43,7 +41,6 @@ impl RealWalletApi {
             pending: std::sync::Mutex::new(None),
             pending_mnemonic: std::sync::Mutex::new(None),
             protocol_metadata: std::sync::Mutex::new(HashMap::new()),
-            pending_deduction: std::sync::Mutex::new(None),
         }
     }
 }
@@ -418,13 +415,15 @@ impl WalletApi for RealWalletApi {
                 *self.pending.lock().unwrap() = Some(pending);
 
                 if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
+                    let total = summary.amount.parse::<u128>().unwrap_or(0)
+                        + summary.fee.parse::<u128>().unwrap_or(0);
                     SendReviewData {
                         to_address: summary.to,
                         amount: summary.amount.clone(),
                         fee_estimate: summary.fee,
-                        total_amount: summary.amount,
+                        total_amount: total.to_string(),
                         chain_id: input.chain_id,
-                        nonce: 0,
+                        nonce: summary.nonce,
                     }
                 } else {
                     SendReviewData {
@@ -652,13 +651,5 @@ impl WalletApi for RealWalletApi {
             next_cursor: None,
             has_more: false,
         }
-    }
-
-    async fn store_pending_deduction(&self, amount_raw: String, address: String) {
-        *self.pending_deduction.lock().unwrap() = Some((amount_raw, address));
-    }
-
-    async fn take_pending_deduction(&self) -> Option<(String, String)> {
-        self.pending_deduction.lock().unwrap().take()
     }
 }

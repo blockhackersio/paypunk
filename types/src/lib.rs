@@ -113,6 +113,12 @@ pub trait Protocol: Send + Sync {
         ))
     }
 
+    /// Trigger a chain re-sync (e.g. after broadcasting a transaction).
+    /// Default implementation is a no-op.
+    async fn trigger_sync(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     // ── Transfer operations ──────────────────────────────────────────────────
     /// Create a transfer for the given account.
     async fn create_transfer(

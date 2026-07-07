@@ -120,6 +120,7 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         zcash_protocol::consensus::NetworkType::Main,
         None,
         None,
+        None,
     );
 
     // ── 5. Sign via ZcashProtocol (SignerProtocol::sign) ────────────────

@@ -34,6 +34,8 @@ tracing.workspace = true
 rusqlite = { workspace = true, features = ["bundled", "vtab", "array"] }
 secrecy = { workspace = true }
 tonic = { workspace = true, features = ["tls-native-roots"] }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 async-trait.workspace = true

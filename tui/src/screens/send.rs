@@ -359,13 +359,6 @@ impl Screen for SendScreen {
             SendStep::Sending => {}
             SendStep::Confirm => match key.code {
                 KeyCode::Enter | KeyCode::Esc => {
-                    if let Some(ref review) = self.review_data {
-                        api.store_pending_deduction(
-                            review.amount.clone(),
-                            review.to_address.clone(),
-                        )
-                        .await;
-                    }
                     return Nav::Pop;
                 }
                 KeyCode::Char('c') => {

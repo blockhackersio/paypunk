@@ -86,6 +86,8 @@ tracing-subscriber = "0.3"
 bytes = "1"
 tempfile = "3"
 async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde_json = "1"
 
 # Workspace member path deps
 paypunk-config = { path = "config" }

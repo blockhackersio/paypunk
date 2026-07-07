@@ -62,6 +62,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             network_type,
             None,
             None,
+            None,
         )),
     );
     protocols.register(

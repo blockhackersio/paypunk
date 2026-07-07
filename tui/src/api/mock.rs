@@ -22,7 +22,6 @@ pub struct MockWalletApi {
     send_cache: Mutex<HashMap<String, SendData>>,
     receive_cache: Mutex<HashMap<String, ReceiveData>>,
     pending_account_id: Mutex<Option<String>>,
-    pending_deduction: Mutex<Option<(String, String)>>,
 }
 
 impl MockWalletApi {
@@ -71,7 +70,6 @@ impl MockWalletApi {
             send_cache: Mutex::new(HashMap::new()),
             receive_cache: Mutex::new(HashMap::new()),
             pending_account_id: Mutex::new(None),
-            pending_deduction: Mutex::new(None),
         }
     }
 
@@ -505,13 +503,5 @@ impl WalletApi for MockWalletApi {
             next_cursor: None,
             has_more: false,
         }
-    }
-
-    async fn store_pending_deduction(&self, amount_raw: String, address: String) {
-        *self.pending_deduction.lock().unwrap() = Some((amount_raw, address));
-    }
-
-    async fn take_pending_deduction(&self) -> Option<(String, String)> {
-        self.pending_deduction.lock().unwrap().take()
     }
 }
