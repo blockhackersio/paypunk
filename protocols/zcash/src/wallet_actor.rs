@@ -274,8 +274,8 @@ impl WalletDbActor {
                 .insert(fvk_bytes.to_vec(), account_uuid);
         }
 
-        // Store account for incremental sync
-        self.accounts.push((fvk_bytes.to_vec(), birthday_height));
+        // Store account for incremental sync (use adjusted birthday, not raw input)
+        self.accounts.push((fvk_bytes.to_vec(), u64::from(birthday)));
 
         // Do initial full sync from birthday to tip
         info!("register_account: fetching blocks from {birthday:?} to {latest:?}");
@@ -369,8 +369,8 @@ impl WalletDbActor {
             blocks: Arc::new(blocks),
         };
 
-        // Use the birthday of the first account as the scan start
-        let scan_start = BlockHeight::from_u32(self.accounts.first().map(|(_, b)| *b as u32).unwrap_or(2));
+        // Scan from where we left off
+        let scan_start = from_height;
 
         // Get tree state at from_height - 1
         let prev_height = if from_height > BlockHeight::from_u32(0) {
