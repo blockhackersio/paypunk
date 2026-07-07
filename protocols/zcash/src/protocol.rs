@@ -36,6 +36,8 @@ pub struct ZcashProtocol {
 /// Trait to abstract over sending individual wallet messages.
 /// Allows `ZcashProtocol` to hold a single `Arc<dyn WalletMessageSender>`
 /// instead of a separate recipient for each message type.
+// TODO: This is FUCKING STUPID. Just pass in an actor unless we have tests where we need to use
+// some kind of mock - which I don't believe we do.
 #[async_trait]
 pub trait WalletMessageSender: Send + Sync {
     async fn propose_and_build(&self, msg: ProposeAndBuild) -> Result<Vec<u8>, String>;
