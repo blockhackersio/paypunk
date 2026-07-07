@@ -50,17 +50,17 @@ impl ScanActor {
     }
 
     async fn sync_from_tip(&mut self) -> Result<String, String> {
-        info!("scan_actor: connecting to lightwalletd at {}", self.lightwalletd_host);
+        info!(
+            "scan_actor: connecting to lightwalletd at {}",
+            self.lightwalletd_host
+        );
         let mut lsp = LspClient::connect(&self.lightwalletd_host, self.params).await?;
         let latest = lsp.get_latest_height().await?;
         let latest_u64: u64 = latest.into();
         info!("scan_actor: latest height = {latest_u64}");
 
         // Get current chain tip from WalletDbActor
-        let chain_tip: u64 = self
-            .get_chain_tip
-            .ask(GetChainTip)
-            .await?;
+        let chain_tip: u64 = self.get_chain_tip.ask(GetChainTip).await?;
 
         let from_height = if chain_tip > 0 {
             let next = BlockHeight::from_u32(chain_tip as u32 + 1);
@@ -98,7 +98,8 @@ impl ScanActor {
             .map_err(|e| format!("invalid tree state: {e}"))?;
 
         // Send blocks to WalletDbActor for scanning
-        self.send_blocks_to_wallet(blocks, from_height, chain_state, latest).await?;
+        self.send_blocks_to_wallet(blocks, from_height, chain_state, latest)
+            .await?;
 
         info!("scan_actor: scan complete");
         let msg = format!("synced to block {}", latest_u64);
@@ -123,6 +124,8 @@ impl ScanActor {
         }
 
         info!("scan_actor: fetching blocks from {birthday:?} to {latest:?}");
+        // TODO: there could be thousands of blocks out of sync here. This should be some kind of
+        // iteraative block by block process.
         let blocks = lsp.get_block_range(birthday, latest).await?;
         let block_count = blocks.len();
         info!("scan_actor: fetched {block_count} blocks");
@@ -138,7 +141,8 @@ impl ScanActor {
             .map_err(|e| format!("invalid tree state: {e}"))?;
 
         // Send blocks to WalletDbActor for scanning
-        self.send_blocks_to_wallet(blocks, birthday, chain_state, latest).await?;
+        self.send_blocks_to_wallet(blocks, birthday, chain_state, latest)
+            .await?;
 
         info!("scan_actor: initial sync complete");
         let msg = format!(
@@ -172,11 +176,7 @@ impl ScanActor {
 impl Actor for ScanActor {}
 
 impl Handler<Sync> for ScanActor {
-    async fn handle(
-        &mut self,
-        _msg: Sync,
-        _ctx: &Ctx<Self>,
-    ) -> Result<String, String> {
+    async fn handle(&mut self, _msg: Sync, _ctx: &Ctx<Self>) -> Result<String, String> {
         if self.is_syncing {
             return Err("scan already in progress".to_string());
         }
@@ -200,11 +200,7 @@ impl Handler<Sync> for ScanActor {
 }
 
 impl Handler<SyncNewAccount> for ScanActor {
-    async fn handle(
-        &mut self,
-        msg: SyncNewAccount,
-        _ctx: &Ctx<Self>,
-    ) -> Result<String, String> {
+    async fn handle(&mut self, msg: SyncNewAccount, _ctx: &Ctx<Self>) -> Result<String, String> {
         if self.is_syncing {
             return Err("scan already in progress".to_string());
         }

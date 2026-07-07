@@ -5,8 +5,8 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use paypunk_types::{
-    ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol,
-    ProtocolId, SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
+    ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol, ProtocolId,
+    SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
 };
 use pczt::roles::{
     prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
@@ -19,8 +19,8 @@ use zip32::fingerprint::SeedFingerprint;
 
 use crate::scan_actor::SyncNewAccount;
 use crate::wallet_actor::{
-    EstimateFee, GetBalance, GetBlockHeight, GetHistory, GetStatus, GetTxStatus,
-    ProposeAndBuild, RegisterAccount, StoreTransaction,
+    EstimateFee, GetBalance, GetBlockHeight, GetHistory, GetStatus, GetTxStatus, ProposeAndBuild,
+    RegisterAccount, StoreTransaction,
 };
 
 pub struct ZcashProtocol {
@@ -43,13 +43,17 @@ pub trait WalletMessageSender: Send + Sync {
     async fn get_status(&self, msg: GetStatus) -> Result<SyncStatus, String>;
     async fn get_balance(&self, msg: GetBalance) -> Result<paypunk_types::Balance, String>;
     async fn get_history(&self, msg: GetHistory) -> Result<Page<HistoryEntry>, String>;
-    async fn get_block_height(&self, msg: GetBlockHeight) -> Result<paypunk_types::BlockHeight, String>;
+    async fn get_block_height(
+        &self,
+        msg: GetBlockHeight,
+    ) -> Result<paypunk_types::BlockHeight, String>;
     async fn store_transaction(&self, msg: StoreTransaction) -> Result<String, String>;
     async fn get_tx_status(&self, msg: GetTxStatus) -> Result<TxStatus, String>;
     async fn estimate_fee(&self, msg: EstimateFee) -> Result<u64, String>;
 }
 
 /// Concrete implementation that dispatches to individual tactix recipients.
+// TODO: Why the fuck are we using individual Recipients here????? Just use an Addr<WalletDbActor>?
 pub struct WalletMessageSenderImpl {
     pub propose_and_build: Recipient<ProposeAndBuild>,
     pub register_account: Recipient<RegisterAccount>,
@@ -79,7 +83,10 @@ impl WalletMessageSender for WalletMessageSenderImpl {
     async fn get_history(&self, msg: GetHistory) -> Result<Page<HistoryEntry>, String> {
         self.get_history.ask(msg).await
     }
-    async fn get_block_height(&self, msg: GetBlockHeight) -> Result<paypunk_types::BlockHeight, String> {
+    async fn get_block_height(
+        &self,
+        msg: GetBlockHeight,
+    ) -> Result<paypunk_types::BlockHeight, String> {
         self.get_block_height.ask(msg).await
     }
     async fn store_transaction(&self, msg: StoreTransaction) -> Result<String, String> {
@@ -99,6 +106,8 @@ impl ZcashProtocol {
     pub fn new(
         params: zcash_protocol::consensus::Network,
         network_type: zcash_protocol::consensus::NetworkType,
+        // TODO: Why do we need a recipient here instead of an Addr? Why not just send messages directly
+        // to it?
         wallet_recipient: Option<Arc<dyn WalletMessageSender>>,
         scan_recipient: Option<Recipient<SyncNewAccount>>,
         lightwalletd_host: Option<String>,
@@ -379,7 +388,10 @@ impl Protocol for ZcashProtocol {
             .map_err(|e| format!("invalid Zcash address: {e}"))?;
 
         let viewing_key = {
-            let map = self.address_viewing_keys.lock().map_err(|e| e.to_string())?;
+            let map = self
+                .address_viewing_keys
+                .lock()
+                .map_err(|e| e.to_string())?;
             map.get(&parsed.account_address).cloned()
         };
 
@@ -394,11 +406,7 @@ impl Protocol for ZcashProtocol {
             }
         };
 
-        let balance = wallet
-            .get_balance(GetBalance {
-                viewing_key,
-            })
-            .await?;
+        let balance = wallet.get_balance(GetBalance { viewing_key }).await?;
         Ok(balance)
     }
 
@@ -419,7 +427,9 @@ impl Protocol for ZcashProtocol {
                     tracing::warn!(?e, "regtest mine_block failed (non-fatal)");
                 }
             } else {
-                tracing::warn!("regtest detected but no zcashd_rpc_url configured, skipping block mining");
+                tracing::warn!(
+                    "regtest detected but no zcashd_rpc_url configured, skipping block mining"
+                );
             }
         }
 

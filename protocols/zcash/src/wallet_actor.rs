@@ -278,7 +278,8 @@ impl WalletDbActor {
         }
 
         // Store account for incremental sync (use adjusted birthday, not raw input)
-        self.accounts.push((fvk_bytes.to_vec(), u64::from(birthday)));
+        self.accounts
+            .push((fvk_bytes.to_vec(), u64::from(birthday)));
 
         info!("register_account: FVK imported, scanning delegated to ScanActor");
         let msg = format!(
@@ -328,7 +329,10 @@ impl BlockSource for VecBlockSource {
     where
         F: FnMut(
             zcash_client_backend::proto::compact_formats::CompactBlock,
-        ) -> Result<(), zcash_client_backend::data_api::chain::error::Error<WalletErrT, Self::Error>>,
+        ) -> Result<
+            (),
+            zcash_client_backend::data_api::chain::error::Error<WalletErrT, Self::Error>,
+        >,
     {
         let from = from_height.map(u64::from).unwrap_or(0);
         let limit = limit.unwrap_or(usize::MAX);
@@ -357,11 +361,7 @@ impl BlockSource for VecBlockSource {
 impl Actor for WalletDbActor {}
 
 impl Handler<ProposeAndBuild> for WalletDbActor {
-    async fn handle(
-        &mut self,
-        msg: ProposeAndBuild,
-        _ctx: &Ctx<Self>,
-    ) -> Result<Vec<u8>, String> {
+    async fn handle(&mut self, msg: ProposeAndBuild, _ctx: &Ctx<Self>) -> Result<Vec<u8>, String> {
         // Debug: log wallet summary before proposing
         match self.db.get_wallet_summary(self.confirmations_policy) {
             Ok(Some(summary)) => {
@@ -471,11 +471,7 @@ impl Handler<ProposeAndBuild> for WalletDbActor {
 }
 
 impl Handler<RegisterAccount> for WalletDbActor {
-    async fn handle(
-        &mut self,
-        msg: RegisterAccount,
-        _ctx: &Ctx<Self>,
-    ) -> Result<String, String> {
+    async fn handle(&mut self, msg: RegisterAccount, _ctx: &Ctx<Self>) -> Result<String, String> {
         self.register_account(msg.fvk, msg.birthday_height).await
     }
 }
@@ -491,11 +487,7 @@ impl Handler<GetStatus> for WalletDbActor {
 }
 
 impl Handler<ScanUpdate> for WalletDbActor {
-    async fn handle(
-        &mut self,
-        msg: ScanUpdate,
-        _ctx: &Ctx<Self>,
-    ) -> Result<(), String> {
+    async fn handle(&mut self, msg: ScanUpdate, _ctx: &Ctx<Self>) -> Result<(), String> {
         self.is_syncing = msg.0.is_syncing;
         self.current_height = msg.0.current_height;
         self.target_height = msg.0.target_height;
@@ -509,16 +501,13 @@ impl Handler<GetChainTip> for WalletDbActor {
             .db
             .chain_height()
             .map_err(|e| format!("chain_height failed: {e}"))?;
+        info!("trace: WalletDbActor.GetChainTip: {:?}", tip);
         Ok(tip.map(|h| h.into()).unwrap_or(0))
     }
 }
 
 impl Handler<ScanBlocks> for WalletDbActor {
-    async fn handle(
-        &mut self,
-        msg: ScanBlocks,
-        _ctx: &Ctx<Self>,
-    ) -> Result<String, String> {
+    async fn handle(&mut self, msg: ScanBlocks, _ctx: &Ctx<Self>) -> Result<String, String> {
         self.ensure_db_file_exists()?;
 
         let block_source = VecBlockSource {
@@ -527,9 +516,7 @@ impl Handler<ScanBlocks> for WalletDbActor {
         let block_count = block_source.blocks.len();
         let from_u64: u64 = msg.from_height.into();
         let target_u64: u64 = msg.target_height.into();
-        info!(
-            "wallet_actor: scanning {block_count} blocks from {from_u64} to {target_u64}"
-        );
+        info!("wallet_actor: scanning {block_count} blocks from {from_u64} to {target_u64}");
 
         self.is_syncing = true;
         self.target_height = target_u64;
@@ -738,39 +725,25 @@ impl Handler<GetBlockHeight> for WalletDbActor {
 }
 
 impl Handler<StoreTransaction> for WalletDbActor {
-    async fn handle(
-        &mut self,
-        msg: StoreTransaction,
-        _ctx: &Ctx<Self>,
-    ) -> Result<String, String> {
-        let pczt = pczt::Pczt::parse(&msg.pczt_bytes)
-            .map_err(|e| format!("PCZT parse failed: {e:?}"))?;
+    async fn handle(&mut self, msg: StoreTransaction, _ctx: &Ctx<Self>) -> Result<String, String> {
+        let pczt =
+            pczt::Pczt::parse(&msg.pczt_bytes).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
         let orchard_vk = orchard::circuit::VerifyingKey::build();
         let txid = extract_and_store_transaction_from_pczt::<
             WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
             ReceivedNoteId,
-        >(
-            &mut self.db,
-            pczt,
-            None,
-            Some(&orchard_vk),
-        )
+        >(&mut self.db, pczt, None, Some(&orchard_vk))
         .map_err(|e| format!("store transaction failed: {e}"))?;
         Ok(hex::encode(txid.as_ref()))
     }
 }
 
 impl Handler<GetTxStatus> for WalletDbActor {
-    async fn handle(
-        &mut self,
-        msg: GetTxStatus,
-        _ctx: &Ctx<Self>,
-    ) -> Result<TxStatus, String> {
+    async fn handle(&mut self, msg: GetTxStatus, _ctx: &Ctx<Self>) -> Result<TxStatus, String> {
         let reader = rusqlite::Connection::open(&self.db_path)
             .map_err(|e| format!("failed to open wallet db: {e}"))?;
 
-        let txid_bytes =
-            hex::decode(&msg.txid).map_err(|e| format!("invalid txid hex: {e}"))?;
+        let txid_bytes = hex::decode(&msg.txid).map_err(|e| format!("invalid txid hex: {e}"))?;
 
         let status = reader
             .query_row(
@@ -791,11 +764,7 @@ impl Handler<GetTxStatus> for WalletDbActor {
 }
 
 impl Handler<EstimateFee> for WalletDbActor {
-    async fn handle(
-        &mut self,
-        msg: EstimateFee,
-        _ctx: &Ctx<Self>,
-    ) -> Result<u64, String> {
+    async fn handle(&mut self, msg: EstimateFee, _ctx: &Ctx<Self>) -> Result<u64, String> {
         let to_addr = zcash_address::ZcashAddress::try_from_encoded(&msg.to)
             .map_err(|e| format!("invalid recipient address: {e}"))?;
 
