@@ -45,12 +45,14 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // Create protocols
     let mut protocols = ProtocolService::new();
 
-    let zcash = paypunk_chains_zcash::create_protocol(
+    let zcash_stack = paypunk_chains_zcash::create_protocol(
         std::path::Path::new(&config.data_dir),
         config.lightwalletd_host.clone(),
         &config.zcash_network,
     )
     .await?;
+    let zcash = zcash_stack.protocol;
+    let zcash_scan_recipient = Some(zcash_stack.sync_recipient);
     protocols.register(Box::new(zcash));
 
     let eth_client =
@@ -64,6 +66,27 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     info!("database opened");
 
     let paypunkd = Paypunkd::new(recipient, protocols, db, keystore).start();
+
+    // Background sync loop — sends to ScanActor so scanning doesn't block
+    // the WalletDbActor from handling other requests.
+    if let Some(scan_recipient) = zcash_scan_recipient {
+        let interval_secs = 10u64;
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            loop {
+                interval.tick().await;
+                match scan_recipient.ask(paypunk_chains_zcash::Sync).await {
+                    Ok(msg) => {
+                        tracing::info!(?msg, "sync cycle completed");
+                    }
+                    Err(e) => {
+                        tracing::error!(?e, "sync cycle failed");
+                    }
+                }
+            }
+        });
+        info!("background sync loop started (interval={interval_secs}s, scan actor)");
+    }
 
     let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;
     info!("paypunkd listening on {}", config.socket_path);

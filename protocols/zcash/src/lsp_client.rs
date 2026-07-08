@@ -4,7 +4,8 @@ use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxS
 use zcash_client_backend::proto::service::{
     BlockId, BlockRange, ChainSpec, RawTransaction, TreeState,
 };
-use zcash_protocol::consensus::{BlockHeight, Network};
+use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::local_consensus::LocalNetwork;
 
 /// Lightwalletd gRPC client for Zcash chain interaction.
 pub struct LspClient {
@@ -13,7 +14,7 @@ pub struct LspClient {
 
 impl LspClient {
     /// Connect to a lightwalletd endpoint.
-    pub async fn connect(host: &str, _params: Network) -> Result<Self, String> {
+    pub async fn connect(host: &str, _params: LocalNetwork) -> Result<Self, String> {
         let inner = CompactTxStreamerClient::connect(host.to_string())
             .await
             .map_err(|e| format!("failed to connect to lightwalletd: {e}"))?;

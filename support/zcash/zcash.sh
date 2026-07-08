@@ -27,12 +27,12 @@ echo "==> Starting zcashd + lightwalletd…"
 docker compose up -d --build
 
 echo "==> Waiting for zcashd RPC to be ready…"
-for i in $(seq 1 60); do
-  if docker compose exec -T zcashd bash -c 'exec 3<>/dev/tcp/127.0.0.1/18232' 2>/dev/null; then
+for i in $(seq 1 30); do
+  if docker compose exec -T zcashd zcash-cli -datadir=/data getwalletinfo >/dev/null 2>&1; then
     echo "   zcashd ready after ${i}s"
     break
   fi
-  sleep 2
+  sleep 1
 done
 
 echo "==> Funding ${UA}…"
@@ -45,7 +45,7 @@ echo "    lightwalletd:    127.0.0.1:9067 (plaintext)"
 echo ""
 
 while true; do
-  sleep 1
+  sleep 5
   HEIGHT=$(docker compose exec -T zcashd zcash-cli -datadir=/data generate 1 | jq -r '.[0]')
   echo "[$(date '+%H:%M:%S')] mined block ${HEIGHT}"
 done

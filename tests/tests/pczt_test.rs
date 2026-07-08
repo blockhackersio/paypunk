@@ -4,6 +4,7 @@ use orchard::note::{ExtractedNoteCommitment, RandomSeed, Rho};
 use orchard::tree::MerkleHashOrchard;
 use orchard::value::NoteValue;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_chains_zcash::to_local_params;
 use paypunk_types::{Protocol, SignerProtocol};
 use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, prover::Prover};
 use rand_core::OsRng;
@@ -116,8 +117,12 @@ fn test_orchard_shielded_pczt_full_pipeline() {
     let proven_bytes = proven_pczt.serialize();
 
     let protocol = ZcashProtocol::new(
-        zcash_protocol::consensus::Network::MainNetwork,
+        to_local_params(
+            zcash_protocol::consensus::Network::MainNetwork,
+            zcash_protocol::consensus::NetworkType::Main,
+        ),
         zcash_protocol::consensus::NetworkType::Main,
+        None,
         None,
         None,
         None,

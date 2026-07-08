@@ -5,23 +5,30 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use paypunk_types::{
-    Account, ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol,
-    ProtocolId, SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
+    ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol, ProtocolId,
+    SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
 };
 use pczt::roles::{
     prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
     tx_extractor::TransactionExtractor, verifier::Verifier,
 };
-use tactix::{Recipient, Sender};
+use tactix::{Addr, Recipient, Sender};
+use tokio;
 use zcash_keys::keys::UnifiedSpendingKey;
+use zcash_protocol::local_consensus::LocalNetwork;
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::wallet_actor::WalletMessage;
+use crate::scan_actor::SyncNewAccount;
+use crate::wallet_actor::{
+    EstimateFee, GetBalance, GetBlockHeight, GetHistory, GetStatus, GetTxStatus, ProposeAndBuild,
+    RegisterAccount, StoreTransaction, WalletDbActor,
+};
 
 pub struct ZcashProtocol {
-    pub params: zcash_protocol::consensus::Network,
+    pub params: LocalNetwork,
     network_type: zcash_protocol::consensus::NetworkType,
-    wallet_recipient: Option<Recipient<WalletMessage>>,
+    wallet_addr: Option<Addr<WalletDbActor>>,
+    scan_recipient: Option<Arc<Recipient<SyncNewAccount>>>,
     pub lightwalletd_host: Option<String>,
     pub zcashd_rpc_url: Option<String>,
     address_viewing_keys: Arc<Mutex<HashMap<String, Vec<u8>>>>,
@@ -31,20 +38,30 @@ impl ZcashProtocol {
     pub const COIN_TYPE: u32 = 133;
 
     pub fn new(
-        params: zcash_protocol::consensus::Network,
+        params: LocalNetwork,
         network_type: zcash_protocol::consensus::NetworkType,
-        wallet_recipient: Option<Recipient<WalletMessage>>,
+        wallet_addr: Option<Addr<WalletDbActor>>,
+        scan_recipient: Option<Recipient<SyncNewAccount>>,
         lightwalletd_host: Option<String>,
         zcashd_rpc_url: Option<String>,
     ) -> Self {
         Self {
             params,
             network_type,
-            wallet_recipient,
+            wallet_addr,
+            scan_recipient: scan_recipient.map(Arc::new),
             lightwalletd_host,
             zcashd_rpc_url,
             address_viewing_keys: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn wallet_addr(&self) -> Option<Addr<WalletDbActor>> {
+        self.wallet_addr.clone()
+    }
+
+    pub fn scan_recipient(&self) -> Option<Arc<Recipient<SyncNewAccount>>> {
+        self.scan_recipient.clone()
     }
 
     /// Extract the account index from a BIP44-style derivation path.
@@ -58,30 +75,6 @@ impl ZcashProtocol {
         account_str
             .parse()
             .map_err(|_| format!("invalid account index in path: {path}"))
-    }
-
-    // ── Chain sync ──────────────────────────────────────────────────────────
-
-    async fn sync_via_wallet(
-        &self,
-        fvk: Vec<u8>,
-        birthday_height: u64,
-        lightwalletd_host: String,
-    ) -> Result<(), String> {
-        let wallet = self
-            .wallet_recipient
-            .as_ref()
-            .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet
-            .ask(WalletMessage::Sync {
-                fvk,
-                birthday_height,
-                lightwalletd_host,
-            })
-            .await?;
-        let _msg =
-            String::from_utf8(bytes).map_err(|e| format!("sync response not valid UTF-8: {e}"))?;
-        Ok(())
     }
 }
 
@@ -244,7 +237,7 @@ impl Protocol for ZcashProtocol {
                 }
 
                 let wallet = self
-                    .wallet_recipient
+                    .wallet_addr
                     .as_ref()
                     .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
@@ -254,7 +247,7 @@ impl Protocol for ZcashProtocol {
                 let amount_zat = (amount_f64 * 100_000_000.0) as u64;
 
                 wallet
-                    .ask(WalletMessage::ProposeAndBuild {
+                    .ask(ProposeAndBuild {
                         public_key: vec![],
                         account,
                         to: to.clone(),
@@ -298,9 +291,9 @@ impl Protocol for ZcashProtocol {
             signed_pczt.len()
         );
         // Store the transaction in the wallet DB
-        if let Some(wallet) = &self.wallet_recipient {
+        if let Some(wallet) = &self.wallet_addr {
             wallet
-                .ask(WalletMessage::StoreTransaction {
+                .ask(StoreTransaction {
                     pczt_bytes: signed_pczt.to_vec(),
                 })
                 .await?;
@@ -315,7 +308,7 @@ impl Protocol for ZcashProtocol {
         _asset: &str,
     ) -> Result<paypunk_types::Balance, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
@@ -327,7 +320,10 @@ impl Protocol for ZcashProtocol {
             .map_err(|e| format!("invalid Zcash address: {e}"))?;
 
         let viewing_key = {
-            let map = self.address_viewing_keys.lock().map_err(|e| e.to_string())?;
+            let map = self
+                .address_viewing_keys
+                .lock()
+                .map_err(|e| e.to_string())?;
             map.get(&parsed.account_address).cloned()
         };
 
@@ -342,12 +338,8 @@ impl Protocol for ZcashProtocol {
             }
         };
 
-        let bytes = wallet
-            .ask(WalletMessage::GetBalance {
-                viewing_key,
-            })
-            .await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize balance failed: {e}"))
+        let balance = wallet.ask(GetBalance { viewing_key }).await?;
+        Ok(balance)
     }
 
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String> {
@@ -367,7 +359,9 @@ impl Protocol for ZcashProtocol {
                     tracing::warn!(?e, "regtest mine_block failed (non-fatal)");
                 }
             } else {
-                tracing::warn!("regtest detected but no zcashd_rpc_url configured, skipping block mining");
+                tracing::warn!(
+                    "regtest detected but no zcashd_rpc_url configured, skipping block mining"
+                );
             }
         }
 
@@ -394,11 +388,11 @@ impl Protocol for ZcashProtocol {
     }
 
     fn native_asset(&self) -> String {
-        match self.params {
-            zcash_protocol::consensus::Network::MainNetwork => {
+        match self.network_type {
+            zcash_protocol::consensus::NetworkType::Main => {
                 "zcash:mainnet/slip44:133".to_string()
             }
-            zcash_protocol::consensus::Network::TestNetwork => {
+            _ => {
                 "zcash:testnet/slip44:133".to_string()
             }
         }
@@ -413,11 +407,11 @@ impl Protocol for ZcashProtocol {
     }
 
     fn block_explorer_url(&self, tx_hash: &str) -> String {
-        match self.params {
-            zcash_protocol::consensus::Network::MainNetwork => {
+        match self.network_type {
+            zcash_protocol::consensus::NetworkType::Main => {
                 format!("https://mainnet.zcashexplorer.app/tx/{}", tx_hash)
             }
-            zcash_protocol::consensus::Network::TestNetwork => {
+            _ => {
                 format!("https://testnet.zcashexplorer.app/tx/{}", tx_hash)
             }
         }
@@ -441,31 +435,11 @@ impl Protocol for ZcashProtocol {
 
     async fn get_sync_status(&self) -> Result<SyncStatus, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes = wallet.ask(WalletMessage::GetStatus).await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
-    }
-
-    async fn trigger_sync(&self) -> Result<(), String> {
-        let host = self
-            .lightwalletd_host
-            .clone()
-            .ok_or_else(|| "lightwalletd host not configured".to_string())?;
-        let fvks: Vec<Vec<u8>> = {
-            let keys = self
-                .address_viewing_keys
-                .lock()
-                .map_err(|e| e.to_string())?;
-            keys.values().cloned().collect()
-        };
-        for fvk in fvks {
-            if let Err(e) = self.sync_via_wallet(fvk, 0, host.clone()).await {
-                tracing::warn!(?e, "trigger_sync: account sync failed (non-fatal)");
-            }
-        }
-        Ok(())
+        let status = wallet.ask(GetStatus).await?;
+        Ok(status)
     }
 
     // ── Transfer operations ──────────────────────────────────────────────────
@@ -478,11 +452,11 @@ impl Protocol for ZcashProtocol {
         memo: Option<String>,
     ) -> Result<Vec<u8>, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
         wallet
-            .ask(WalletMessage::ProposeAndBuild {
+            .ask(ProposeAndBuild {
                 public_key: vec![],
                 account,
                 to,
@@ -499,13 +473,13 @@ impl Protocol for ZcashProtocol {
         memo: Option<String>,
     ) -> Result<u64, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet
-            .ask(WalletMessage::EstimateFee { to, amount, memo })
+        let fee: u64 = wallet
+            .ask(EstimateFee { to, amount, memo })
             .await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize fee failed: {e}"))
+        Ok(fee)
     }
 
     // ── History & status ────────────────────────────────────────────────────
@@ -517,26 +491,26 @@ impl Protocol for ZcashProtocol {
         limit: u32,
     ) -> Result<Page<HistoryEntry>, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet
-            .ask(WalletMessage::GetHistory {
+        let page: Page<HistoryEntry> = wallet
+            .ask(GetHistory {
                 account,
                 cursor,
                 limit,
             })
             .await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize history failed: {e}"))
+        Ok(page)
     }
 
     async fn get_transaction_status(&self, txid: String) -> Result<TxStatus, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet.ask(WalletMessage::GetTxStatus { txid }).await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize status failed: {e}"))
+        let status: TxStatus = wallet.ask(GetTxStatus { txid }).await?;
+        Ok(status)
     }
 
     async fn get_current_block_height(
@@ -544,49 +518,13 @@ impl Protocol for ZcashProtocol {
         lightwalletd_host: String,
     ) -> Result<BlockHeight, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let bytes: Vec<u8> = wallet
-            .ask(WalletMessage::GetBlockHeight { lightwalletd_host })
+        let height: paypunk_types::BlockHeight = wallet
+            .ask(GetBlockHeight { lightwalletd_host })
             .await?;
-        postcard::from_bytes(&bytes).map_err(|e| format!("deserialize height failed: {e}"))
-    }
-
-    async fn start_background_sync(&self, accounts: &[Account]) -> Result<(), String> {
-        let host = self
-            .lightwalletd_host
-            .as_ref()
-            .ok_or_else(|| "lightwalletd host not configured".to_string())?;
-
-        {
-            let mut map = self
-                .address_viewing_keys
-                .lock()
-                .map_err(|e| e.to_string())?;
-            for account in accounts.iter().filter(|a| a.protocol == ProtocolId::Zcash) {
-                map.insert(account.address.clone(), account.viewing_key.clone());
-            }
-        }
-
-        for account in accounts.iter().filter(|a| a.protocol == ProtocolId::Zcash) {
-            if account.viewing_key.len() != 96 {
-                return Err(format!(
-                    "expected 96-byte Orchard FVK for account {}, got {} bytes",
-                    account.id,
-                    account.viewing_key.len(),
-                ));
-            }
-
-            self.sync_via_wallet(
-                account.viewing_key.clone(),
-                0, // birthday_height — default for auto-created accounts
-                host.clone(),
-            )
-            .await?;
-        }
-
-        Ok(())
+        Ok(height)
     }
 
     async fn sync_account(
@@ -595,11 +533,6 @@ impl Protocol for ZcashProtocol {
         birthday_height: u64,
         address: &str,
     ) -> Result<(), String> {
-        let host = self
-            .lightwalletd_host
-            .as_ref()
-            .ok_or_else(|| "lightwalletd host not configured".to_string())?;
-
         if viewing_key.len() != 96 {
             return Err(format!(
                 "expected 96-byte Orchard FVK, got {} bytes",
@@ -615,12 +548,27 @@ impl Protocol for ZcashProtocol {
             map.insert(address.to_string(), viewing_key.to_vec());
         }
 
-        self.sync_via_wallet(
-            viewing_key.to_vec(),
-            birthday_height,
-            host.clone(),
-        )
-        .await
+        // Import FVK into the wallet DB (fast, non-blocking)
+        let wallet = self
+            .wallet_addr
+            .as_ref()
+            .ok_or_else(|| "WalletDb not initialized".to_string())?;
+        let _ = wallet
+            .ask(RegisterAccount {
+                fvk: viewing_key.to_vec(),
+                birthday_height,
+            })
+            .await?;
+
+        // Trigger initial scan in the background (non-blocking for the caller)
+        if let Some(scan) = &self.scan_recipient {
+            let scan = scan.clone();
+            tokio::spawn(async move {
+                let _ = scan.ask(SyncNewAccount { birthday_height }).await;
+            });
+        }
+
+        Ok(())
     }
 }
 

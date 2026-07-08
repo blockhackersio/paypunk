@@ -9,4 +9,8 @@ exec lightwalletd \
   --data-dir=/data \
   --log-file=/dev/stdout \
   --grpc-bind-addr=0.0.0.0:9067 \
+  --rpcuser=zcashrpc \
+  --rpcpassword=notsecure \
+  --rpchost=zcashd \
+  --rpcport=18232 \
   --no-tls-very-insecure

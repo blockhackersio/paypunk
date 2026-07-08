@@ -615,8 +615,22 @@ impl Paypunkd {
                     {
                         for pid in self.protocols.protocols() {
                             if let Ok(proto) = self.protocols.get(pid) {
-                                if let Err(e) = proto.start_background_sync(&accounts).await {
-                                    warn!(?pid, error = %e, "background sync failed");
+                                for account in accounts.iter().filter(|a| a.protocol == pid) {
+                                    if let Err(e) = proto
+                                        .sync_account(
+                                            &account.viewing_key,
+                                            0,
+                                            &account.address,
+                                        )
+                                        .await
+                                    {
+                                        warn!(
+                                            ?pid,
+                                            account = %account.id,
+                                            error = %e,
+                                            "sync_account after unlock failed"
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -636,8 +650,22 @@ impl Paypunkd {
             if let Ok(accounts) = usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
                 for pid in self.protocols.protocols() {
                     if let Ok(proto) = self.protocols.get(pid) {
-                        if let Err(e) = proto.start_background_sync(&accounts).await {
-                            warn!(?pid, error = %e, "background sync failed");
+                        for account in accounts.iter().filter(|a| a.protocol == pid) {
+                            if let Err(e) = proto
+                                .sync_account(
+                                    &account.viewing_key,
+                                    0,
+                                    &account.address,
+                                )
+                                .await
+                            {
+                                warn!(
+                                    ?pid,
+                                    account = %account.id,
+                                    error = %e,
+                                    "sync_account after unlock failed"
+                                );
+                            }
                         }
                     }
                 }
