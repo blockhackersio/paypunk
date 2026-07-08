@@ -276,6 +276,13 @@ enum Commands {
     },
     /// Remove all wallet data (seed, database, accounts) — resets to clean state
     Reset,
+    /// Run the QR bridge web server
+    Bridge {
+        #[arg(long, default_value = "12345")]
+        port: u16,
+        #[arg(long, default_value = "/tmp/keypunkd.sock")]
+        socket_path: String,
+    },
     /// List all accounts in the wallet
     ListAccounts,
     /// Create a new account from a pre-derived viewing key
@@ -485,6 +492,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             Ok(())
         }
+        Some(Commands::Bridge { port, socket_path }) => {
+            let config = paypunk_bridge::BridgeConfig { port, socket_path };
+            paypunk_bridge::run(config).await?;
+            Ok(())
+        }
         Some(command) => {
             let config = ConfigLoader::load_or_default();
             let paypunkd_socket = cli
@@ -666,6 +678,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Unlocked. {count} accounts derived.");
                 }
                 Commands::Tui => unreachable!(),
+                Commands::Bridge { .. } => unreachable!(),
                 Commands::Keypunkd { .. } => unreachable!(),
                 Commands::Paypunkd { .. } => unreachable!(),
                 Commands::Uninstall { .. } => unreachable!(),

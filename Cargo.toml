@@ -13,6 +13,7 @@ members = [
     "protocols/ethereum",
     "tui",
     "tools/derive-orchard",
+    "bridge",
 ]
 
 [workspace.package]
@@ -73,6 +74,11 @@ tonic = "0.14"
 
 # CLI
 clap = "4"
+
+# Bridge
+actix-web = "4"
+qrcode = { version = "0.14", features = ["svg"] }
+base64 = "0.22"
 
 # Error handling
 thiserror = "2"
