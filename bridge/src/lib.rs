@@ -138,7 +138,10 @@ pub async fn run(config: BridgeConfig) -> Result<(), Box<dyn std::error::Error>>
     })
     .bind(format!("0.0.0.0:{}", config.port))?
     .run();
-
+    println!(
+        "\nBridge Server available at:\n\nhttp://127.0.0.1:{}\n\n",
+        config.port
+    );
     let server_handle = server.handle();
     let http_handle = tokio::spawn(server);
 
