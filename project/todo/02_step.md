@@ -2,7 +2,7 @@
 
 Implement the full bridge logic: Unix socket listener, actix-web HTTP server, shared state coordination, and the HTML page with webcam QR scanning.
 
-**This step is purely additive.** No existing code outside `bridge/` is modified. Only files in the `bridge/` crate are created or changed.
+**Existing code changes are confined to the `bridge/` crate.** The CLI subcommand handler was already wired up in step 1; this step only fills in the bridge library implementation.
 
 ## Tasks
 
@@ -264,7 +264,7 @@ Note: The actual test needs to know the assigned port to hit the HTTP server. If
 
 - [ ] `cargo build -p paypunk-bridge` succeeds
 - [ ] `cargo test -p paypunk-bridge` passes
-- [ ] Running `cargo run -p paypunk-bridge` prints startup message and blocks
+- [ ] Running `paypunk bridge` prints startup message and blocks
 - [ ] `curl http://localhost:12345/` returns the HTML page (200)
 - [ ] `curl http://localhost:12345/status` returns `{"pending":false}`
 - [ ] Sending bytes via Unix socket (`echo -n "test" | nc -U /tmp/keypunkd.sock` in one terminal) causes `/status` to return `{"pending":true,"size":4}`
@@ -278,13 +278,14 @@ Note: The actual test needs to know the assigned port to hit the HTTP server. If
 ## Context
 
 - The bridge replaces keypunkd's socket — paypunkd connects to `/tmp/keypunkd.sock` transparently
+- Invoked via `paypunk bridge --port 12345 --socket-path /tmp/keypunkd.sock`
 - Messages are pure bytes, no IPC parsing needed
 - QR code uses Low error correction (max ~2953 bytes); larger messages return an error to the Unix client
 - The page stays alive after a response and waits for the next request (polling continues)
 - Unix socket client disconnect is detected via oneshot `Canceled`; page resets on next poll
 - `include_str!("bridge.html")` and `include_bytes!("jsqr.js")` resolve relative to the source file in `bridge/src/`
 - Use `base64::engine::general_purpose::STANDARD` for base64 encode/decode
-- No existing crate code outside `bridge/` is modified
+- No existing crate code outside `bridge/` is modified (CLI wiring was done in step 1)
 
 ## Implementation instructions for agent
 
