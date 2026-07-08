@@ -7,8 +7,7 @@ Four-step flow: Form → Review → Sending → Confirm. This is the most comple
 **Persistence involved:**
 - `send_state()` reads `accounts` SQLite table for address + protocol metadata
 - Balance is fetched from chain RPC (not DB)
-- Address book is **in-memory only** (a `Mutex<Vec<AddressBookEntry>>` in RealWalletApi) — entries are lost on restart
-- `submit_intent`/`approve_signature`/`broadcast_transaction` involve no DB persistence
+- Address book is persisted in the paypunkd SQLite database via `AddAddressBookEntry`/`GetAddressBook` IPC messages
 
 ## Step 1: Form (enter recipient, amount, memo)
 
@@ -37,8 +36,7 @@ sequenceDiagram
     API-->>TUI: ApiState::Loaded(SendData { from_address, spendable_balance, decimals, chain_id })
 
     TUI->>API: get_address_book()
-    Note over API: Reads from in-memory Mutex<Vec<AddressBookEntry>> — NOT persisted to SQLite
-    API->>Client: list_accounts() — also includes own accounts
+    Note over API: Reads from paypunkd SQLite via GetAddressBook IPC + local accounts from ListAccounts
     Client->>paypunkd: IpcMessage(ListAccounts)
     paypunkd->>SQLite: SELECT * FROM accounts
     SQLite-->>paypunkd: accounts
@@ -113,8 +111,7 @@ sequenceDiagram
     TUI->>API: submit_send_confirm(SendConfirmInput { reviewed, auth_confirmation: { type: "password", value }, signed_tx: "" })
 
     API->>API: Take pending PendingSend from in-memory Mutex
-    Note over API: Add recipient to in-memory address book (Mutex<Vec<AddressBookEntry>>)
-    Note over API: Address book entries are NOT persisted to SQLite — lost on restart
+    Note over API: Add recipient to address book via AddAddressBookEntry IPC (persisted to SQLite)
 
     API->>Client: approve_signature(raw_artifact, keypunkd_signature, password, derivation_path)
     Note over Client: Encrypt payload: [raw_len(4B) | raw_artifact | sig_len(4B) | signature | password_hash] to keypunkd's public key

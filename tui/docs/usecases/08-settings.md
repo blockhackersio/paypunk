@@ -4,10 +4,7 @@
 
 Two sub-actions: **Main** (edit preferences) and **RevealPhrase** (authenticate to show mnemonic).
 
-**Persistence:** None in the current implementation.
-- `get_settings()` returns hardcoded values — no DB read
-- `submit_settings()` is a no-op — no DB write
-- `submit_reveal_phrase()` is not implemented in `RealWalletApi` — returns `Err`
+**Persistence:** Settings are persisted in the paypunkd SQLite database via `GetSettings`/`SaveSettings` IPC messages. Reveal phrase is implemented end-to-end via keypunkd's `ExportMnemonic`.
 
 ## Main Settings Flow
 
@@ -16,11 +13,19 @@ sequenceDiagram
     participant U as User
     participant TUI as SettingsScreen
     participant API as RealWalletApi
+    participant Client as paypunk-api Client
+    participant paypunkd as paypunkd (IPC)
+    participant SQLite as paypunkd.db (SQLite)
 
     Note over TUI: init() called
     TUI->>API: get_settings()
-    Note over API: Returns hardcoded SettingsData — no IPC, no DB read
-    API-->>TUI: SettingsData { security: { auto_lock_minutes: 5 }, fiat_currency: "USD", app_version: "0.1.0" }
+    API->>Client: get_settings()
+    Client->>paypunkd: IpcMessage(GetSettings)
+    paypunkd->>SQLite: SELECT auto_lock_minutes, fiat_currency FROM settings
+    SQLite-->>paypunkd: settings row
+    paypunkd-->>Client: SettingsResult { auto_lock_minutes, fiat_currency }
+    Client-->>API: (auto_lock_minutes, fiat_currency)
+    API-->>TUI: SettingsData { security: { auto_lock_minutes }, fiat_currency, app_version: "0.1.0" }
 
     Note over TUI: Renders: Auto-Lock field, Fiat Currency field, "Reveal Recovery Phrase" option, "Save Settings" option
 
@@ -29,9 +34,11 @@ sequenceDiagram
     U->>TUI: Navigate to "Save Settings" + Enter
 
     TUI->>API: submit_settings(SettingsInput { updated_security: { auto_lock_minutes }, fiat_currency })
-
-    Note over API: RealWalletApi.submit_settings() — no-op, no IPC, no DB write
-
+    API->>Client: save_settings(auto_lock_minutes, fiat_currency)
+    Client->>paypunkd: IpcMessage(SaveSettings { auto_lock_minutes, fiat_currency })
+    paypunkd->>SQLite: INSERT OR REPLACE INTO settings
+    paypunkd-->>Client: SettingsSaved
+    Client-->>API: Ok(())
     API-->>TUI: Ok(())
 
     U->>TUI: Esc
@@ -45,7 +52,9 @@ sequenceDiagram
     participant U as User
     participant TUI as SettingsScreen
     participant API as RealWalletApi
-    participant SQLite as paypunkd.db (SQLite)
+    participant Client as paypunk-api Client
+    participant paypunkd as paypunkd (IPC)
+    participant keypunkd as keypunkd (IPC)
     participant SeedFile as seed.enc (disk)
 
     Note over TUI: In Main action, focus on "Reveal Recovery Phrase" + Enter
@@ -56,16 +65,20 @@ sequenceDiagram
     U->>TUI: Type password + Enter
 
     TUI->>API: submit_reveal_phrase(RevealPhraseInput { auth_type: "password", value })
-
-    alt Mock API (development/testing)
-        API-->>TUI: Ok(vec!["ribbon", "velvet", ..., "anchor"])  — 12 hardcoded words
-        Note over TUI: Renders 12-word grid with warning: "Never share your recovery phrase"
-    else Real API (production)
-        Note over API: submit_reveal_phrase is NOT implemented for RealWalletApi
-        Note over API: Would need to: IPC to keypunkd → decrypt_seed from seed.enc → export mnemonic
-        API-->>TUI: Err("reveal phrase not yet supported via real API")
-        Note over TUI: Shows error message
-    end
+    API->>Client: reveal_phrase(password)
+    Client->>Client: encrypt password to keypunkd's public key via ephemeral X25519 keypair
+    Client->>paypunkd: IpcMessage(RevealPhrase { encrypted_password, client_public_key })
+    paypunkd->>keypunkd: forward ExportMnemonic
+    keypunkd->>keypunkd: decrypt password via X25519 keystore
+    keypunkd->>SeedFile: read() — load encrypted seed blob
+    keypunkd->>keypunkd: decrypt_mnemonic(encrypted_blob, password) — Argon2id + AES-256-GCM
+    keypunkd->>keypunkd: encrypt mnemonic to client's public key
+    keypunkd-->>paypunkd: MnemonicExported { encrypted_mnemonic }
+    paypunkd-->>Client: PhraseRevealed { encrypted_mnemonic }
+    Client->>Client: decrypt mnemonic via ephemeral keypair
+    Client-->>API: Ok(mnemonic words)
+    API-->>TUI: Ok(vec!["ribbon", "velvet", ..., "anchor"]) — 12 words
+    Note over TUI: Renders 12-word grid with warning: "Never share your recovery phrase"
 
     U->>TUI: Esc
     TUI->>TUI: Set action = Main, clear phrase

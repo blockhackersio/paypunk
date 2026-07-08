@@ -9,7 +9,7 @@ A Zcash key manager capable of generating Addresses, checking Balance, building 
 _Avoid_: Vault, safe
 
 **KeyActor**:
-An actor (tactix) that holds the decrypted spending key in protected memory. Lives inside `keypunkd`. The security boundary — only accepts `Sign` and `DerivePublicKey` messages. Never exposes raw key material. Uses `SignerProtocol` implementations to perform chain-specific signing. Stateless — the seed is derived from the encrypted store on each `AuthorizeArtifact` or `ExportViewingKey` call using the password provided in the request.
+An actor (tactix) that holds the decrypted spending key in protected memory. Lives inside `keypunkd`. The security boundary — only accepts `GetEncryptionKey`, `GenerateSeed`, `RestoreSeed`, `PreviewArtifact`, `AuthorizeArtifact`, `ExportViewingKey`, `HasSeed`, `VerifyPassword`, `BulkExportViewingKeys`, and `ExportMnemonic` messages. Never exposes raw key material. Uses `SignerProtocol` implementations to perform chain-specific signing. Stateless — the seed is derived from the encrypted store on each `AuthorizeArtifact` or `ExportViewingKey` call using the password provided in the request.
 _Avoid_: Key Daemon, signer
 
 **WalletActor**:
@@ -17,7 +17,7 @@ An actor (tactix) managing non-secret operations: address derivation, LSP sync, 
 _Avoid_: Wallet Daemon
 
 **Seed**:
-A 12-word BIP39 mnemonic phrase from which all wallet keys are deterministically derived. Stored at rest in a dedicated file (`seed.enc`), encrypted with an Argon2id-derived key from the user's password. The seed file is eventually owned by a different system user than the wallet process for security compartmentalization. The seed is decrypted on-demand for each `AuthorizeArtifact` or `ExportViewingKey` call — it is never held in memory between requests.
+A 12-word BIP39 mnemonic phrase from which all wallet keys are deterministically derived. Stored at rest in a dedicated file (`seed.enc`), encrypted with an Argon2id-derived key from the user's password. The seed file is eventually owned by a different system user than the wallet process for security compartmentalization. The seed is decrypted on-demand for each `AuthorizeArtifact` or `ExportViewingKey` call and held on the stack for the duration of the signing operation.
 
 **Address**:
 A unique receiving address derived for each incoming payment. One address per payment — never reused (post-v1 goal; address reuse is acceptable for initial build).
@@ -77,4 +77,4 @@ _Avoid_: adapters
 
 All entity types are chain-agnostic primitives (strings, numbers, enums). No generics or trait objects on the data types. Chain-specific logic lives inside protocol implementation crates (`protocols/zcash`, `protocols/ethereum`).
 
-**Types**: Address(String), Amount(u64), TransferId(String), BlockHeight(u64), Balance { spendable, pending, total }, TransactionStatus { Pending, Confirmed(BlockHeight), Failed(String) }, Transfer { id, from, to, amount, fee, memo, status, created_at }
+**Types**: Address(String), Amount(u128), TransferId(String), BlockHeight(u64), Balance { spendable, pending, total }, TxStatus { Pending, Confirmed { confirmations: u64 }, Failed { reason: String }, NotFound }, Transfer { id, from, to, amount, fee, memo, status, created_at }

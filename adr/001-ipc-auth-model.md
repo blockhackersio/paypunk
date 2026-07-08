@@ -53,10 +53,10 @@ accepted.
    - paypunkd derives the same shared secret: `X25519(paypunkd_sk, keypunkd_pk)`.
 
 4. **Per-message authentication**:
-   - Every subsequent message from paypunkd includes an HMAC tag:
-     `message_payload || HMAC(message_payload, hmac_key)` where `hmac_key` is
-     derived from the shared secret via Blake2b.
-   - keypunkd verifies the HMAC before processing the message. If verification
+   - Every subsequent message from paypunkd includes an authentication tag:
+     `message_payload || Blake2b(hmac_key, message_payload)` where `hmac_key` is
+     derived from the shared secret via `Blake2b(shared_secret || "paypunk-ipc-hmac")`.
+   - keypunkd verifies the tag before processing the message. If verification
      fails, the connection is dropped.
 
 5. **Existing password sealing remains unchanged**: The `GenerateSeed` flow
@@ -88,38 +88,21 @@ accepted.
   round trip at connection startup.
 - **Per-connection registration**: Each new connection must re-register. If
   paypunkd reconnects, it generates a new keypair and re-registers.
-- **HMAC overhead**: Small CPU cost per message for HMAC computation and
-  verification. Negligible for a wallet application.
+- **HMAC overhead**: Small CPU cost per message for tag computation and
+   verification. Negligible for a wallet application.
 - **No key persistence**: If an attacker gains temporary access to paypunkd's
    memory, they can extract the current keypair. Mitigated by: (a) the keypair
    is regenerated on restart, (b) the attacker would also need access to
    keypunkd's socket, (c) the wallet password is still required for every
    `AuthorizeArtifact` and `ExportViewingKey` call.
 
-## Implementation Plan
+## Implementation
 
-### keypunkd changes
-
-- Add `RegisterClient { public_key: [u8; 32] }` variant to `KeypunkdRequest`
-- Add `KeypunkdResponse::ClientRegistered` variant
-- Add connection-level state to `Dispatcher`:
-  ```rust
-  struct ConnectionState {
-      client_public_key: [u8; 32],
-      hmac_key: [u8; 32],  // derived from shared secret
-  }
-  ```
-- Before processing any message, verify the HMAC tag (except for
-  `GetPublicKey` and `RegisterClient` which are part of the handshake)
-- Store connection state keyed by something unique per connection (e.g., an
-  incrementing connection ID passed through the actor context)
-
-### paypunkd changes (new crate)
-
-- Generate an X25519 keypair at startup
-- On connect to keypunkd: `GetPublicKey` → `RegisterClient`
-- Derive shared secret and HMAC key
-- Before sending any message: compute and append HMAC tag
+The handshake and per-message authentication are handled transparently by the `ipc` crate:
+- `IpcSender::connect()` performs the handshake, derives the HMAC key, and returns a running tactix actor.
+- `IpcReceiver::serve()` handles the server side: accepts connections, performs the handshake, verifies MACs, and dispatches authenticated messages to a handler actor.
+- `UnixSocketTransport` provides framed reads/writes (4-byte LE length prefix) over Unix domain sockets.
+- The wire protocol uses first-byte discriminators: `MSG_GET_PUBLIC_KEY (0x00)`, `MSG_PUBLIC_KEY (0x01)`, `MSG_REGISTER_CLIENT (0x02)`, `MSG_REGISTER_CLIENT_ACK (0x03)`, `MSG_APPLICATION (0x04)`.
 
 ## Alternatives Considered
 

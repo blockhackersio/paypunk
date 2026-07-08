@@ -7,9 +7,9 @@
 | 3 | [LockScreen](03-lock.md) | `tui/src/screens/lock.rs:17` | Re-authentication after auto-lock | None — no-op implementation |
 | 4 | [HomeScreen](04-home.md) | `tui/src/screens/home.rs:19` | Account list and main navigation | Reads `accounts` table, writes `accounts` on add |
 | 5 | [AssetsScreen](05-assets.md) | `tui/src/screens/assets.rs:27` | Asset balance view with Send/Receive/History buttons | Reads `accounts` table; balance from chain RPC |
-| 6 | [SendScreen](06-send.md) | `tui/src/screens/send.rs:78` | Multi-step send flow (Form → Review → Sending → Confirm) | Reads `accounts` table; address book in-memory only; signing reads `seed.enc` |
+| 6 | [SendScreen](06-send.md) | `tui/src/screens/send.rs:78` | Multi-step send flow (Form → Review → Sending → Confirm) | Reads `accounts` table; address book persisted to SQLite; signing reads `seed.enc` |
 | 7 | [ReceiveScreen](07-receive.md) | `tui/src/screens/receive.rs:15` | Display receiving address + QR code | Reads `accounts` table |
-| 8 | [SettingsScreen](08-settings.md) | `tui/src/screens/settings.rs:21` | Auto-lock, fiat currency, reveal recovery phrase | None — hardcoded values; reveal not implemented |
+| 8 | [SettingsScreen](08-settings.md) | `tui/src/screens/settings.rs:21` | Auto-lock, fiat currency, reveal recovery phrase | Reads/writes `settings` table; reveal reads `seed.enc` via keypunkd |
 | 9 | [HelpScreen](09-help.md) | `tui/src/screens/help.rs:11` | Context-sensitive keybinding overlay | None — pure UI overlay |
 
 ## Persistence Layer Summary
@@ -31,7 +31,7 @@
 - **Lock/unlock:** DB is encrypted at rest; decrypted to temp file on unlock; re-encrypted on close
 
 ### Address Book
-- **Not persisted** — stored in-memory in `RealWalletApi` as `Mutex<Vec<AddressBookEntry>>`, lost on restart
+- **Persisted** in paypunkd SQLite `address_book` table via `AddAddressBookEntry`/`GetAddressBook` IPC messages
 
 ## Architecture Layers
 

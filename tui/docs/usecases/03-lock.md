@@ -4,31 +4,47 @@
 
 Shown after auto-lock timeout. User authenticates with password to return to HomeScreen.
 
-**Persistence:** None. `get_lock()` returns hardcoded data (no DB read). `submit_lock()` is a no-op (no DB write). The screen exists only for the TUI-side lock UX — the daemon does not track lock state.
+**Persistence:** `get_lock()` reads lock state (password set, failed attempts) from paypunkd via IPC. `submit_lock()` verifies the password against keypunkd via IPC. Failed attempts are tracked server-side.
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant TUI as LockScreen
     participant API as RealWalletApi
+    participant Client as paypunk-api Client
+    participant paypunkd as paypunkd (IPC)
+    participant keypunkd as keypunkd (IPC)
 
     Note over TUI: init() called
     TUI->>API: get_lock()
-    Note over API: Returns hardcoded LockData — no IPC, no DB read
-    API-->>TUI: LockData { auth_methods: { password_set: true }, failed_attempts: 0 }
+    API->>Client: get_lock_state()
+    Client->>paypunkd: IpcMessage(GetLockState)
+    paypunkd->>keypunkd: HasSeed (to check password_set)
+    keypunkd-->>paypunkd: exists
+    paypunkd-->>Client: LockState { password_set, failed_attempts }
+    Client-->>API: (password_set, failed_attempts)
+    API-->>TUI: LockData { auth_methods: { password_set }, failed_attempts }
 
     Note over TUI: Renders password field + failed attempts counter
 
     U->>TUI: Type password + Enter
 
     TUI->>API: submit_lock(LockInput { credential: { type: "password", value } })
-
-    Note over API: RealWalletApi.submit_lock()
-    Note over API: Always returns Ok(()) — no IPC, no DB write
-
-    API-->>TUI: Ok(())
-
-    TUI->>TUI: Nav::Replace(Box::new(HomeScreen))
+    API->>Client: verify_password(password)
+    Client->>paypunkd: IpcMessage(VerifyPassword)
+    paypunkd->>keypunkd: verify_password
+    keypunkd->>keypunkd: attempt seed decryption with password
+    alt Correct password
+        keypunkd-->>paypunkd: PasswordVerified
+        paypunkd-->>Client: Ok
+        API-->>TUI: Ok(())
+        TUI->>TUI: Nav::Replace(Box::new(HomeScreen))
+    else Wrong password
+        keypunkd-->>paypunkd: Error
+        paypunkd-->>Client: Err
+        API-->>TUI: Err(ApiError)
+        Note over TUI: Shows error, stays on LockScreen
+    end
 ```
 
-On error (password wrong), the screen stays visible and displays the error message. On `Esc`, it returns `Nav::Pop`.
+On `Esc`, it returns `Nav::Pop`.
