@@ -45,7 +45,7 @@ echo "    lightwalletd:    127.0.0.1:9067 (plaintext)"
 echo ""
 
 while true; do
-  sleep 1
+  sleep 5
   HEIGHT=$(docker compose exec -T zcashd zcash-cli -datadir=/data generate 1 | jq -r '.[0]')
   echo "[$(date '+%H:%M:%S')] mined block ${HEIGHT}"
 done
