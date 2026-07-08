@@ -250,7 +250,6 @@ pub async fn create_protocol(
         Some(wallet_actor),
         Some(scan_recipient),
         Some(lightwalletd_host),
-        Some("http://127.0.0.1:18232".to_string()),
     );
 
     Ok(ZcashStack {

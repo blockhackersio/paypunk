@@ -550,7 +550,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             asset,
                             memo,
                         }),
-                        _ => return Err("unsupported protocol".into()),
                     };
                     let path = client.derivation_path(protocol_id, account);
                     let data_dir = config.data_dir.clone();
@@ -594,7 +593,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let (caip_chain, caip_asset) = match protocol_id {
                         ProtocolId::Ethereum => ("eip155:1", "eip155:1/slip44:60"),
                         ProtocolId::Zcash => ("zcash:mainnet", "zcash:mainnet/slip44:133"),
-                        _ => return Err(format!("unsupported protocol: {protocol}").into()),
                     };
                     let address = match address {
                         Some(raw) => format!("{}:{}", caip_chain, raw),

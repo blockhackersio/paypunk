@@ -391,16 +391,6 @@ impl WalletApi for RealWalletApi {
                 asset,
                 memo: input.memo.clone(),
             }),
-            _ => {
-                return SendReviewData {
-                    to_address: format!("unsupported protocol: {protocol:?}"),
-                    amount: String::new(),
-                    fee_estimate: String::new(),
-                    total_amount: String::new(),
-                    chain_id: input.chain_id,
-                    nonce: 0,
-                }
-            }
         };
 
         match self.client.submit_intent(intent, &derivation_path).await {

@@ -23,7 +23,6 @@ pub fn derivation_path(protocol: ProtocolId, account: u32) -> String {
     match protocol {
         ProtocolId::Zcash => paypunk_chains_zcash::derivation_path(account),
         ProtocolId::Ethereum => paypunk_chains_ethereum::derivation_path(account),
-        _ => panic!("derivation_path not implemented for {protocol:?}"),
     }
 }
 pub async fn check_wallet_exists(

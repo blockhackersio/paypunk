@@ -113,7 +113,6 @@ impl TestBuilder {
                 None,
                 None,
                 None,
-                None,
             )),
         );
         keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
@@ -127,7 +126,6 @@ impl TestBuilder {
                 zcash_protocol::consensus::NetworkType::Main,
             ),
             zcash_protocol::consensus::NetworkType::Main,
-            None,
             None,
             None,
             None,
