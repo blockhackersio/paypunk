@@ -51,7 +51,7 @@ pub struct AppState {
 #[tauri::command]
 fn get_app_info() -> AppInfo {
     AppInfo {
-        app_name: "PayPunk Kitchen Sink".to_string(),
+        app_name: "PayPunk Signer".to_string(),
         app_version: "0.1.0".to_string(),
         target_triple: std::env::consts::ARCH.to_string()
             + "-"
@@ -68,7 +68,7 @@ fn get_app_info() -> AppInfo {
 #[tauri::command]
 fn greet(name: String) -> GreetResult {
     GreetResult {
-        message: format!("Hello, {}! Welcome to PayPunk.", name),
+        message: format!("Hello, {}! Welcome to PayPunk Signer.", name),
     }
 }
 

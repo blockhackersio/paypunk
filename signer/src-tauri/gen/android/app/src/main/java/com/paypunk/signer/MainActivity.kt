@@ -1,4 +1,4 @@
-package com.paypunk.kitchensink
+package com.paypunk.signer
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

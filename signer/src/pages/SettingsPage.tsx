@@ -33,7 +33,7 @@ export default function SettingsPage({ theme, onThemeChange, launchCount }: Prop
         setNote(settings.note);
       } catch {
         setAppInfo({
-          app_name: "PayPunk Kitchen Sink",
+          app_name: "PayPunk Signer",
           app_version: "0.1.0",
           target_triple: "unknown",
           build_profile: "unknown",

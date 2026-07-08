@@ -88,7 +88,7 @@
   enterShell = ''
     export NDK_HOME="$(ls -d "$ANDROID_NDK_ROOT"*/ 2>/dev/null | sort -V | tail -n1)"
     export NDK_HOME="''${NDK_HOME:-$ANDROID_NDK_ROOT}"
-    echo "🦀 PayPunk dev environment ready"
+    echo "🦀 PayPunk Signer dev environment ready"
     echo "   Rust:  $(rustc --version)"
     echo "   Node:  $(node --version)"
     echo "   pnpm:  $(pnpm --version)"

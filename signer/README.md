@@ -1,6 +1,6 @@
-# PayPunk Kitchen Sink
+# PayPunk Signer
 
-A **Tauri v2** mobile application demonstrating **Konsta UI** components — a "kitchen sink" app that shows the full Tauri v2 + React + Android development loop on **NixOS** using `devenv`.
+A **Tauri v2** mobile application — the PayPunk Signer, built with React + Konsta UI on NixOS using `devenv`.
 
 ## Quick Start
 

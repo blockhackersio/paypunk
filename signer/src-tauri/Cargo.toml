@@ -1,12 +1,12 @@
 [package]
-name = "paypunk-app"
+name = "paypunk-signer"
 version = "0.1.0"
-description = "PayPunk Kitchen Sink — Tauri v2 + Konsta UI"
+description = "PayPunk Signer — Tauri v2 mobile app"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "paypunk_app_lib"
+name = "paypunk_signer_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

@@ -69,7 +69,7 @@ jobs:
         with:
           name: Release ${{ github.ref_name }}
           body: |
-            ## PayPunk Kitchen Sink ${{ github.ref_name }}
+            ## PayPunk Signer ${{ github.ref_name }}
 
             ### APK SHA-256
             ```

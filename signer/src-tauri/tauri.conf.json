@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PayPunk Kitchen Sink",
+  "productName": "PayPunk Signer",
   "version": "0.1.0",
-  "identifier": "com.paypunk.kitchensink",
+  "identifier": "com.paypunk.signer",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "PayPunk Kitchen Sink",
+        "title": "PayPunk Signer",
         "url": "/"
       }
     ],

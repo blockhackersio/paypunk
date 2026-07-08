@@ -62,7 +62,7 @@ export default function App() {
     <KonstaApp theme={theme}>
       <div className="flex flex-col min-h-screen">
         <Page className="relative flex-1 overflow-auto">
-          <Navbar title="PayPunk Kitchen Sink" />
+          <Navbar title="PayPunk Signer" />
           {renderPage()}
         </Page>
         <Toolbar tabbar>

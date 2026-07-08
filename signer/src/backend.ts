@@ -64,7 +64,7 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
   switch (cmd) {
     case "get_app_info":
       return {
-        app_name: "PayPunk Kitchen Sink",
+        app_name: "PayPunk Signer",
         app_version: "0.1.0",
         target_triple: "mock-x86_64-unknown-linux-gnu",
         build_profile: "mock",
