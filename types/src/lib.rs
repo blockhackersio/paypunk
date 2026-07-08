@@ -6,10 +6,7 @@ pub use caip::ChainId;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ProtocolId {
     Zcash,
-    Bitcoin,
     Ethereum,
-    Monero,
-    Solana,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

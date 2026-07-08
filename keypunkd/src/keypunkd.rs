@@ -249,15 +249,9 @@ impl<S: Storage> Keypunkd<S> {
     }
 
     fn try_parse_artifact(&self, raw_artifact: &[u8]) -> Result<Vec<u8>, String> {
-        for id in [
-            ProtocolId::Zcash,
-            ProtocolId::Ethereum,
-            ProtocolId::Bitcoin,
-            ProtocolId::Monero,
-            ProtocolId::Solana,
-        ] {
-            if let Some(deriver) = self.protocols.get(id) {
-                if let Ok(summary) = deriver.parse_artifact(raw_artifact) {
+        for id in [ProtocolId::Zcash, ProtocolId::Ethereum] {
+            if let Some(protocol) = self.protocols.get(id) {
+                if let Ok(summary) = protocol.parse_artifact(raw_artifact) {
                     return Ok(summary);
                 }
             }

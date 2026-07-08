@@ -588,10 +588,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } => {
                     let protocol_id = match protocol.to_lowercase().as_str() {
                         "zcash" => ProtocolId::Zcash,
-                        "bitcoin" => ProtocolId::Bitcoin,
                         "ethereum" => ProtocolId::Ethereum,
-                        "monero" => ProtocolId::Monero,
-                        "solana" => ProtocolId::Solana,
                         _ => return Err(format!("Unknown protocol: {protocol}").into()),
                     };
                     let (caip_chain, caip_asset) = match protocol_id {
@@ -646,10 +643,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } => {
                     let protocol_id = match protocol.to_lowercase().as_str() {
                         "zcash" => ProtocolId::Zcash,
-                        "bitcoin" => ProtocolId::Bitcoin,
                         "ethereum" => ProtocolId::Ethereum,
-                        "monero" => ProtocolId::Monero,
-                        "solana" => ProtocolId::Solana,
                         _ => return Err(format!("Unknown protocol: {protocol}").into()),
                     };
                     let path = client.derivation_path(protocol_id, account_index);

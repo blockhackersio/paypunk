@@ -126,10 +126,7 @@ impl AccountsRepository for SqliteAccountsRepository {
 fn parse_protocol(s: &str) -> paypunk_types::ProtocolId {
     match s {
         "Zcash" => paypunk_types::ProtocolId::Zcash,
-        "Bitcoin" => paypunk_types::ProtocolId::Bitcoin,
         "Ethereum" => paypunk_types::ProtocolId::Ethereum,
-        "Monero" => paypunk_types::ProtocolId::Monero,
-        "Solana" => paypunk_types::ProtocolId::Solana,
         _ => paypunk_types::ProtocolId::Zcash,
     }
 }

@@ -185,13 +185,7 @@ pub fn sign_artifact(
 ) -> Result<Vec<u8>, String> {
     // Find the protocol by trying each one until we find one that accepts the artifact
     // In practice, the protocol is known from context
-    for id in [
-        ProtocolId::Zcash,
-        ProtocolId::Ethereum,
-        ProtocolId::Bitcoin,
-        ProtocolId::Monero,
-        ProtocolId::Solana,
-    ] {
+    for id in [ProtocolId::Zcash, ProtocolId::Ethereum] {
         if let Some(deriver) = registry.get(id) {
             if let Ok(signed) = deriver.sign(seed, path, raw_artifact) {
                 return Ok(signed);
