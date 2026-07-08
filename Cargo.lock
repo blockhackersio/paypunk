@@ -3947,8 +3947,8 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "base64",
- "paypunk-config",
  "qrcode",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
