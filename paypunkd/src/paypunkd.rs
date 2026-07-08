@@ -617,11 +617,7 @@ impl Paypunkd {
                             if let Ok(proto) = self.protocols.get(pid) {
                                 for account in accounts.iter().filter(|a| a.protocol == pid) {
                                     if let Err(e) = proto
-                                        .sync_account(
-                                            &account.viewing_key,
-                                            0,
-                                            &account.address,
-                                        )
+                                        .sync_account(&account.viewing_key, 0, &account.address)
                                         .await
                                     {
                                         warn!(
@@ -652,11 +648,7 @@ impl Paypunkd {
                     if let Ok(proto) = self.protocols.get(pid) {
                         for account in accounts.iter().filter(|a| a.protocol == pid) {
                             if let Err(e) = proto
-                                .sync_account(
-                                    &account.viewing_key,
-                                    0,
-                                    &account.address,
-                                )
+                                .sync_account(&account.viewing_key, 0, &account.address)
                                 .await
                             {
                                 warn!(

@@ -62,7 +62,9 @@ impl HomeScreen {
 
     fn get_selected_account<'a>(&self, data: &'a HomeData) -> Option<&'a AccountInfo> {
         let filtered = self.get_filtered_accounts(&data.accounts);
-        self.list.selected().and_then(|idx| filtered.get(idx).copied())
+        self.list
+            .selected()
+            .and_then(|idx| filtered.get(idx).copied())
     }
 }
 

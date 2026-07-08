@@ -385,12 +385,8 @@ impl Protocol for ZcashProtocol {
 
     fn native_asset(&self) -> String {
         match self.network_type {
-            zcash_protocol::consensus::NetworkType::Main => {
-                "zcash:mainnet/slip44:133".to_string()
-            }
-            _ => {
-                "zcash:testnet/slip44:133".to_string()
-            }
+            zcash_protocol::consensus::NetworkType::Main => "zcash:mainnet/slip44:133".to_string(),
+            _ => "zcash:testnet/slip44:133".to_string(),
         }
     }
 
@@ -472,9 +468,7 @@ impl Protocol for ZcashProtocol {
             .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let fee: u64 = wallet
-            .ask(EstimateFee { to, amount, memo })
-            .await?;
+        let fee: u64 = wallet.ask(EstimateFee { to, amount, memo }).await?;
         Ok(fee)
     }
 
@@ -517,9 +511,8 @@ impl Protocol for ZcashProtocol {
             .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let height: paypunk_types::BlockHeight = wallet
-            .ask(GetBlockHeight { lightwalletd_host })
-            .await?;
+        let height: paypunk_types::BlockHeight =
+            wallet.ask(GetBlockHeight { lightwalletd_host }).await?;
         Ok(height)
     }
 

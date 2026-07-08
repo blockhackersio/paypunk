@@ -8,8 +8,8 @@ use std::path::Path;
 
 use tactix::{Actor, Recipient, Sender};
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
-use zcash_protocol::consensus::{BlockHeight, Network, NetworkType, NetworkUpgrade};
 use zcash_protocol::consensus::Parameters;
+use zcash_protocol::consensus::{BlockHeight, Network, NetworkType, NetworkUpgrade};
 use zcash_protocol::local_consensus::LocalNetwork;
 
 pub use protocol::ZcashProtocol;
