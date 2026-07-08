@@ -75,7 +75,6 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             loop {
                 interval.tick().await;
-                let _ = scan_recipient.ask(paypunk_chains_zcash::Sync).await;
                 match scan_recipient.ask(paypunk_chains_zcash::Sync).await {
                     Ok(msg) => {
                         tracing::info!(?msg, "sync cycle completed");

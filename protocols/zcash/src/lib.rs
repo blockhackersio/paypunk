@@ -5,7 +5,6 @@ pub mod scan_actor;
 pub mod wallet_actor;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use tactix::{Actor, Recipient, Sender};
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
@@ -197,39 +196,15 @@ pub async fn create_protocol(
     let wallet_actor = WalletDbActor::new(
         wallet_db,
         params,
-        network_type,
         zcash_db_path.clone(),
         confirmations,
         lightwalletd_host.clone(),
     )
     .start();
 
-    // Create typed recipients for each message type
-    let propose_and_build: Recipient<ProposeAndBuild> = wallet_actor.clone().recipient();
-    let register_account: Recipient<RegisterAccount> = wallet_actor.clone().recipient();
-    let get_status: Recipient<GetStatus> = wallet_actor.clone().recipient();
-    let get_balance: Recipient<GetBalance> = wallet_actor.clone().recipient();
-    let get_history: Recipient<GetHistory> = wallet_actor.clone().recipient();
-    let get_block_height: Recipient<GetBlockHeight> = wallet_actor.clone().recipient();
-    let store_transaction: Recipient<StoreTransaction> = wallet_actor.clone().recipient();
-    let get_tx_status: Recipient<GetTxStatus> = wallet_actor.clone().recipient();
-    let estimate_fee: Recipient<EstimateFee> = wallet_actor.clone().recipient();
+    // Start the scan actor (fetches blocks, delegates DB writes to WalletDbActor)
     let get_chain_tip: Recipient<GetChainTip> = wallet_actor.clone().recipient();
     let scan_blocks: Recipient<ScanBlocks> = wallet_actor.clone().recipient();
-
-    let wallet_sender = Arc::new(protocol::WalletMessageSenderImpl {
-        propose_and_build,
-        register_account,
-        get_status,
-        get_balance,
-        get_history,
-        get_block_height,
-        store_transaction,
-        get_tx_status,
-        estimate_fee,
-    });
-
-    // Start the scan actor (fetches blocks, delegates DB writes to WalletDbActor)
     let scan_actor = scan_actor::ScanActor::new(
         params,
         lightwalletd_host.clone(),
@@ -243,7 +218,7 @@ pub async fn create_protocol(
     let protocol = ZcashProtocol::new(
         params,
         network_type,
-        Some(wallet_sender),
+        Some(wallet_actor),
         Some(scan_recipient),
         Some(lightwalletd_host),
         Some("http://127.0.0.1:18232".to_string()),

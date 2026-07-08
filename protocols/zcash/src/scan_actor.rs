@@ -1,3 +1,5 @@
+use std::cmp;
+
 use tactix::{Actor, Ctx, Handler, Message, Recipient, Sender};
 use tracing::info;
 use zcash_client_backend::data_api::chain::ChainState;
@@ -6,6 +8,8 @@ use zcash_protocol::consensus::{BlockHeight, Network};
 
 use crate::lsp_client::LspClient;
 use crate::wallet_actor::{GetChainTip, ScanBlocks};
+
+const SCAN_CHUNK_SIZE: u32 = 20;
 
 /// Incremental sync from current chain tip using stored accounts.
 #[derive(Debug, Message)]
@@ -76,29 +80,7 @@ impl ScanActor {
             return Ok(format!("already at tip (height={latest_u64})"));
         }
 
-        // Fetch blocks from from_height to latest
-        info!("scan_actor: fetching blocks from {from_height:?} to {latest:?}");
-        let blocks = lsp.get_block_range(from_height, latest).await?;
-        let block_count = blocks.len();
-        info!("scan_actor: fetched {block_count} blocks");
-
-        if block_count == 0 {
-            return Ok("no new blocks".to_string());
-        }
-
-        // Get tree state at from_height - 1
-        let prev_height = if from_height > BlockHeight::from_u32(0) {
-            from_height - 1
-        } else {
-            from_height
-        };
-        let tree_state = lsp.get_tree_state(prev_height).await?;
-        let chain_state = tree_state
-            .to_chain_state()
-            .map_err(|e| format!("invalid tree state: {e}"))?;
-
-        // Send blocks to WalletDbActor for scanning
-        self.send_blocks_to_wallet(blocks, from_height, chain_state, latest)
+        self.sync_blocks_in_chunks(&mut lsp, from_height, latest)
             .await?;
 
         info!("scan_actor: scan complete");
@@ -123,25 +105,7 @@ impl ScanActor {
             return Ok("birthday after tip, nothing to sync".to_string());
         }
 
-        info!("scan_actor: fetching blocks from {birthday:?} to {latest:?}");
-        // TODO: there could be thousands of blocks out of sync here. This should be some kind of
-        // iteraative block by block process.
-        let blocks = lsp.get_block_range(birthday, latest).await?;
-        let block_count = blocks.len();
-        info!("scan_actor: fetched {block_count} blocks");
-
-        let prev_height = if birthday > BlockHeight::from_u32(0) {
-            birthday - 1
-        } else {
-            birthday
-        };
-        let tree_state = lsp.get_tree_state(prev_height).await?;
-        let chain_state = tree_state
-            .to_chain_state()
-            .map_err(|e| format!("invalid tree state: {e}"))?;
-
-        // Send blocks to WalletDbActor for scanning
-        self.send_blocks_to_wallet(blocks, birthday, chain_state, latest)
+        self.sync_blocks_in_chunks(&mut lsp, birthday, latest)
             .await?;
 
         info!("scan_actor: initial sync complete");
@@ -151,6 +115,47 @@ impl ScanActor {
             latest_u64
         );
         Ok(msg)
+    }
+
+    /// Fetch and scan blocks from `from_height` to `target_height` in chunks,
+    /// avoiding a single massive fetch for wallets far behind the tip.
+    async fn sync_blocks_in_chunks(
+        &self,
+        lsp: &mut LspClient,
+        from_height: BlockHeight,
+        target_height: BlockHeight,
+    ) -> Result<(), String> {
+        let mut current = from_height;
+        while current <= target_height {
+            let chunk_end_ord = cmp::min(
+                u32::from(current) + SCAN_CHUNK_SIZE - 1,
+                u32::from(target_height),
+            );
+            let chunk_end = BlockHeight::from_u32(chunk_end_ord);
+
+            info!("scan_actor: fetching blocks from {current:?} to {chunk_end:?}");
+            let blocks = lsp.get_block_range(current, chunk_end).await?;
+            let block_count = blocks.len();
+            info!("scan_actor: fetched {block_count} blocks");
+
+            if block_count > 0 {
+                let prev_height = if current > BlockHeight::from_u32(0) {
+                    current - 1
+                } else {
+                    current
+                };
+                let tree_state = lsp.get_tree_state(prev_height).await?;
+                let chain_state = tree_state
+                    .to_chain_state()
+                    .map_err(|e| format!("invalid tree state: {e}"))?;
+
+                self.send_blocks_to_wallet(blocks, current, chain_state, chunk_end)
+                    .await?;
+            }
+
+            current = BlockHeight::from_u32(u32::from(chunk_end) + 1);
+        }
+        Ok(())
     }
 
     /// Send fetched blocks to WalletDbActor for scanning against its DB.

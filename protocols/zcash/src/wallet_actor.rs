@@ -129,13 +129,12 @@ pub struct ScanBlocks {
 /// Chain scanning is delegated to `ScanActor` so that the wallet remains
 /// responsive during long sync operations.
 pub struct WalletDbActor {
-    pub db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-    pub params: Network,
-    pub network_type: NetworkType,
-    pub current_height: u64,
-    pub target_height: u64,
-    pub is_syncing: bool,
-    pub db_path: PathBuf,
+    db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+    params: Network,
+    current_height: u64,
+    target_height: u64,
+    is_syncing: bool,
+    db_path: PathBuf,
     fvk_to_account_id: HashMap<Vec<u8>, AccountUuid>,
     confirmations_policy: ConfirmationsPolicy,
     lightwalletd_host: String,
@@ -146,7 +145,6 @@ impl WalletDbActor {
     pub fn new(
         db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
         params: Network,
-        network_type: NetworkType,
         db_path: PathBuf,
         confirmations_policy: ConfirmationsPolicy,
         lightwalletd_host: String,
@@ -154,7 +152,6 @@ impl WalletDbActor {
         Self {
             db,
             params,
-            network_type,
             is_syncing: false,
             current_height: 0,
             target_height: 0,

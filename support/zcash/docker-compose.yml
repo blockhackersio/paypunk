@@ -11,6 +11,7 @@ services:
     volumes:
       - zcashd-data:/data
       - zcash-params:/root/.zcash-params
+      - ./zcashd/zcash.conf:/data/zcash.conf:ro
     ports:
       - "18232:18232"          # zcashd JSON-RPC
     healthcheck:
@@ -18,7 +19,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 40
-      start_period: 40s
+      start_period: 10s
     restart: unless-stopped
 
   lightwalletd:

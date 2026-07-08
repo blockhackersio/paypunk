@@ -12,7 +12,7 @@ use pczt::roles::{
     prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
     tx_extractor::TransactionExtractor, verifier::Verifier,
 };
-use tactix::{Recipient, Sender};
+use tactix::{Addr, Recipient, Sender};
 use tokio;
 use zcash_keys::keys::UnifiedSpendingKey;
 use zip32::fingerprint::SeedFingerprint;
@@ -20,86 +20,17 @@ use zip32::fingerprint::SeedFingerprint;
 use crate::scan_actor::SyncNewAccount;
 use crate::wallet_actor::{
     EstimateFee, GetBalance, GetBlockHeight, GetHistory, GetStatus, GetTxStatus, ProposeAndBuild,
-    RegisterAccount, StoreTransaction,
+    RegisterAccount, StoreTransaction, WalletDbActor,
 };
 
 pub struct ZcashProtocol {
     pub params: zcash_protocol::consensus::Network,
     network_type: zcash_protocol::consensus::NetworkType,
-    wallet_recipient: Option<Arc<dyn WalletMessageSender>>,
+    wallet_addr: Option<Addr<WalletDbActor>>,
     scan_recipient: Option<Arc<Recipient<SyncNewAccount>>>,
     pub lightwalletd_host: Option<String>,
     pub zcashd_rpc_url: Option<String>,
     address_viewing_keys: Arc<Mutex<HashMap<String, Vec<u8>>>>,
-}
-
-/// Trait to abstract over sending individual wallet messages.
-/// Allows `ZcashProtocol` to hold a single `Arc<dyn WalletMessageSender>`
-/// instead of a separate recipient for each message type.
-// TODO: This is FUCKING STUPID. Just pass in an actor unless we have tests where we need to use
-// some kind of mock - which I don't believe we do.
-#[async_trait]
-pub trait WalletMessageSender: Send + Sync {
-    async fn propose_and_build(&self, msg: ProposeAndBuild) -> Result<Vec<u8>, String>;
-    async fn register_account(&self, msg: RegisterAccount) -> Result<String, String>;
-    async fn get_status(&self, msg: GetStatus) -> Result<SyncStatus, String>;
-    async fn get_balance(&self, msg: GetBalance) -> Result<paypunk_types::Balance, String>;
-    async fn get_history(&self, msg: GetHistory) -> Result<Page<HistoryEntry>, String>;
-    async fn get_block_height(
-        &self,
-        msg: GetBlockHeight,
-    ) -> Result<paypunk_types::BlockHeight, String>;
-    async fn store_transaction(&self, msg: StoreTransaction) -> Result<String, String>;
-    async fn get_tx_status(&self, msg: GetTxStatus) -> Result<TxStatus, String>;
-    async fn estimate_fee(&self, msg: EstimateFee) -> Result<u64, String>;
-}
-
-/// Concrete implementation that dispatches to individual tactix recipients.
-// TODO: Why the fuck are we using individual Recipients here????? Just use an Addr<WalletDbActor>?
-pub struct WalletMessageSenderImpl {
-    pub propose_and_build: Recipient<ProposeAndBuild>,
-    pub register_account: Recipient<RegisterAccount>,
-    pub get_status: Recipient<GetStatus>,
-    pub get_balance: Recipient<GetBalance>,
-    pub get_history: Recipient<GetHistory>,
-    pub get_block_height: Recipient<GetBlockHeight>,
-    pub store_transaction: Recipient<StoreTransaction>,
-    pub get_tx_status: Recipient<GetTxStatus>,
-    pub estimate_fee: Recipient<EstimateFee>,
-}
-
-#[async_trait]
-impl WalletMessageSender for WalletMessageSenderImpl {
-    async fn propose_and_build(&self, msg: ProposeAndBuild) -> Result<Vec<u8>, String> {
-        self.propose_and_build.ask(msg).await
-    }
-    async fn register_account(&self, msg: RegisterAccount) -> Result<String, String> {
-        self.register_account.ask(msg).await
-    }
-    async fn get_status(&self, msg: GetStatus) -> Result<SyncStatus, String> {
-        self.get_status.ask(msg).await
-    }
-    async fn get_balance(&self, msg: GetBalance) -> Result<paypunk_types::Balance, String> {
-        self.get_balance.ask(msg).await
-    }
-    async fn get_history(&self, msg: GetHistory) -> Result<Page<HistoryEntry>, String> {
-        self.get_history.ask(msg).await
-    }
-    async fn get_block_height(
-        &self,
-        msg: GetBlockHeight,
-    ) -> Result<paypunk_types::BlockHeight, String> {
-        self.get_block_height.ask(msg).await
-    }
-    async fn store_transaction(&self, msg: StoreTransaction) -> Result<String, String> {
-        self.store_transaction.ask(msg).await
-    }
-    async fn get_tx_status(&self, msg: GetTxStatus) -> Result<TxStatus, String> {
-        self.get_tx_status.ask(msg).await
-    }
-    async fn estimate_fee(&self, msg: EstimateFee) -> Result<u64, String> {
-        self.estimate_fee.ask(msg).await
-    }
 }
 
 impl ZcashProtocol {
@@ -108,9 +39,7 @@ impl ZcashProtocol {
     pub fn new(
         params: zcash_protocol::consensus::Network,
         network_type: zcash_protocol::consensus::NetworkType,
-        // TODO: Why do we need a recipient here instead of an Addr? Why not just send messages directly
-        // to it?
-        wallet_recipient: Option<Arc<dyn WalletMessageSender>>,
+        wallet_addr: Option<Addr<WalletDbActor>>,
         scan_recipient: Option<Recipient<SyncNewAccount>>,
         lightwalletd_host: Option<String>,
         zcashd_rpc_url: Option<String>,
@@ -118,7 +47,7 @@ impl ZcashProtocol {
         Self {
             params,
             network_type,
-            wallet_recipient,
+            wallet_addr,
             scan_recipient: scan_recipient.map(Arc::new),
             lightwalletd_host,
             zcashd_rpc_url,
@@ -126,8 +55,8 @@ impl ZcashProtocol {
         }
     }
 
-    pub fn wallet_recipient(&self) -> Option<Arc<dyn WalletMessageSender>> {
-        self.wallet_recipient.clone()
+    pub fn wallet_addr(&self) -> Option<Addr<WalletDbActor>> {
+        self.wallet_addr.clone()
     }
 
     pub fn scan_recipient(&self) -> Option<Arc<Recipient<SyncNewAccount>>> {
@@ -307,7 +236,7 @@ impl Protocol for ZcashProtocol {
                 }
 
                 let wallet = self
-                    .wallet_recipient
+                    .wallet_addr
                     .as_ref()
                     .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
@@ -317,7 +246,7 @@ impl Protocol for ZcashProtocol {
                 let amount_zat = (amount_f64 * 100_000_000.0) as u64;
 
                 wallet
-                    .propose_and_build(ProposeAndBuild {
+                    .ask(ProposeAndBuild {
                         public_key: vec![],
                         account,
                         to: to.clone(),
@@ -361,9 +290,9 @@ impl Protocol for ZcashProtocol {
             signed_pczt.len()
         );
         // Store the transaction in the wallet DB
-        if let Some(wallet) = &self.wallet_recipient {
+        if let Some(wallet) = &self.wallet_addr {
             wallet
-                .store_transaction(StoreTransaction {
+                .ask(StoreTransaction {
                     pczt_bytes: signed_pczt.to_vec(),
                 })
                 .await?;
@@ -378,7 +307,7 @@ impl Protocol for ZcashProtocol {
         _asset: &str,
     ) -> Result<paypunk_types::Balance, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
@@ -408,7 +337,7 @@ impl Protocol for ZcashProtocol {
             }
         };
 
-        let balance = wallet.get_balance(GetBalance { viewing_key }).await?;
+        let balance = wallet.ask(GetBalance { viewing_key }).await?;
         Ok(balance)
     }
 
@@ -505,10 +434,10 @@ impl Protocol for ZcashProtocol {
 
     async fn get_sync_status(&self) -> Result<SyncStatus, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let status = wallet.get_status(GetStatus).await?;
+        let status = wallet.ask(GetStatus).await?;
         Ok(status)
     }
 
@@ -522,11 +451,11 @@ impl Protocol for ZcashProtocol {
         memo: Option<String>,
     ) -> Result<Vec<u8>, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
         wallet
-            .propose_and_build(ProposeAndBuild {
+            .ask(ProposeAndBuild {
                 public_key: vec![],
                 account,
                 to,
@@ -543,11 +472,11 @@ impl Protocol for ZcashProtocol {
         memo: Option<String>,
     ) -> Result<u64, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
         let fee: u64 = wallet
-            .estimate_fee(EstimateFee { to, amount, memo })
+            .ask(EstimateFee { to, amount, memo })
             .await?;
         Ok(fee)
     }
@@ -561,11 +490,11 @@ impl Protocol for ZcashProtocol {
         limit: u32,
     ) -> Result<Page<HistoryEntry>, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
         let page: Page<HistoryEntry> = wallet
-            .get_history(GetHistory {
+            .ask(GetHistory {
                 account,
                 cursor,
                 limit,
@@ -576,10 +505,10 @@ impl Protocol for ZcashProtocol {
 
     async fn get_transaction_status(&self, txid: String) -> Result<TxStatus, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
-        let status: TxStatus = wallet.get_tx_status(GetTxStatus { txid }).await?;
+        let status: TxStatus = wallet.ask(GetTxStatus { txid }).await?;
         Ok(status)
     }
 
@@ -588,11 +517,11 @@ impl Protocol for ZcashProtocol {
         lightwalletd_host: String,
     ) -> Result<BlockHeight, String> {
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
         let height: paypunk_types::BlockHeight = wallet
-            .get_block_height(GetBlockHeight { lightwalletd_host })
+            .ask(GetBlockHeight { lightwalletd_host })
             .await?;
         Ok(height)
     }
@@ -620,11 +549,11 @@ impl Protocol for ZcashProtocol {
 
         // Import FVK into the wallet DB (fast, non-blocking)
         let wallet = self
-            .wallet_recipient
+            .wallet_addr
             .as_ref()
             .ok_or_else(|| "WalletDb not initialized".to_string())?;
         let _ = wallet
-            .register_account(RegisterAccount {
+            .ask(RegisterAccount {
                 fvk: viewing_key.to_vec(),
                 birthday_height,
             })
