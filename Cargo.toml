@@ -17,6 +17,7 @@ members = [
     "pong",
     "ping",
 ]
+exclude = ["signer/src-tauri"]
 
 [workspace.package]
 license = "AGPL-3.0-only"
