@@ -15,6 +15,7 @@ members = [
     "tools/derive-orchard",
     "bridge",
     "pong",
+    "ping",
 ]
 
 [workspace.package]
