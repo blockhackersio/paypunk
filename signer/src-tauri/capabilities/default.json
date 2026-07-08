@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for PayPunk Kitchen Sink",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "store:default"
+  ]
+}
