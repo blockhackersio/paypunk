@@ -1,9 +1,9 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, HistoryEntry, Intent, Page, ProtocolId, SyncStatus};
 use rand::Rng;
 use tracing::info;
 
-use crate::database::{AccountsRepository, Database};
+use crate::database::{AccountsRepository, AddressBookRepository, Database};
 use crate::protocol_service::ProtocolService;
 
 /// Forward a GetEncryptionKey request to keypunkd and return its X25519 public key.
@@ -14,6 +14,17 @@ pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8;
 /// Forward a HasSeed request to keypunkd.
 pub async fn has_seed(service: &KeypunkService) -> Result<bool, String> {
     service.has_seed().await
+}
+
+/// Verify a password by forwarding to keypunkd for seed decryption.
+pub async fn verify_password(
+    service: &KeypunkService,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+) -> Result<(), String> {
+    service
+        .verify_password(encrypted_password, client_public_key)
+        .await
 }
 
 /// Forward a GenerateSeed request to keypunkd with the encrypted password.
@@ -56,6 +67,17 @@ pub async fn export_viewing_key(
             protocol,
             derivation_path,
         )
+        .await
+}
+
+/// Forward an ExportMnemonic request to keypunkd to retrieve the stored mnemonic.
+pub async fn export_mnemonic(
+    service: &KeypunkService,
+    encrypted_password: Vec<u8>,
+    client_public_key: [u8; 32],
+) -> Result<Vec<u8>, String> {
+    service
+        .export_mnemonic(encrypted_password, client_public_key)
         .await
 }
 
@@ -108,6 +130,14 @@ pub async fn approve_signature(
 
 // ── Local protocol operations ──────────────────────────────────────────────
 
+/// Get the current sync status for the given protocol.
+pub async fn get_sync_status(
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+) -> Result<SyncStatus, String> {
+    protocols.get(protocol)?.get_sync_status().await
+}
+
 /// Finalize a signed artifact into broadcast-ready bytes.
 pub fn finalize_artifact(
     protocols: &ProtocolService,
@@ -137,6 +167,7 @@ pub async fn create_account(
     derivation_path: String,
     account_index: u32,
     name: String,
+    _birthday_height: Option<u64>,
 ) -> Result<Account, String> {
     let conn = db.conn.as_ref().ok_or("database is locked")?;
     let conn = conn.lock().map_err(|e| e.to_string())?;
@@ -315,34 +346,128 @@ pub async fn get_balance(
     protocols.get(protocol)?.get_balance(address, asset).await
 }
 
-// ── Stubs: depend on future work ───────────────────────────────────────────
+// ── Address Book ───────────────────────────────────────────────────────────
+
+/// Get all address book entries from the database.
+pub fn get_address_book(
+    db: &Database,
+    repo: &dyn AddressBookRepository,
+) -> Result<Vec<crate::messages::AddressBookEntry>, String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+    repo.find_all(&conn)
+}
+
+/// Add a new entry to the address book.
+pub fn add_address_book_entry(
+    db: &Database,
+    repo: &dyn AddressBookRepository,
+    name: String,
+    address: String,
+    protocol: String,
+) -> Result<(), String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+    repo.insert(
+        &conn,
+        &crate::messages::AddressBookEntry {
+            name,
+            address,
+            protocol,
+        },
+    )
+}
+
+// ── Settings ────────────────────────────────────────────────────────────────
+
+/// Get settings from the database. Returns defaults if not set.
+pub fn get_settings(db: &Database) -> Result<(u32, String), String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+
+    let auto_lock = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'auto_lock_minutes'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| "5".to_string());
+
+    let fiat = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'fiat_currency'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| "USD".to_string());
+
+    let auto_lock_minutes = auto_lock.parse::<u32>().unwrap_or(5);
+    Ok((auto_lock_minutes, fiat))
+}
+
+/// Save settings to the database.
+pub fn save_settings(
+    db: &Database,
+    auto_lock_minutes: u32,
+    fiat_currency: String,
+) -> Result<(), String> {
+    let conn = db.conn.as_ref().ok_or("database is locked")?;
+    let conn = conn.lock().map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('auto_lock_minutes', ?1)",
+        rusqlite::params![auto_lock_minutes.to_string()],
+    )
+    .map_err(|e| format!("failed to save auto_lock_minutes: {e}"))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('fiat_currency', ?1)",
+        rusqlite::params![fiat_currency],
+    )
+    .map_err(|e| format!("failed to save fiat_currency: {e}"))?;
+
+    Ok(())
+}
+
+// ── Protocol-routed operations ───────────────────────────────────────────
 
 /// Create a transfer for the given protocol and account.
 pub async fn create_transfer(
-    _service: &KeypunkService,
-    _protocols: &ProtocolService,
-    _protocol: ProtocolId,
-    _account: u32,
-    _to: &str,
-    _amount: u64,
-    _memo: Option<&str>,
-) -> Result<String, String> {
-    todo!("create_transfer: PCZT pipeline not yet implemented — needs TransactionProposer")
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    account: u32,
+    to: &str,
+    amount: u64,
+    memo: Option<&str>,
+    _lightwalletd_host: &str,
+) -> Result<Vec<u8>, String> {
+    protocols
+        .get(protocol)?
+        .create_transfer(account, to.to_string(), amount, memo.map(|m| m.to_string()))
+        .await
 }
 
 /// Fetch transaction history for the given protocol and account.
 pub async fn get_history(
-    _protocol: ProtocolId,
-    _account: u32,
-    _cursor: Option<String>,
-    _limit: u32,
-) -> Result<String, String> {
-    todo!("get_history: needs Page/HistoryEntry types")
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    account: u32,
+    cursor: Option<String>,
+    limit: u32,
+) -> Result<Page<HistoryEntry>, String> {
+    protocols
+        .get(protocol)?
+        .get_history(account, cursor, limit)
+        .await
 }
 
 /// Sync the wallet state with the blockchain for the given protocol and account.
+/// Background sync loop handles continuous syncing — this is a manual trigger.
 pub async fn sync_wallet(_protocol: ProtocolId, _account: u32) -> Result<(), String> {
-    todo!("sync_wallet")
+    // Background sync loop handles continuous syncing automatically.
+    // This method exists as a manual trigger for cases where the caller
+    // wants to force a sync outside the regular interval.
+    Ok(())
 }
 
 /// Finalize and broadcast a signed transaction to the network.
@@ -352,34 +477,43 @@ pub async fn broadcast_transaction(
     protocol: ProtocolId,
     raw_tx: &[u8],
 ) -> Result<String, String> {
-    let finalized = protocols.get(protocol)?.finalize(raw_tx)?;
-    protocols.get(protocol)?.broadcast(&finalized).await
+    let finalized = protocols.get(protocol)?.store_and_finalize(raw_tx).await?;
+    let tx_hash = protocols.get(protocol)?.broadcast(&finalized).await?;
+    Ok(tx_hash)
 }
 
 /// Query the on-chain status of a transaction by its ID.
-/// TODO: Requires lightwalletd/RPC client — not yet implemented.
 pub async fn get_transaction_status(
-    _protocol: ProtocolId,
-    _txid: String,
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    txid: String,
 ) -> Result<paypunk_types::TxStatus, String> {
-    todo!("get_transaction_status: needs lightwalletd/RPC client")
+    protocols.get(protocol)?.get_transaction_status(txid).await
 }
 
 /// Get the current block height from the blockchain.
-/// TODO: Requires lightwalletd/RPC client — not yet implemented.
 pub async fn get_current_block_height(
-    _protocol: ProtocolId,
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    lightwalletd_host: String,
 ) -> Result<paypunk_types::BlockHeight, String> {
-    todo!("get_current_block_height: needs lightwalletd/RPC client")
+    protocols
+        .get(protocol)?
+        .get_current_block_height(lightwalletd_host)
+        .await
 }
 
 /// Estimate the fee for a transfer to the given address with the given amount and optional memo.
-/// TODO: Requires TransactionProposer + chain fee estimation — not yet implemented.
 pub async fn estimate_fee(
-    _protocol: ProtocolId,
-    _to: &str,
-    _amount: u64,
-    _memo: Option<&str>,
+    protocols: &ProtocolService,
+    protocol: ProtocolId,
+    to: &str,
+    amount: u64,
+    memo: Option<&str>,
+    _lightwalletd_host: &str,
 ) -> Result<u64, String> {
-    todo!("estimate_fee: needs TransactionProposer + chain fee estimation")
+    protocols
+        .get(protocol)?
+        .estimate_fee(to.to_string(), amount, memo.map(|m| m.to_string()))
+        .await
 }

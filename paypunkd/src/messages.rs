@@ -1,5 +1,14 @@
-use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
+use paypunk_types::{
+    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddressBookEntry {
+    pub name: String,
+    pub address: String,
+    pub protocol: String,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PaypunkdRequest {
@@ -51,6 +60,7 @@ pub enum PaypunkdRequest {
         derivation_path: String,
         account_index: u32,
         name: String,
+        birthday_height: Option<u64>,
     },
     ListAccounts,
     GetAccount {
@@ -59,6 +69,10 @@ pub enum PaypunkdRequest {
     GetPaypunkdEncryptionKey,
     HasSeed,
     GetSupportedProtocols,
+    // Poll sync status for the given protocol
+    GetSyncStatus {
+        protocol: ProtocolId,
+    },
     Unlock {
         encrypted_db_password: Vec<u8>,
         ephemeral_public_key: [u8; 32],
@@ -70,6 +84,67 @@ pub enum PaypunkdRequest {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
+    },
+    // Fetch transaction history for the given protocol and account
+    GetHistory {
+        protocol: ProtocolId,
+        account_id: u32,
+        cursor: Option<String>,
+        limit: u32,
+    },
+    // Query the lock state (password set, failed attempts)
+    GetLockState,
+    // Verify a password against keypunkd
+    VerifyPassword {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    // Get all address book entries
+    GetAddressBook,
+    // Add an entry to the address book
+    AddAddressBookEntry {
+        name: String,
+        address: String,
+        protocol: String,
+    },
+    // Get settings
+    GetSettings,
+    // Save settings
+    SaveSettings {
+        auto_lock_minutes: u32,
+        fiat_currency: String,
+    },
+    // Reveal the wallet mnemonic phrase (forwarded to keypunkd)
+    RevealPhrase {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    // Create a transfer (PCZT pipeline)
+    CreateTransfer {
+        protocol: ProtocolId,
+        account: u32,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+        lightwalletd_host: String,
+    },
+    // Estimate fee for a transfer
+    EstimateFee {
+        protocol: ProtocolId,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+        lightwalletd_host: String,
+    },
+    // Get the current block height
+    GetCurrentBlockHeight {
+        protocol: ProtocolId,
+        lightwalletd_host: String,
+    },
+    // Get the status of a transaction
+    GetTransactionStatus {
+        protocol: ProtocolId,
+        txid: String,
     },
 }
 
@@ -124,6 +199,43 @@ pub enum PaypunkdResponse {
     },
     AccountsBulkDerived {
         accounts: Vec<Account>,
+    },
+    SyncStatusResult {
+        status: SyncStatus,
+    },
+    HistoryResult {
+        entries: Vec<HistoryEntry>,
+        next_cursor: Option<String>,
+        has_more: bool,
+    },
+    LockState {
+        password_set: bool,
+        failed_attempts: u32,
+    },
+    PasswordVerified,
+    AddressBookData {
+        entries: Vec<AddressBookEntry>,
+    },
+    AddressBookEntryAdded,
+    SettingsResult {
+        auto_lock_minutes: u32,
+        fiat_currency: String,
+    },
+    SettingsSaved,
+    PhraseRevealed {
+        encrypted_mnemonic: Vec<u8>,
+    },
+    TransferCreated {
+        pczt_bytes: Vec<u8>,
+    },
+    FeeEstimated {
+        fee: u64,
+    },
+    BlockHeightResult {
+        height: paypunk_types::BlockHeight,
+    },
+    TransactionStatusResult {
+        status: paypunk_types::TxStatus,
     },
     Error {
         message: String,

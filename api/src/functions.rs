@@ -1,7 +1,8 @@
 use argon2::Argon2;
 use bip39::{Language, Mnemonic};
 use keypunkd::crypto::Keypair;
-use paypunk_types::{Account, Balance, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId};
+use paypunkd::messages::AddressBookEntry;
 use zeroize::Zeroizing;
 
 fn hash_for_domain(password: &str, domain: &[u8]) -> Zeroizing<String> {
@@ -139,7 +140,13 @@ pub async fn derive_address(
     let derivation_path = derivation_path(protocol, account);
 
     service
-        .derive_address(encrypted_password, client_pk, protocol, derivation_path, index)
+        .derive_address(
+            encrypted_password,
+            client_pk,
+            protocol,
+            derivation_path,
+            index,
+        )
         .await
 }
 
@@ -226,9 +233,16 @@ pub async fn create_account(
     derivation_path: String,
     account_index: u32,
     name: String,
+    birthday_height: Option<u64>,
 ) -> Result<Account, String> {
     service
-        .create_account(protocol, derivation_path, account_index, name)
+        .create_account(
+            protocol,
+            derivation_path,
+            account_index,
+            name,
+            birthday_height,
+        )
         .await
 }
 
@@ -245,6 +259,91 @@ pub async fn get_account(
     id: String,
 ) -> Result<Option<Account>, String> {
     service.get_account(id).await
+}
+
+/// Fetch transaction history for the given protocol and account.
+pub async fn get_history(
+    service: &paypunkd::services::PaypunkService,
+    protocol: ProtocolId,
+    account_id: u32,
+    cursor: Option<String>,
+    limit: u32,
+) -> Result<Vec<HistoryEntry>, String> {
+    service
+        .get_history(protocol, account_id, cursor, limit)
+        .await
+}
+
+/// Verify the wallet password against keypunkd.
+pub async fn verify_password(
+    service: &paypunkd::services::PaypunkService,
+    password: Zeroizing<String>,
+) -> Result<(), String> {
+    let client_keypair = Keypair::new();
+    let server_pk = service.get_keypunk_encryption_key().await?;
+    let encrypted_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
+    let client_pk = client_keypair.public_key();
+    service.verify_password(encrypted_password, client_pk).await
+}
+
+/// Get all address book entries.
+pub async fn get_address_book(
+    service: &paypunkd::services::PaypunkService,
+) -> Result<Vec<AddressBookEntry>, String> {
+    service.get_address_book().await
+}
+
+/// Reveal the wallet mnemonic phrase.
+///
+/// Creates an ephemeral keypair, encrypts the password to keypunkd's public key,
+/// sends the RevealPhrase request via paypunkd, and decrypts the returned mnemonic.
+pub async fn reveal_phrase(
+    service: &paypunkd::services::PaypunkService,
+    password: Zeroizing<String>,
+) -> Result<Zeroizing<String>, String> {
+    let client_keypair = Keypair::new();
+    let server_pk = service.get_keypunk_encryption_key().await?;
+    let encrypted_password =
+        client_keypair.encrypt(hash_for_domain(&password, b"keypunkd-seed-key"), &server_pk);
+    let client_pk = client_keypair.public_key();
+
+    let encrypted_mnemonic = service.reveal_phrase(encrypted_password, client_pk).await?;
+
+    let mnemonic = client_keypair
+        .decrypt(&encrypted_mnemonic, &server_pk)
+        .map_err(|e| e.to_string())?;
+    Ok(mnemonic)
+}
+
+/// Add an entry to the address book.
+pub async fn add_address_book_entry(
+    service: &paypunkd::services::PaypunkService,
+    name: String,
+    address: String,
+    protocol: String,
+) -> Result<(), String> {
+    service
+        .add_address_book_entry(name, address, protocol)
+        .await
+}
+
+/// Get settings.
+pub async fn get_settings(
+    service: &paypunkd::services::PaypunkService,
+) -> Result<(u32, String), String> {
+    service.get_settings().await
+}
+
+/// Save settings.
+pub async fn save_settings(
+    service: &paypunkd::services::PaypunkService,
+    auto_lock_minutes: u32,
+    fiat_currency: String,
+) -> Result<(), String> {
+    service
+        .save_settings(auto_lock_minutes, fiat_currency)
+        .await
 }
 
 #[cfg(test)]

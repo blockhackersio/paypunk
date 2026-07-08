@@ -14,7 +14,7 @@ use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
 pub struct GreetingScreen {
-    pw_field: TextField,
+    pw_field: TextField, // TOOD: Use Zeroizable fields to avoid memory being dumped
     error_msg: Option<String>,
 }
 
@@ -116,6 +116,7 @@ impl Screen for GreetingScreen {
             _ => {
                 let _ = self.pw_field.handle_event(key);
                 if key.code == KeyCode::Enter {
+                    // TODO: handle Zeroizing
                     let password = self.pw_field.value().to_string();
                     match api.unlock(password).await {
                         Ok(_data) => return Nav::Replace(Box::new(HomeScreen::new())),

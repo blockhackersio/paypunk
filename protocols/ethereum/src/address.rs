@@ -160,11 +160,7 @@ mod tests {
 
         for (index, expected_addr) in expected {
             let address = derive_address(&seed, 0, index).unwrap();
-            assert_eq!(
-                address.to_string(),
-                expected_addr,
-                "index {index} mismatch"
-            );
+            assert_eq!(address.to_string(), expected_addr, "index {index} mismatch");
         }
     }
 }

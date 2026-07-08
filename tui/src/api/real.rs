@@ -2,9 +2,10 @@ use async_trait::async_trait;
 use paypunk_api::Client;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, ProtocolMetadata};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use tracing::info;
 use zeroize::Zeroizing;
 
+use super::types::SyncStatus;
 use super::types::*;
 use super::WalletApi;
 
@@ -18,10 +19,9 @@ struct PendingSend {
 
 pub struct RealWalletApi {
     client: Client,
-    pending: Mutex<Option<PendingSend>>,
-    pending_mnemonic: Mutex<Option<Zeroizing<String>>>,
-    address_book_entries: Mutex<Vec<AddressBookEntry>>,
-    protocol_metadata: Mutex<HashMap<ProtocolId, ProtocolMetadata>>,
+    pending: std::sync::Mutex<Option<PendingSend>>,
+    pending_mnemonic: std::sync::Mutex<Option<Zeroizing<String>>>,
+    protocol_metadata: std::sync::Mutex<HashMap<ProtocolId, ProtocolMetadata>>,
 }
 
 impl RealWalletApi {
@@ -29,20 +29,18 @@ impl RealWalletApi {
         let client = Client::connect(socket_path).await?;
         Ok(Self {
             client,
-            pending: Mutex::new(None),
-            pending_mnemonic: Mutex::new(None),
-            address_book_entries: Mutex::new(Vec::new()),
-            protocol_metadata: Mutex::new(HashMap::new()),
+            pending: std::sync::Mutex::new(None),
+            pending_mnemonic: std::sync::Mutex::new(None),
+            protocol_metadata: std::sync::Mutex::new(HashMap::new()),
         })
     }
 
     pub fn with_client(client: Client) -> Self {
         Self {
             client,
-            pending: Mutex::new(None),
-            pending_mnemonic: Mutex::new(None),
-            address_book_entries: Mutex::new(Vec::new()),
-            protocol_metadata: Mutex::new(HashMap::new()),
+            pending: std::sync::Mutex::new(None),
+            pending_mnemonic: std::sync::Mutex::new(None),
+            protocol_metadata: std::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -89,10 +87,7 @@ impl RealWalletApi {
     async fn protocol_decimals(&self, protocol: &ProtocolId) -> u8 {
         self.ensure_metadata().await;
         let cache = self.protocol_metadata.lock().unwrap();
-        cache
-            .get(protocol)
-            .map(|m| m.decimals)
-            .unwrap_or(18)
+        cache.get(protocol).map(|m| m.decimals).unwrap_or(18)
     }
 
     async fn protocol_ticker(&self, protocol: &ProtocolId) -> String {
@@ -165,6 +160,7 @@ impl WalletApi for RealWalletApi {
     async fn get_assets(&self, account_id: &str) -> AssetsData {
         match self.client.get_account(account_id.to_string()).await {
             Ok(Some(account)) => {
+                info!("TUI API: get_assets()");
                 let chain = self.protocol_chain(&account.protocol).await;
                 let asset = self.protocol_asset(&account.protocol).await;
                 let decimals = self.protocol_decimals(&account.protocol).await;
@@ -174,9 +170,10 @@ impl WalletApi for RealWalletApi {
                     .client
                     .get_balance(caip10, asset.to_string())
                     .await
-                    .map(|b| b.spendable.0.to_string())
+                    .map(|b| b.total.0.to_string())
                     .unwrap_or_else(|_| "0".to_string());
                 let holdings = format_balance(&balance, decimals, &ticker);
+                info!("TUI API: get_assets() holdings={}", holdings);
                 AssetsData {
                     assets: vec![AssetRow {
                         name: ticker.clone(),
@@ -254,17 +251,40 @@ impl WalletApi for RealWalletApi {
         for a in &accounts {
             *protocol_counts.entry(a.protocol).or_insert(0) += 1;
         }
-        // Pick the protocol with the most accounts (to add the next one), or first available
+        // Pick the protocol with the fewest accounts (to balance them), or first available
         let (target_protocol, next_index) = protocol_counts
             .iter()
-            .max_by_key(|(_, &count)| count)
+            .min_by_key(|(_, &count)| count)
             .map(|(p, &count)| (*p, count as u32))
             .unwrap_or((ProtocolId::Ethereum, 0));
         let path = self.client.derivation_path(target_protocol, next_index);
         let name = format!("{target_protocol:?} Account {next_index}");
         let _ = self
             .client
-            .create_account(target_protocol, path, next_index, name)
+            .create_account(target_protocol, path, next_index, name, None)
+            .await
+            .map_err(ApiError)?;
+        Ok(())
+    }
+
+    async fn add_zcash_account(&self, birthday_height: u64) -> Result<(), ApiError> {
+        let accounts = self.client.list_accounts().await.map_err(ApiError)?;
+        let zcash_count = accounts
+            .iter()
+            .filter(|a| a.protocol == ProtocolId::Zcash)
+            .count();
+        let path = self
+            .client
+            .derivation_path(ProtocolId::Zcash, zcash_count as u32);
+        let name = format!("Zcash Account {zcash_count}");
+        self.client
+            .create_account(
+                ProtocolId::Zcash,
+                path,
+                zcash_count as u32,
+                name,
+                Some(birthday_height),
+            )
             .await
             .map_err(ApiError)?;
         Ok(())
@@ -369,7 +389,7 @@ impl WalletApi for RealWalletApi {
                 amount: input.amount.clone(),
                 from: from_address,
                 asset,
-                memo: None,
+                memo: input.memo.clone(),
             }),
             _ => {
                 return SendReviewData {
@@ -395,13 +415,15 @@ impl WalletApi for RealWalletApi {
                 *self.pending.lock().unwrap() = Some(pending);
 
                 if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
+                    let total = summary.amount.parse::<u128>().unwrap_or(0)
+                        + summary.fee.parse::<u128>().unwrap_or(0);
                     SendReviewData {
                         to_address: summary.to,
                         amount: summary.amount.clone(),
                         fee_estimate: summary.fee,
-                        total_amount: summary.amount,
+                        total_amount: total.to_string(),
                         chain_id: input.chain_id,
-                        nonce: 0,
+                        nonce: summary.nonce,
                     }
                 } else {
                     SendReviewData {
@@ -431,11 +453,13 @@ impl WalletApi for RealWalletApi {
 
         // Save recipient to address book
         let to_addr = input.reviewed.to_address.clone();
-        let _ = self.add_address_book_entry(
-            format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
-            to_addr,
-            "Wallet".into(),
-        ).await;
+        let _ = self
+            .add_address_book_entry(
+                format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
+                to_addr,
+                "Wallet".into(),
+            )
+            .await;
         match pending {
             Some(p) => {
                 let protocol = p.protocol;
@@ -493,39 +517,64 @@ impl WalletApi for RealWalletApi {
     async fn refresh_send(&self, _account_id: &str) {}
 
     async fn get_lock(&self) -> LockData {
-        LockData {
-            auth_methods: LockAuthMethods {
-                password_set: true,
+        match self.client.get_lock_state().await {
+            Ok((password_set, failed_attempts)) => LockData {
+                auth_methods: LockAuthMethods { password_set },
+                failed_attempts,
             },
-            failed_attempts: 0,
+            Err(_) => LockData {
+                auth_methods: LockAuthMethods {
+                    password_set: false,
+                },
+                failed_attempts: 0,
+            },
         }
     }
 
-    async fn submit_lock(&self, _input: LockInput) -> Result<(), ApiError> {
-        Ok(())
+    async fn submit_lock(&self, input: LockInput) -> Result<(), ApiError> {
+        self.client
+            .verify_password(zeroize::Zeroizing::new(input.credential.value))
+            .await
+            .map_err(|e| ApiError(e))
     }
 
     async fn get_settings(&self) -> SettingsData {
-        SettingsData {
-            security: SecuritySettings {
-                auto_lock_minutes: 5,
+        match self.client.get_settings().await {
+            Ok((auto_lock_minutes, fiat_currency)) => SettingsData {
+                security: SecuritySettings { auto_lock_minutes },
+                fiat_currency,
+                app_version: "0.1.0".into(),
             },
-            fiat_currency: "USD".into(),
-            app_version: "0.1.0".into(),
+            Err(_) => SettingsData {
+                security: SecuritySettings {
+                    auto_lock_minutes: 5,
+                },
+                fiat_currency: "USD".into(),
+                app_version: "0.1.0".into(),
+            },
         }
     }
 
-    async fn submit_settings(&self, _input: SettingsInput) -> Result<(), ApiError> {
-        Ok(())
+    async fn submit_settings(&self, input: SettingsInput) -> Result<(), ApiError> {
+        self.client
+            .save_settings(
+                input.updated_security.auto_lock_minutes,
+                input.fiat_currency,
+            )
+            .await
+            .map_err(|e| ApiError(e))
     }
 
     async fn submit_reveal_phrase(
         &self,
-        _input: RevealPhraseInput,
+        input: RevealPhraseInput,
     ) -> Result<Vec<String>, ApiError> {
-        Err(ApiError(
-            "reveal phrase not yet supported via real API".into(),
-        ))
+        let mnemonic = self
+            .client
+            .reveal_phrase(Zeroizing::new(input.value))
+            .await
+            .map_err(|e| ApiError(e))?;
+        Ok(mnemonic.split_whitespace().map(|s| s.to_string()).collect())
     }
 
     async fn check_wallet_exists(&self) -> bool {
@@ -541,7 +590,17 @@ impl WalletApi for RealWalletApi {
     }
 
     async fn get_address_book(&self) -> AddressBookData {
-        let mut entries = self.address_book_entries.lock().unwrap().clone();
+        let mut entries = match self.client.get_address_book().await {
+            Ok(entries) => entries
+                .into_iter()
+                .map(|e| AddressBookEntry {
+                    name: e.name,
+                    address: e.address,
+                    protocol: e.protocol,
+                })
+                .collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
 
         // Populate from wallet accounts
         if let Ok(accounts) = self.client.list_accounts().await {
@@ -562,14 +621,35 @@ impl WalletApi for RealWalletApi {
     }
 
     async fn add_address_book_entry(&self, name: String, address: String, protocol: String) {
-        let mut entries = self.address_book_entries.lock().unwrap();
-        let exists = entries.iter().any(|e| e.address == address);
-        if !exists {
-            entries.push(AddressBookEntry {
-                name,
-                address,
-                protocol,
-            });
+        let _ = self
+            .client
+            .add_address_book_entry(name, address, protocol)
+            .await;
+    }
+
+    async fn get_sync_status(&self, protocol: &str) -> SyncStatus {
+        let protocol_id = match protocol {
+            "Zcash" => paypunk_types::ProtocolId::Zcash,
+            "Ethereum" => paypunk_types::ProtocolId::Ethereum,
+            _ => return SyncStatus::default(),
+        };
+        match self.client.get_sync_status(protocol_id).await {
+            Ok(s) => SyncStatus {
+                is_syncing: s.is_syncing,
+                current_height: s.current_height,
+                target_height: s.target_height,
+            },
+            Err(_) => SyncStatus::default(),
+        }
+    }
+
+    async fn get_history(&self, _account_id: &str) -> HistoryData {
+        // For now, return empty history. The IPC GetHistory plumbing is in place
+        // but needs a protocol-level account lookup to dispatch correctly.
+        HistoryData {
+            rows: vec![],
+            next_cursor: None,
+            has_more: false,
         }
     }
 }

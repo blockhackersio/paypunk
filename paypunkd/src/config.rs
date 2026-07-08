@@ -10,6 +10,8 @@ pub trait ConfigSource {
     fn data_dir(&self) -> &Path;
     fn config_dir(&self) -> &Path;
     fn ethereum_rpc_url(&self) -> &str;
+    fn lightwalletd_host(&self) -> &str;
+    fn zcash_network(&self) -> &str;
 }
 
 /// Hardcoded default configuration.
@@ -45,6 +47,14 @@ impl ConfigSource for HardcodedConfig {
     fn ethereum_rpc_url(&self) -> &str {
         "http://127.0.0.1:8545"
     }
+
+    fn lightwalletd_host(&self) -> &str {
+        "http://127.0.0.1:9067"
+    }
+
+    fn zcash_network(&self) -> &str {
+        "regtest"
+    }
 }
 
 /// Wraps a `PaypunkConfig` (from the paypunk-config crate) as a `ConfigSource`.
@@ -77,6 +87,14 @@ impl ConfigSource for TomlConfig {
 
     fn ethereum_rpc_url(&self) -> &str {
         &self.config.ethereum_rpc_url
+    }
+
+    fn lightwalletd_host(&self) -> &str {
+        &self.config.lightwalletd_host
+    }
+
+    fn zcash_network(&self) -> &str {
+        &self.config.zcash_network
     }
 }
 

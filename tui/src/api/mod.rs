@@ -18,6 +18,7 @@ pub trait WalletApi {
     async fn refresh_home(&self);
     async fn list_accounts(&self) -> Result<Vec<AccountInfo>, ApiError>;
     async fn add_account(&self) -> Result<(), ApiError>;
+    async fn add_zcash_account(&self, birthday_height: u64) -> Result<(), ApiError>;
 
     // Assets — takes account_id
     async fn get_assets(&self, account_id: &str) -> AssetsData;
@@ -49,4 +50,10 @@ pub trait WalletApi {
     // Address book
     async fn get_address_book(&self) -> AddressBookData;
     async fn add_address_book_entry(&self, name: String, address: String, protocol: String);
+
+    // Sync
+    async fn get_sync_status(&self, protocol: &str) -> SyncStatus;
+
+    // History
+    async fn get_history(&self, account_id: &str) -> HistoryData;
 }

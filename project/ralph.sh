@@ -8,5 +8,7 @@ while true; do
     exit 0
   fi
   echo "Steps remaining: $count"
-  opencode run "execute ./project/ralph.md" --dangerously-skip-permissions
+  NOTIFY_DISABLE=1 opencode run "execute ./project/ralph.md" --dangerously-skip-permissions
 done
+
+curl -d "finished ralphing" https://blk.to/hiphop_notes

@@ -50,10 +50,7 @@ impl Component<AssetAction> for AssetItem {
             ),
             Span::styled(format!(" {:>14} ", ""), Style::new()),
         ]);
-        frame.render_widget(
-            Paragraph::new(line).style(Style::new().bg(row_bg)),
-            area,
-        );
+        frame.render_widget(Paragraph::new(line).style(Style::new().bg(row_bg)), area);
     }
 
     fn handle_event(&mut self, key: KeyEvent) -> Option<AssetAction> {

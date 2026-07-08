@@ -1,8 +1,10 @@
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
+use paypunk_types::{
+    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+};
 use tactix::{Recipient, Sender};
 
-use crate::messages::{PaypunkdRequest, PaypunkdResponse};
+use crate::messages::{AddressBookEntry, PaypunkdRequest, PaypunkdResponse};
 
 pub struct PaypunkService {
     recipient: Recipient<IpcMessage>,
@@ -155,6 +157,7 @@ impl PaypunkService {
         derivation_path: String,
         account_index: u32,
         name: String,
+        birthday_height: Option<u64>,
     ) -> Result<Account, String> {
         match self
             .send(PaypunkdRequest::CreateAccount {
@@ -162,6 +165,7 @@ impl PaypunkService {
                 derivation_path,
                 account_index,
                 name,
+                birthday_height,
             })
             .await?
         {
@@ -200,6 +204,46 @@ impl PaypunkService {
             PaypunkdResponse::HasSeed { exists } => Ok(exists),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_lock_state(&self) -> Result<(bool, u32), String> {
+        match self.send(PaypunkdRequest::GetLockState).await? {
+            PaypunkdResponse::LockState {
+                password_set,
+                failed_attempts,
+            } => Ok((password_set, failed_attempts)),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn verify_password(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<(), String> {
+        match self
+            .send(PaypunkdRequest::VerifyPassword {
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
+            PaypunkdResponse::PasswordVerified => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_sync_status(&self, protocol: ProtocolId) -> Result<SyncStatus, String> {
+        match self
+            .send(PaypunkdRequest::GetSyncStatus { protocol })
+            .await?
+        {
+            PaypunkdResponse::SyncStatusResult { status } => Ok(status),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response".to_string()),
         }
     }
 
@@ -258,6 +302,103 @@ impl PaypunkService {
             .await?
         {
             PaypunkdResponse::AccountsBulkDerived { accounts } => Ok(accounts),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_history(
+        &self,
+        protocol: ProtocolId,
+        account_id: u32,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<Vec<HistoryEntry>, String> {
+        match self
+            .send(PaypunkdRequest::GetHistory {
+                protocol,
+                account_id,
+                cursor,
+                limit,
+            })
+            .await?
+        {
+            PaypunkdResponse::HistoryResult { entries, .. } => Ok(entries),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_address_book(&self) -> Result<Vec<AddressBookEntry>, String> {
+        match self.send(PaypunkdRequest::GetAddressBook).await? {
+            PaypunkdResponse::AddressBookData { entries } => Ok(entries),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn add_address_book_entry(
+        &self,
+        name: String,
+        address: String,
+        protocol: String,
+    ) -> Result<(), String> {
+        match self
+            .send(PaypunkdRequest::AddAddressBookEntry {
+                name,
+                address,
+                protocol,
+            })
+            .await?
+        {
+            PaypunkdResponse::AddressBookEntryAdded => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn get_settings(&self) -> Result<(u32, String), String> {
+        match self.send(PaypunkdRequest::GetSettings).await? {
+            PaypunkdResponse::SettingsResult {
+                auto_lock_minutes,
+                fiat_currency,
+            } => Ok((auto_lock_minutes, fiat_currency)),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn save_settings(
+        &self,
+        auto_lock_minutes: u32,
+        fiat_currency: String,
+    ) -> Result<(), String> {
+        match self
+            .send(PaypunkdRequest::SaveSettings {
+                auto_lock_minutes,
+                fiat_currency,
+            })
+            .await?
+        {
+            PaypunkdResponse::SettingsSaved => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn reveal_phrase(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> Result<Vec<u8>, String> {
+        match self
+            .send(PaypunkdRequest::RevealPhrase {
+                encrypted_password,
+                client_public_key,
+            })
+            .await?
+        {
+            PaypunkdResponse::PhraseRevealed { encrypted_mnemonic } => Ok(encrypted_mnemonic),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }

@@ -81,6 +81,53 @@ pub fn decrypt_seed(blob: &[u8], password: &str) -> Result<[u8; 64], KeyError> {
     seed.copy_from_slice(&plaintext);
     Ok(seed)
 }
+/// Encrypt a mnemonic string with a password using Argon2id + AES-256-GCM.
+///
+/// Returns a blob: [salt (16 bytes)] [nonce (12 bytes)] [ciphertext].
+pub fn encrypt_mnemonic(mnemonic: &str, password: &str) -> Result<Vec<u8>, KeyError> {
+    let mut salt = [0u8; SALT_LEN];
+    OsRng.fill_bytes(&mut salt);
+
+    let derived_key = derive_key(password, &salt);
+    let key = Key::<Aes256Gcm>::from_slice(&derived_key);
+    let cipher = Aes256Gcm::new(key);
+    let nonce_bytes = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = Nonce::from_slice(nonce_bytes.as_slice());
+
+    let ciphertext = cipher
+        .encrypt(nonce, mnemonic.as_bytes())
+        .map_err(|e| KeyError::Crypto(e.to_string()))?;
+
+    let mut blob = Vec::with_capacity(SALT_LEN + NONCE_LEN + ciphertext.len());
+    blob.extend_from_slice(&salt);
+    blob.extend_from_slice(nonce.as_slice());
+    blob.extend_from_slice(&ciphertext);
+    Ok(blob)
+}
+
+/// Decrypt a mnemonic blob that was encrypted with `encrypt_mnemonic`.
+///
+/// Expects blob: [salt (16 bytes)] [nonce (12 bytes)] [ciphertext].
+pub fn decrypt_mnemonic(blob: &[u8], password: &str) -> Result<String, KeyError> {
+    if blob.len() < SALT_LEN + NONCE_LEN {
+        return Err(KeyError::Crypto("blob too short".into()));
+    }
+    let salt = &blob[..SALT_LEN];
+    let nonce = &blob[SALT_LEN..SALT_LEN + NONCE_LEN];
+    let ciphertext = &blob[SALT_LEN + NONCE_LEN..];
+
+    let derived_key = derive_key(password, salt);
+    let key = Key::<Aes256Gcm>::from_slice(&derived_key);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(nonce);
+
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| KeyError::Crypto(e.to_string()))?;
+
+    String::from_utf8(plaintext).map_err(|e| KeyError::Crypto(e.to_string()))
+}
+
 pub mod tests {
     pub use super::*;
 
@@ -141,5 +188,31 @@ pub mod tests {
             .expect("should decrypt successfully");
 
         assert_eq!(decrypted.as_slice(), &seed[..]);
+    }
+
+    #[test]
+    pub fn test_encrypt_decrypt_mnemonic_roundtrip() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let password = "wallet-password";
+
+        let encrypted = encrypt_mnemonic(mnemonic, password).unwrap();
+        let decrypted = decrypt_mnemonic(&encrypted, password).unwrap();
+
+        assert_eq!(decrypted, mnemonic);
+    }
+
+    #[test]
+    pub fn test_decrypt_mnemonic_wrong_password_fails() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let encrypted = encrypt_mnemonic(mnemonic, "correct-password").unwrap();
+
+        let result = decrypt_mnemonic(&encrypted, "wrong-password");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    pub fn test_decrypt_mnemonic_invalid_blob_fails() {
+        let result = decrypt_mnemonic(&[0u8; 5], "password");
+        assert!(result.is_err());
     }
 }

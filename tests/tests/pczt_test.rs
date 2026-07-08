@@ -4,6 +4,7 @@ use orchard::note::{ExtractedNoteCommitment, RandomSeed, Rho};
 use orchard::tree::MerkleHashOrchard;
 use orchard::value::NoteValue;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_chains_zcash::to_local_params;
 use paypunk_types::{Protocol, SignerProtocol};
 use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, prover::Prover};
 use rand_core::OsRng;
@@ -47,7 +48,9 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 
     // ── 1. Generate keys and create a note ──────────────────────────────
     let seed = [0xab; 64];
-    let sk = SpendingKey::from_zip32_seed(&seed, 133, zip32::AccountId::try_from(0).unwrap())
+    // Use coin_type=1 (regtest) to match LocalNetwork::coin_type(), since
+    // LocalNetwork::network_type() always returns NetworkType::Regtest.
+    let sk = SpendingKey::from_zip32_seed(&seed, 1, zip32::AccountId::try_from(0).unwrap())
         .expect("SpendingKey from seed");
     let fvk = FullViewingKey::from(&sk);
     let recipient = fvk.address_at(0u32, Scope::External);
@@ -115,9 +118,17 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         .finish();
     let proven_bytes = proven_pczt.serialize();
 
-    let protocol = ZcashProtocol {
-        params: zcash_protocol::consensus::Network::MainNetwork,
-    };
+    let protocol = ZcashProtocol::new(
+        to_local_params(
+            zcash_protocol::consensus::Network::MainNetwork,
+            zcash_protocol::consensus::NetworkType::Main,
+        ),
+        zcash_protocol::consensus::NetworkType::Main,
+        None,
+        None,
+        None,
+        None,
+    );
 
     // ── 5. Sign via ZcashProtocol (SignerProtocol::sign) ────────────────
     let path = "m/44'/133'/0'";

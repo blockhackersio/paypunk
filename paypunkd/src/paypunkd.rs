@@ -7,7 +7,8 @@ use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
 use crate::database::repository::SqliteAccountsRepository;
-use crate::database::{AccountsRepository, Database};
+use crate::database::repository::SqliteAddressBookRepository;
+use crate::database::{AccountsRepository, AddressBookRepository, Database};
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
 use crate::protocol_service::ProtocolService;
 use crate::usecases;
@@ -17,7 +18,9 @@ pub struct Paypunkd {
     protocols: ProtocolService,
     db: Database,
     accounts_repo: Box<dyn AccountsRepository>,
+    address_book_repo: Box<dyn AddressBookRepository>,
     keystore: Keypair,
+    failed_attempts: u32,
 }
 
 impl Paypunkd {
@@ -32,7 +35,9 @@ impl Paypunkd {
             protocols,
             db,
             accounts_repo: Box::new(SqliteAccountsRepository),
+            address_book_repo: Box::new(SqliteAddressBookRepository),
             keystore,
+            failed_attempts: 0,
         }
     }
 
@@ -147,17 +152,14 @@ impl Paypunkd {
             .protocols()
             .iter()
             .find_map(|&pid| {
-                self.protocols
-                    .get(pid)
-                    .ok()
-                    .and_then(|p| {
-                        let chain = p.chain_id();
-                        if address.starts_with(&format!("{}:", chain.namespace)) {
-                            Some(pid)
-                        } else {
-                            None
-                        }
-                    })
+                self.protocols.get(pid).ok().and_then(|p| {
+                    let chain = p.chain_id();
+                    if address.starts_with(&format!("{}:", chain.namespace)) {
+                        Some(pid)
+                    } else {
+                        None
+                    }
+                })
             })
             .unwrap_or(ProtocolId::Ethereum); // fallback shouldn't happen in practice
         self.respond(
@@ -215,22 +217,52 @@ impl Paypunkd {
         derivation_path: String,
         account_index: u32,
         name: String,
+        birthday_height: Option<u64>,
     ) -> PaypunkdResponse {
-        info!(?protocol, account_index, name, "creating account");
-        self.respond(
-            "create_account",
-            usecases::create_account(
-                &self.db,
-                &self.protocols,
-                self.accounts_repo.as_ref(),
-                protocol,
-                derivation_path,
-                account_index,
-                name,
-            )
-            .await,
-            |account| PaypunkdResponse::AccountCreated { account },
+        info!(
+            ?protocol,
+            account_index,
+            name,
+            ?birthday_height,
+            "creating account"
+        );
+
+        let result = usecases::create_account(
+            &self.db,
+            &self.protocols,
+            self.accounts_repo.as_ref(),
+            protocol,
+            derivation_path,
+            account_index,
+            name,
+            birthday_height,
         )
+        .await;
+
+        match result {
+            Ok(account) => {
+                // Trigger a chain sync for the newly created account so its
+                // viewing key is registered in the protocol's wallet DB and
+                // the chain is scanned for incoming notes.
+                if let Ok(proto) = self.protocols.get(protocol) {
+                    let birthday = birthday_height.unwrap_or(0);
+                    if let Err(e) = proto
+                        .sync_account(&account.viewing_key, birthday, &account.address)
+                        .await
+                    {
+                        warn!(
+                            ?protocol,
+                            account = %account.id,
+                            error = %e,
+                            "sync_account after create_account failed"
+                        );
+                    }
+                }
+
+                PaypunkdResponse::AccountCreated { account }
+            }
+            Err(e) => PaypunkdResponse::Error { message: e },
+        }
     }
 
     async fn list_accounts(&self) -> PaypunkdResponse {
@@ -275,6 +307,203 @@ impl Paypunkd {
         )
     }
 
+    async fn get_sync_status(&self, protocol: ProtocolId) -> PaypunkdResponse {
+        self.respond(
+            "get_sync_status",
+            usecases::get_sync_status(&self.protocols, protocol).await,
+            |status| PaypunkdResponse::SyncStatusResult { status },
+        )
+    }
+
+    async fn get_history(
+        &self,
+        protocol: ProtocolId,
+        account_id: u32,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> PaypunkdResponse {
+        info!(?protocol, account_id, "handling GetHistory");
+        self.respond(
+            "get_history",
+            usecases::get_history(&self.protocols, protocol, account_id, cursor, limit).await,
+            |page| PaypunkdResponse::HistoryResult {
+                entries: page.items,
+                next_cursor: page.next_cursor,
+                has_more: page.has_more,
+            },
+        )
+    }
+
+    async fn get_lock_state(&self) -> PaypunkdResponse {
+        info!("handling GetLockState");
+        let password_set = match self.has_seed().await {
+            PaypunkdResponse::HasSeed { exists } => exists,
+            _ => false,
+        };
+        PaypunkdResponse::LockState {
+            password_set,
+            failed_attempts: self.failed_attempts,
+        }
+    }
+
+    async fn verify_password(
+        &mut self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("handling VerifyPassword");
+        match self
+            .keypunk_service
+            .verify_password(encrypted_password, client_public_key)
+            .await
+        {
+            Ok(()) => {
+                self.failed_attempts = 0;
+                PaypunkdResponse::PasswordVerified
+            }
+            Err(e) => {
+                self.failed_attempts += 1;
+                PaypunkdResponse::Error { message: e }
+            }
+        }
+    }
+
+    fn get_address_book(&self) -> PaypunkdResponse {
+        info!("handling GetAddressBook");
+        self.respond(
+            "get_address_book",
+            usecases::get_address_book(&self.db, self.address_book_repo.as_ref()),
+            |entries| PaypunkdResponse::AddressBookData { entries },
+        )
+    }
+
+    fn add_address_book_entry(
+        &self,
+        name: String,
+        address: String,
+        protocol: String,
+    ) -> PaypunkdResponse {
+        info!("handling AddAddressBookEntry");
+        self.respond(
+            "add_address_book_entry",
+            usecases::add_address_book_entry(
+                &self.db,
+                self.address_book_repo.as_ref(),
+                name,
+                address,
+                protocol,
+            ),
+            |()| PaypunkdResponse::AddressBookEntryAdded,
+        )
+    }
+
+    fn get_settings(&self) -> PaypunkdResponse {
+        info!("handling GetSettings");
+        self.respond(
+            "get_settings",
+            usecases::get_settings(&self.db),
+            |(auto_lock_minutes, fiat_currency)| PaypunkdResponse::SettingsResult {
+                auto_lock_minutes,
+                fiat_currency,
+            },
+        )
+    }
+
+    fn save_settings(&self, auto_lock_minutes: u32, fiat_currency: String) -> PaypunkdResponse {
+        info!("handling SaveSettings");
+        self.respond(
+            "save_settings",
+            usecases::save_settings(&self.db, auto_lock_minutes, fiat_currency),
+            |()| PaypunkdResponse::SettingsSaved,
+        )
+    }
+
+    async fn reveal_phrase(
+        &self,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    ) -> PaypunkdResponse {
+        info!("forwarding RevealPhrase to keypunkd");
+        self.respond(
+            "reveal_phrase",
+            usecases::export_mnemonic(&self.keypunk_service, encrypted_password, client_public_key)
+                .await,
+            |encrypted_mnemonic| PaypunkdResponse::PhraseRevealed { encrypted_mnemonic },
+        )
+    }
+
+    async fn create_transfer(
+        &self,
+        protocol: ProtocolId,
+        account: u32,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+        lightwalletd_host: String,
+    ) -> PaypunkdResponse {
+        info!(?protocol, account, "handling CreateTransfer");
+        self.respond(
+            "create_transfer",
+            usecases::create_transfer(
+                &self.protocols,
+                protocol,
+                account,
+                &to,
+                amount,
+                memo.as_deref(),
+                &lightwalletd_host,
+            )
+            .await,
+            |pczt_bytes| PaypunkdResponse::TransferCreated { pczt_bytes },
+        )
+    }
+
+    async fn estimate_fee(
+        &self,
+        protocol: ProtocolId,
+        to: String,
+        amount: u64,
+        memo: Option<String>,
+        lightwalletd_host: String,
+    ) -> PaypunkdResponse {
+        info!(?protocol, "handling EstimateFee");
+        self.respond(
+            "estimate_fee",
+            usecases::estimate_fee(
+                &self.protocols,
+                protocol,
+                &to,
+                amount,
+                memo.as_deref(),
+                &lightwalletd_host,
+            )
+            .await,
+            |fee| PaypunkdResponse::FeeEstimated { fee },
+        )
+    }
+
+    async fn get_current_block_height(
+        &self,
+        protocol: ProtocolId,
+        lightwalletd_host: String,
+    ) -> PaypunkdResponse {
+        info!(?protocol, "handling GetCurrentBlockHeight");
+        self.respond(
+            "get_current_block_height",
+            usecases::get_current_block_height(&self.protocols, protocol, lightwalletd_host).await,
+            |height| PaypunkdResponse::BlockHeightResult { height },
+        )
+    }
+
+    async fn get_transaction_status(&self, protocol: ProtocolId, txid: String) -> PaypunkdResponse {
+        info!(?protocol, "handling GetTransactionStatus");
+        self.respond(
+            "get_transaction_status",
+            usecases::get_transaction_status(&self.protocols, protocol, txid).await,
+            |status| PaypunkdResponse::TransactionStatusResult { status },
+        )
+    }
+
     async fn unlock(
         &mut self,
         encrypted_db_password: Vec<u8>,
@@ -284,6 +513,14 @@ impl Paypunkd {
         paths: Vec<(ProtocolId, String)>,
     ) -> PaypunkdResponse {
         info!("handling Unlock");
+
+        // If the DB file was deleted out from under us (e.g. by `paypunk reset`
+        // while the daemon is running), reinitialize before proceeding.
+        if let Err(e) = self.db.ensure_file_exists() {
+            return PaypunkdResponse::Error {
+                message: format!("failed to reinitialize database: {e}"),
+            };
+        }
 
         // 1. If DB is already unlocked (fresh, no .enc file), skip decryption
         if self.db.is_locked() {
@@ -329,8 +566,9 @@ impl Paypunkd {
 
             match keys {
                 Ok(derived) => {
-                    // TODO: the following is messy. is there a neater way to handle this? can index
-                    // be derived a different way? Also we need to fix the other instances where
+                    // TODO: the following works but is messy.
+                    // Is there a neater way to handle this? can index be derived a different way?
+                    // Also we need to fix the other instances where
                     // index is extracted from the derivation path.
                     let mut indexes: HashMap<&ProtocolId, i32> = HashMap::new();
                     // Store pre-derived keys in the database
@@ -347,26 +585,55 @@ impl Paypunkd {
                         );
                     }
 
-                    // Create the first account for each registered protocol automatically
+                    // Create accounts for all pre-derived keys
                     for pid in self.protocols.protocols() {
                         let proto = match self.protocols.get(pid) {
                             Ok(p) => p,
                             Err(_) => continue,
                         };
-                        let path = proto.default_derivation_path(0);
-                        let account_index = 0;
-                        let name = proto.default_account_name(0);
+                        for account_index in 0..1 {
+                            let path = proto.default_derivation_path(account_index);
+                            let name = proto.default_account_name(account_index);
 
-                        let _ = usecases::create_account(
-                            &self.db,
-                            &self.protocols,
-                            self.accounts_repo.as_ref(),
-                            pid,
-                            path,
-                            account_index,
-                            name,
-                        )
-                        .await;
+                            let _ = usecases::create_account(
+                                &self.db,
+                                &self.protocols,
+                                self.accounts_repo.as_ref(),
+                                pid,
+                                path,
+                                account_index,
+                                name,
+                                None,
+                            )
+                            .await;
+                        }
+                    }
+
+                    // Re-list accounts (with viewing keys) and notify each protocol
+                    if let Ok(accounts) =
+                        usecases::list_accounts(&self.db, self.accounts_repo.as_ref())
+                    {
+                        for pid in self.protocols.protocols() {
+                            if let Ok(proto) = self.protocols.get(pid) {
+                                for account in accounts.iter().filter(|a| a.protocol == pid) {
+                                    if let Err(e) = proto
+                                        .sync_account(
+                                            &account.viewing_key,
+                                            0,
+                                            &account.address,
+                                        )
+                                        .await
+                                    {
+                                        warn!(
+                                            ?pid,
+                                            account = %account.id,
+                                            error = %e,
+                                            "sync_account after unlock failed"
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     info!(count = derived.len(), "cached pre-derived viewing keys");
@@ -379,6 +646,30 @@ impl Paypunkd {
                 },
             }
         } else {
+            // Accounts already exist — notify protocols for post-unlock setup
+            if let Ok(accounts) = usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
+                for pid in self.protocols.protocols() {
+                    if let Ok(proto) = self.protocols.get(pid) {
+                        for account in accounts.iter().filter(|a| a.protocol == pid) {
+                            if let Err(e) = proto
+                                .sync_account(
+                                    &account.viewing_key,
+                                    0,
+                                    &account.address,
+                                )
+                                .await
+                            {
+                                warn!(
+                                    ?pid,
+                                    account = %account.id,
+                                    error = %e,
+                                    "sync_account after unlock failed"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             PaypunkdResponse::UnlockSuccess { accounts_count }
         }
     }
@@ -472,9 +763,16 @@ impl Handler<IpcMessage> for Paypunkd {
                 derivation_path,
                 account_index,
                 name,
+                birthday_height,
             } => {
-                self.create_account(protocol, derivation_path, account_index, name)
-                    .await
+                self.create_account(
+                    protocol,
+                    derivation_path,
+                    account_index,
+                    name,
+                    birthday_height,
+                )
+                .await
             }
             PaypunkdRequest::ListAccounts => self.list_accounts().await,
             PaypunkdRequest::GetAccount { id } => self.get_account(id).await,
@@ -497,6 +795,7 @@ impl Handler<IpcMessage> for Paypunkd {
                 )
                 .await
             }
+            PaypunkdRequest::GetSyncStatus { protocol } => self.get_sync_status(protocol).await,
             PaypunkdRequest::BulkDeriveAccounts {
                 encrypted_password,
                 client_public_key,
@@ -504,6 +803,69 @@ impl Handler<IpcMessage> for Paypunkd {
             } => {
                 self.bulk_derive_accounts(encrypted_password, client_public_key, paths)
                     .await
+            }
+            PaypunkdRequest::GetHistory {
+                protocol,
+                account_id,
+                cursor,
+                limit,
+            } => self.get_history(protocol, account_id, cursor, limit).await,
+            PaypunkdRequest::GetLockState => self.get_lock_state().await,
+            PaypunkdRequest::VerifyPassword {
+                encrypted_password,
+                client_public_key,
+            } => {
+                self.verify_password(encrypted_password, client_public_key)
+                    .await
+            }
+            PaypunkdRequest::GetAddressBook => self.get_address_book(),
+            PaypunkdRequest::AddAddressBookEntry {
+                name,
+                address,
+                protocol,
+            } => self.add_address_book_entry(name, address, protocol),
+            PaypunkdRequest::GetSettings => self.get_settings(),
+            PaypunkdRequest::SaveSettings {
+                auto_lock_minutes,
+                fiat_currency,
+            } => self.save_settings(auto_lock_minutes, fiat_currency),
+            PaypunkdRequest::RevealPhrase {
+                encrypted_password,
+                client_public_key,
+            } => {
+                self.reveal_phrase(encrypted_password, client_public_key)
+                    .await
+            }
+            PaypunkdRequest::CreateTransfer {
+                protocol,
+                account,
+                to,
+                amount,
+                memo,
+                lightwalletd_host,
+            } => {
+                self.create_transfer(protocol, account, to, amount, memo, lightwalletd_host)
+                    .await
+            }
+            PaypunkdRequest::EstimateFee {
+                protocol,
+                to,
+                amount,
+                memo,
+                lightwalletd_host,
+            } => {
+                self.estimate_fee(protocol, to, amount, memo, lightwalletd_host)
+                    .await
+            }
+            PaypunkdRequest::GetCurrentBlockHeight {
+                protocol,
+                lightwalletd_host,
+            } => {
+                self.get_current_block_height(protocol, lightwalletd_host)
+                    .await
+            }
+            PaypunkdRequest::GetTransactionStatus { protocol, txid } => {
+                self.get_transaction_status(protocol, txid).await
             }
         };
 

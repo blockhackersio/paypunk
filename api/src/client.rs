@@ -1,6 +1,9 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
-use paypunk_types::{Account, Balance, Intent, ProtocolId, ProtocolMetadata};
+use paypunk_types::{
+    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+};
+use paypunkd::messages::AddressBookEntry;
 use paypunkd::services::PaypunkService;
 use tactix::{Recipient, Sender};
 use zeroize::Zeroizing;
@@ -121,6 +124,7 @@ impl Client {
         derivation_path: String,
         account_index: u32,
         name: String,
+        birthday_height: Option<u64>,
     ) -> Result<Account, String> {
         crate::functions::create_account(
             &self.service,
@@ -128,6 +132,7 @@ impl Client {
             derivation_path,
             account_index,
             name,
+            birthday_height,
         )
         .await
     }
@@ -169,5 +174,72 @@ impl Client {
     /// Get protocol metadata from the daemon.
     pub async fn get_protocol_metadata(&self) -> Result<Vec<ProtocolMetadata>, String> {
         self.service.get_protocol_metadata().await
+    }
+
+    /// Get the sync status for the given protocol.
+    pub async fn get_sync_status(&self, protocol: ProtocolId) -> Result<SyncStatus, String> {
+        self.service.get_sync_status(protocol).await
+    }
+
+    /// Fetch transaction history for the given protocol and account.
+    pub async fn get_history(
+        &self,
+        protocol: ProtocolId,
+        account_id: u32,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<Vec<HistoryEntry>, String> {
+        self.service
+            .get_history(protocol, account_id, cursor, limit)
+            .await
+    }
+
+    /// Get the lock state (whether password is set and failed attempt count).
+    pub async fn get_lock_state(&self) -> Result<(bool, u32), String> {
+        self.service.get_lock_state().await
+    }
+
+    /// Verify the wallet password against keypunkd.
+    pub async fn verify_password(&self, password: Zeroizing<String>) -> Result<(), String> {
+        crate::functions::verify_password(&self.service, password).await
+    }
+
+    /// Get all address book entries.
+    pub async fn get_address_book(&self) -> Result<Vec<AddressBookEntry>, String> {
+        crate::functions::get_address_book(&self.service).await
+    }
+
+    /// Reveal the wallet mnemonic phrase.
+    ///
+    /// Returns the 12-word BIP39 mnemonic encrypted end-to-end over IPC.
+    pub async fn reveal_phrase(
+        &self,
+        password: Zeroizing<String>,
+    ) -> Result<Zeroizing<String>, String> {
+        crate::functions::reveal_phrase(&self.service, password).await
+    }
+
+    /// Add an entry to the address book.
+    pub async fn add_address_book_entry(
+        &self,
+        name: String,
+        address: String,
+        protocol: String,
+    ) -> Result<(), String> {
+        crate::functions::add_address_book_entry(&self.service, name, address, protocol).await
+    }
+
+    /// Get settings.
+    pub async fn get_settings(&self) -> Result<(u32, String), String> {
+        crate::functions::get_settings(&self.service).await
+    }
+
+    /// Save settings.
+    pub async fn save_settings(
+        &self,
+        auto_lock_minutes: u32,
+        fiat_currency: String,
+    ) -> Result<(), String> {
+        crate::functions::save_settings(&self.service, auto_lock_minutes, fiat_currency).await
     }
 }

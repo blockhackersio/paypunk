@@ -7,6 +7,7 @@ use crate::components::flex_box::FlexBox;
 use crate::components::list::List;
 use crate::components::Component;
 use crate::screens::help::HelpScreen;
+use crate::screens::history::HistoryScreen;
 use crate::screens::receive::ReceiveScreen;
 use crate::screens::send::SendScreen;
 use crate::screens::Screen;
@@ -28,15 +29,24 @@ pub struct AssetsScreen {
     data: Option<AssetsData>,
     list: List<AssetAction>,
     focus: AssetsFocus,
+    protocol: String,
+    sync_status: SyncStatus,
 }
 
 impl AssetsScreen {
     pub fn new(account: AccountInfo) -> Self {
+        let protocol = if account.chain_id.contains("eip155") {
+            "Ethereum".to_string()
+        } else {
+            "Zcash".to_string()
+        };
         Self {
             account,
             data: None,
             list: List::new(vec![]).row_height(2),
             focus: AssetsFocus::Buttons(0),
+            protocol,
+            sync_status: SyncStatus::default(),
         }
     }
 }
@@ -60,6 +70,7 @@ impl Screen for AssetsScreen {
 
     async fn on_reactivate(&mut self, api: &mut dyn WalletApi) {
         let data = api.get_assets(&self.account.account_id).await;
+
         let items: Vec<Box<dyn Component<AssetAction>>> = data
             .assets
             .iter()
@@ -67,6 +78,21 @@ impl Screen for AssetsScreen {
             .collect();
         self.list = List::new(items).row_height(2);
         self.data = Some(data);
+    }
+
+    async fn tick(&mut self, api: &mut dyn WalletApi) {
+        let prev = self.sync_status.is_syncing;
+        self.sync_status = api.get_sync_status(&self.protocol).await;
+        if prev && !self.sync_status.is_syncing {
+            let data = api.get_assets(&self.account.account_id).await;
+            let items: Vec<Box<dyn Component<AssetAction>>> = data
+                .assets
+                .iter()
+                .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
+                .collect();
+            self.list = List::new(items).row_height(2);
+            self.data = Some(data);
+        }
     }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {
@@ -108,11 +134,28 @@ impl Screen for AssetsScreen {
             }),
         );
 
+        if self.sync_status.is_syncing {
+            let sync_line = Paragraph::new(Line::from(vec![theme.warning(format!(
+                " Syncing: {} / {} blocks ",
+                self.sync_status.current_height, self.sync_status.target_height,
+            ))]))
+            .style(Style::new().bg(ui::BG));
+            frame.render_widget(
+                sync_line,
+                header.inner(Margin {
+                    vertical: 3,
+                    horizontal: 0,
+                }),
+            );
+        }
+
         let on_buttons = matches!(self.focus, AssetsFocus::Buttons(_));
         let mut send_btn = Button::new(" \u{2191} Send ").size(ButtonSize::Sm);
         send_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(0)));
         let mut recv_btn = Button::new(" \u{2193} Receive ").size(ButtonSize::Sm);
         recv_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(1)));
+        let mut hist_btn = Button::new(" \u{2191} History ").size(ButtonSize::Sm);
+        hist_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(2)));
 
         let mut btn_bar = FlexBox::horizontal()
             .bg(ui::BG)
@@ -124,7 +167,8 @@ impl Screen for AssetsScreen {
             })
             .gap(2)
             .child_with(Constraint::Length(10), send_btn)
-            .child_with(Constraint::Length(13), recv_btn);
+            .child_with(Constraint::Length(13), recv_btn)
+            .child_with(Constraint::Length(12), hist_btn);
         btn_bar.render(frame, buttons);
 
         let block = theme.titled_block("");
@@ -183,8 +227,9 @@ impl Screen for AssetsScreen {
 
         let footer_text = theme.help_line([
             ("\u{2191}\u{2193}", "Navigate"),
-            ("\u{2190}/\u{2192}", "Send/Receive"),
+            ("\u{2190}/\u{2192}", "Buttons"),
             ("Enter", "Select action"),
+            ("r", "Refresh/Sync"),
             ("Esc", "Back to wallets"),
             ("?", "Help"),
         ]);
@@ -213,7 +258,13 @@ impl Screen for AssetsScreen {
         match self.focus {
             AssetsFocus::Buttons(ref mut sel) => match key.code {
                 KeyCode::Left | KeyCode::Right => {
-                    *sel = if *sel == 0 { 1 } else { 0 };
+                    *sel = if *sel == 0 {
+                        1
+                    } else if *sel == 1 {
+                        2
+                    } else {
+                        0
+                    };
                 }
                 KeyCode::Down => {
                     if self.data.as_ref().map_or(false, |d| !d.assets.is_empty()) {
@@ -222,13 +273,20 @@ impl Screen for AssetsScreen {
                     }
                 }
                 KeyCode::Enter => {
-                    return if *sel == 0 {
-                        Nav::Push(Box::new(SendScreen::new(self.account.clone())))
-                    } else {
-                        Nav::Push(Box::new(ReceiveScreen::new(self.account.clone())))
+                    return match *sel {
+                        0 => Nav::Push(Box::new(SendScreen::new(self.account.clone()))),
+                        1 => Nav::Push(Box::new(ReceiveScreen::new(self.account.clone()))),
+                        2 => Nav::Push(Box::new(HistoryScreen::new(
+                            self.account.account_id.clone(),
+                            self.account.name.clone(),
+                        ))),
+                        _ => Nav::None,
                     };
                 }
                 KeyCode::Esc => return Nav::Pop,
+                KeyCode::Char('r') => {
+                    // Trigger sync — handled in tick
+                }
                 _ => {}
             },
             AssetsFocus::Table => match key.code {
@@ -248,7 +306,7 @@ impl Screen for AssetsScreen {
                     self.list.set_focused(false);
                 }
                 KeyCode::Right => {
-                    self.focus = AssetsFocus::Buttons(1);
+                    self.focus = AssetsFocus::Buttons(2);
                     self.list.set_focused(false);
                 }
                 KeyCode::Enter => {
@@ -261,6 +319,9 @@ impl Screen for AssetsScreen {
                     }
                 }
                 KeyCode::Esc => return Nav::Pop,
+                KeyCode::Char('r') => {
+                    // Trigger sync — handled in tick
+                }
                 _ => {}
             },
         }

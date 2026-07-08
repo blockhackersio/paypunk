@@ -4,7 +4,10 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 
 use super::encryption::{decrypt_db, encrypt_db, DbCryptoError};
-use super::migration::{AccountsMigration, Migration, Migrator, PreDerivedKeysMigration};
+use super::migration::{
+    AccountsMigration, AddressBookMigration, Migration, Migrator, PreDerivedKeysMigration,
+    SettingsMigration,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -85,6 +88,25 @@ impl Database {
         self.conn.is_none()
     }
 
+    /// Ensure the underlying database file still exists.
+    ///
+    /// If the file was deleted (e.g. by `paypunk reset` while the daemon is
+    /// running), the stale connection is dropped and a fresh database is
+    /// created. This makes startup idempotent regardless of filesystem state.
+    pub fn ensure_file_exists(&mut self) -> Result<(), DbError> {
+        if self.conn.is_some() && !self.db_path.exists() {
+            tracing::warn!("database file deleted, reinitializing");
+            self.conn = None;
+            if let Some(parent) = self.db_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let conn = Connection::open(&self.db_path)?;
+            self.conn = Some(Mutex::new(conn));
+            self.run_migrations()?;
+        }
+        Ok(())
+    }
+
     fn run_migrations(&self) -> Result<(), DbError> {
         let conn = self
             .conn
@@ -95,6 +117,8 @@ impl Database {
         migrator.register(Box::new(InitialMigration));
         migrator.register(Box::new(AccountsMigration));
         migrator.register(Box::new(PreDerivedKeysMigration));
+        migrator.register(Box::new(AddressBookMigration));
+        migrator.register(Box::new(SettingsMigration));
         migrator.migrate(&conn).map_err(DbError::Migration)?;
         Ok(())
     }
@@ -153,7 +177,7 @@ mod tests {
             .unwrap()
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 3);
+        assert_eq!(count, 5);
         db.close().unwrap();
     }
 

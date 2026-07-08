@@ -2,6 +2,8 @@ use paypunk_types::Account;
 use paypunk_types::ProtocolId;
 use rusqlite::Connection;
 
+use crate::messages::AddressBookEntry;
+
 pub trait Repository<T> {
     fn save(&self, conn: &Connection, entity: &T) -> Result<(), String>;
     fn find_all(&self, conn: &Connection) -> Result<Vec<T>, String>;
@@ -129,5 +131,51 @@ fn parse_protocol(s: &str) -> paypunk_types::ProtocolId {
         "Monero" => paypunk_types::ProtocolId::Monero,
         "Solana" => paypunk_types::ProtocolId::Solana,
         _ => paypunk_types::ProtocolId::Zcash,
+    }
+}
+
+pub trait AddressBookRepository: Send + Sync {
+    fn find_all(&self, conn: &Connection) -> Result<Vec<AddressBookEntry>, String>;
+    fn insert(&self, conn: &Connection, entry: &AddressBookEntry) -> Result<(), String>;
+}
+
+pub struct SqliteAddressBookRepository;
+
+impl AddressBookRepository for SqliteAddressBookRepository {
+    fn find_all(&self, conn: &Connection) -> Result<Vec<AddressBookEntry>, String> {
+        let mut stmt = conn
+            .prepare("SELECT name, address, protocol FROM address_book ORDER BY created_at DESC")
+            .map_err(|e| format!("failed to prepare query: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(AddressBookEntry {
+                    name: row.get(0)?,
+                    address: row.get(1)?,
+                    protocol: row.get(2)?,
+                })
+            })
+            .map_err(|e| format!("failed to query address book: {e}"))?;
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row.map_err(|e| format!("failed to read address book row: {e}"))?);
+        }
+        Ok(entries)
+    }
+
+    fn insert(&self, conn: &Connection, entry: &AddressBookEntry) -> Result<(), String> {
+        conn.execute(
+            "INSERT OR IGNORE INTO address_book (name, address, protocol, created_at) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                entry.name,
+                entry.address,
+                entry.protocol,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            ],
+        )
+        .map_err(|e| format!("failed to insert address book entry: {e}"))?;
+        Ok(())
     }
 }

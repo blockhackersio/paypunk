@@ -77,6 +77,9 @@ pub trait Protocol: Send + Sync {
 
     // ── Transaction operations ──────────────────────────────────────────────
     async fn build(&self, intent: &Intent) -> Result<Vec<u8>, String>;
+    /// Store a signed PCZT in the wallet database and finalize it,
+    /// returning the raw transaction bytes ready for broadcast.
+    async fn store_and_finalize(&self, signed_pczt: &[u8]) -> Result<Vec<u8>, String>;
     fn finalize(&self, signed: &[u8]) -> Result<Vec<u8>, String>;
     async fn broadcast(&self, finalized_tx: &[u8]) -> Result<String, String>;
 
@@ -100,6 +103,82 @@ pub trait Protocol: Send + Sync {
     /// typically ignored (one address per account); for Zcash it selects which
     /// diversifier to use within the account.
     fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String>;
+
+    // ── Chain sync ──────────────────────────────────────────────────────────
+    /// Get the current sync status.
+    async fn get_sync_status(&self) -> Result<SyncStatus, String> {
+        Err(format!(
+            "sync status not supported for {:?}",
+            self.protocol_id()
+        ))
+    }
+
+    // ── Transfer operations ──────────────────────────────────────────────────
+    /// Create a transfer for the given account.
+    async fn create_transfer(
+        &self,
+        _account: u32,
+        _to: String,
+        _amount: u64,
+        _memo: Option<String>,
+    ) -> Result<Vec<u8>, String> {
+        Err(format!(
+            "create_transfer not supported for {:?}",
+            self.protocol_id()
+        ))
+    }
+
+    /// Estimate the fee for a transfer.
+    async fn estimate_fee(
+        &self,
+        _to: String,
+        _amount: u64,
+        _memo: Option<String>,
+    ) -> Result<u64, String> {
+        Err(format!(
+            "estimate_fee not supported for {:?}",
+            self.protocol_id()
+        ))
+    }
+
+    // ── History & status ────────────────────────────────────────────────────
+    /// Fetch transaction history for the given account.
+    async fn get_history(
+        &self,
+        _account: u32,
+        _cursor: Option<String>,
+        _limit: u32,
+    ) -> Result<Page<HistoryEntry>, String> {
+        Ok(Page {
+            items: vec![],
+            next_cursor: None,
+            has_more: false,
+        })
+    }
+
+    /// Get the on-chain status of a transaction.
+    async fn get_transaction_status(&self, _txid: String) -> Result<TxStatus, String> {
+        Err(format!(
+            "get_transaction_status not supported for {:?}",
+            self.protocol_id()
+        ))
+    }
+
+    /// Get the current block height.
+    async fn get_current_block_height(&self, _lightwalletd_host: String) -> Result<BlockHeight, String> {
+        Err(format!(
+            "get_current_block_height not supported for {:?}",
+            self.protocol_id()
+        ))
+    }
+
+    /// Register a newly created account and sync it.
+    ///
+    /// Called after `create_account` so the protocol can import the viewing key
+    /// into its own database and scan the chain for the account's notes.
+    async fn sync_account(&self, _viewing_key: &[u8], _birthday_height: u64, _address: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 // ── SignerProtocol trait (keypunkd side) ─────────────────────────────────────
@@ -232,3 +311,11 @@ pub struct Utxo {
 /// A payment proof that can be shared with a recipient.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PaymentProof(pub Vec<u8>);
+
+/// Status of a chain sync operation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncStatus {
+    pub is_syncing: bool,
+    pub current_height: u64,
+    pub target_height: u64,
+}

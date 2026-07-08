@@ -7,6 +7,7 @@ use paypunk_api::Client;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_chains_zcash::to_local_params;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId};
 use paypunkd::database::Database;
@@ -103,18 +104,34 @@ impl TestBuilder {
         let mut keypunkd_protocols = KeypunkdProtocolService::new();
         keypunkd_protocols.register(
             ProtocolId::Zcash,
-            Box::new(ZcashProtocol {
-                params: zcash_protocol::consensus::Network::MainNetwork,
-            }),
+            Box::new(ZcashProtocol::new(
+                to_local_params(
+                    zcash_protocol::consensus::Network::MainNetwork,
+                    zcash_protocol::consensus::NetworkType::Main,
+                ),
+                zcash_protocol::consensus::NetworkType::Main,
+                None,
+                None,
+                None,
+                None,
+            )),
         );
         keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
 
         let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols).start();
         let keypunkd_recipient = keypunkd_addr.recipient();
 
-        let paypunkd_zcash = ZcashProtocol {
-            params: zcash_protocol::consensus::Network::MainNetwork,
-        };
+        let paypunkd_zcash = ZcashProtocol::new(
+            to_local_params(
+                zcash_protocol::consensus::Network::MainNetwork,
+                zcash_protocol::consensus::NetworkType::Main,
+            ),
+            zcash_protocol::consensus::NetworkType::Main,
+            None,
+            None,
+            None,
+            None,
+        );
         let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
         let mut paypunkd_protocols = ProtocolService::new();
         paypunkd_protocols.register(Box::new(paypunkd_zcash));
@@ -124,6 +141,7 @@ impl TestBuilder {
         let db_dir = Box::leak(Box::new(tempfile::TempDir::new().unwrap()));
         let db = Database::open(db_dir.path()).unwrap();
         let paypunkd_keystore = Keypair::new();
+
         let paypunkd_addr = Paypunkd::new(
             keypunkd_recipient,
             paypunkd_protocols,
@@ -228,12 +246,7 @@ async fn test_derive_address() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let address = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 0)
         .await
         .unwrap();
     assert!(address.starts_with("u1"), "got: {address}");
@@ -249,30 +262,15 @@ async fn test_derive_different_indexes() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr0 = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 0)
         .await
         .unwrap();
     let addr1 = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            1,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 1)
         .await
         .unwrap();
     let addr2 = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            2,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 2)
         .await
         .unwrap();
 
@@ -290,23 +288,13 @@ async fn test_derive_address_is_deterministic() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr_a = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 0)
         .await
         .unwrap();
 
     // Second call with same seed + index should produce same address
     let addr_b = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Zcash,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Zcash, 0, 0)
         .await
         .unwrap();
 
@@ -328,12 +316,7 @@ async fn test_eth_balance_via_mock_rpc() {
 
     // Derive the address first
     let addr = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Ethereum,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Ethereum, 0, 0)
         .await
         .unwrap();
 
@@ -356,12 +339,7 @@ async fn test_eth_balance_zero() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Ethereum,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Ethereum, 0, 0)
         .await
         .unwrap();
 
@@ -386,12 +364,7 @@ async fn test_eth_send_full_flow() {
     client.generate_seed(password.clone()).await.unwrap();
 
     let addr = client
-        .derive_address(
-            password.clone(),
-            ProtocolId::Ethereum,
-            0,
-            0,
-        )
+        .derive_address(password.clone(), ProtocolId::Ethereum, 0, 0)
         .await
         .unwrap();
 
@@ -456,6 +429,7 @@ async fn test_create_account() {
             "m/44'/133'/1'".to_string(),
             1,
             "My Zcash Wallet".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -483,6 +457,7 @@ async fn test_list_accounts() {
             "m/44'/133'/1'".into(),
             1,
             "Zcash 1".into(),
+            None,
         )
         .await
         .unwrap();
@@ -492,6 +467,7 @@ async fn test_list_accounts() {
             "m/44'/60'/1'/0/0".into(),
             1,
             "Ethereum 1".into(),
+            None,
         )
         .await
         .unwrap();
@@ -540,6 +516,7 @@ async fn test_create_account_beyond_range_fails() {
             "m/44'/133'/30'".into(),
             30,
             "Too Far".into(),
+            None,
         )
         .await;
 
@@ -563,6 +540,7 @@ async fn test_create_account_duplicate_fails() {
             "m/44'/133'/0'".into(),
             0,
             "Duplicate".into(),
+            None,
         )
         .await;
 

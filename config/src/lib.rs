@@ -13,6 +13,10 @@ pub struct PaypunkConfig {
     pub config_dir: String,
     #[serde(default = "default_ethereum_rpc_url")]
     pub ethereum_rpc_url: String,
+    #[serde(default = "default_lightwalletd_host")]
+    pub lightwalletd_host: String,
+    #[serde(default = "default_zcash_network")]
+    pub zcash_network: String,
 }
 
 fn default_paypunkd_socket_path() -> String {
@@ -37,6 +41,14 @@ fn default_ethereum_rpc_url() -> String {
     "http://127.0.0.1:8545".to_string()
 }
 
+fn default_lightwalletd_host() -> String {
+    "http://127.0.0.1:9067".to_string()
+}
+
+fn default_zcash_network() -> String {
+    "regtest".to_string()
+}
+
 impl Default for PaypunkConfig {
     fn default() -> Self {
         Self {
@@ -45,6 +57,8 @@ impl Default for PaypunkConfig {
             data_dir: default_data_dir(),
             config_dir: default_config_dir(),
             ethereum_rpc_url: default_ethereum_rpc_url(),
+            lightwalletd_host: default_lightwalletd_host(),
+            zcash_network: default_zcash_network(),
         }
     }
 }
@@ -118,6 +132,12 @@ config_dir = "~/.config/paypunk/"
 
 # RPC URL for Ethereum-compatible chains
 ethereum_rpc_url = "http://127.0.0.1:8545"
+
+# Zcash lightwalletd host (default: http://127.0.0.1:9067)
+lightwalletd_host = "http://127.0.0.1:9067"
+
+# Zcash network (regtest, testnet, or mainnet)
+zcash_network = "regtest"
 "#;
 
         std::fs::write(&config_path, contents)
@@ -141,6 +161,12 @@ ethereum_rpc_url = "http://127.0.0.1:8545"
         }
         if let Ok(v) = std::env::var("PAYPUNK_ETHEREUM_RPC_URL") {
             config.ethereum_rpc_url = v;
+        }
+        if let Ok(v) = std::env::var("PAYPUNK_LIGHTWALLETD_HOST") {
+            config.lightwalletd_host = v;
+        }
+        if let Ok(v) = std::env::var("PAYPUNK_ZCASH_NETWORK") {
+            config.zcash_network = v;
         }
     }
 }

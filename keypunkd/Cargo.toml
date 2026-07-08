@@ -9,6 +9,7 @@ paypunk-ipc.workspace = true
 paypunk-types.workspace = true
 paypunk-chains-zcash.workspace = true
 paypunk-chains-ethereum.workspace = true
+zcash_address.workspace = true
 zcash_protocol.workspace = true
 tactix.workspace = true
 tokio = { workspace = true, features = ["net", "io-util", "rt", "macros", "signal"] }

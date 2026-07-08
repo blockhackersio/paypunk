@@ -6,12 +6,77 @@ use paypunk_config::ConfigLoader;
 use paypunk_tui::run_tui;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, ZcashIntent};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
+
+/// Pending intent data stored between submit and approve steps.
+struct PendingIntent {
+    raw_artifact: Vec<u8>,
+    keypunkd_signature: Vec<u8>,
+    keypunkd_public_key: [u8; 32],
+    derivation_path: String,
+    protocol: ProtocolId,
+}
+
+fn pending_intent_path(data_dir: &str) -> PathBuf {
+    let dir = Path::new(data_dir);
+    std::fs::create_dir_all(dir).ok();
+    dir.join("pending.intent")
+}
+
+fn save_pending_intent(data_dir: &str, pi: &PendingIntent) -> Result<(), String> {
+    // Format: protocol_id(1) + key_pk(32) + path_len(4) + path + raw_len(4) + raw + sig_len(4) + sig
+    let path_bytes = pi.derivation_path.as_bytes();
+    let mut buf = Vec::new();
+    buf.push(pi.protocol as u8);
+    buf.extend_from_slice(&pi.keypunkd_public_key);
+    buf.extend_from_slice(&(path_bytes.len() as u32).to_le_bytes());
+    buf.extend_from_slice(path_bytes);
+    buf.extend_from_slice(&(pi.raw_artifact.len() as u32).to_le_bytes());
+    buf.extend_from_slice(&pi.raw_artifact);
+    buf.extend_from_slice(&(pi.keypunkd_signature.len() as u32).to_le_bytes());
+    buf.extend_from_slice(&pi.keypunkd_signature);
+    std::fs::write(pending_intent_path(data_dir), &buf)
+        .map_err(|e| format!("failed to save pending intent: {e}"))
+}
+
+fn load_pending_intent(data_dir: &str) -> Result<PendingIntent, String> {
+    let buf = std::fs::read(pending_intent_path(data_dir))
+        .map_err(|e| format!("No pending intent found: {e}"))?;
+    let mut pos = 0;
+    let protocol = match buf[pos] {
+        0 => ProtocolId::Zcash,
+        1 => ProtocolId::Ethereum,
+        n => return Err(format!("unknown protocol id: {n}")),
+    };
+    pos += 1;
+    let mut pk = [0u8; 32];
+    pk.copy_from_slice(&buf[pos..pos + 32]);
+    pos += 32;
+    let path_len = u32::from_le_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
+    pos += 4;
+    let derivation_path = String::from_utf8(buf[pos..pos + path_len].to_vec())
+        .map_err(|_| "invalid derivation path".to_string())?;
+    pos += path_len;
+    let raw_len = u32::from_le_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
+    pos += 4;
+    let raw_artifact = buf[pos..pos + raw_len].to_vec();
+    pos += raw_len;
+    let sig_len = u32::from_le_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
+    pos += 4;
+    let keypunkd_signature = buf[pos..pos + sig_len].to_vec();
+    Ok(PendingIntent {
+        raw_artifact,
+        keypunkd_signature,
+        keypunkd_public_key: pk,
+        derivation_path,
+        protocol,
+    })
+}
 
 /// Holds spawned daemon child processes and kills them on drop.
 struct DaemonGuard {
@@ -63,6 +128,7 @@ async fn ensure_daemons(
 
     let exe =
         std::env::current_exe().map_err(|e| format!("Failed to get current exe path: {e}"))?;
+    let config = ConfigLoader::load_or_default();
 
     // Clean stale sockets before spawning
     let _ = fs::remove_file(keypunkd_socket);
@@ -71,6 +137,8 @@ async fn ensure_daemons(
     println!("Starting keypunkd...");
     let mut keypunkd = Command::new(&exe)
         .arg("keypunkd")
+        .arg("--zcash-network")
+        .arg(&config.zcash_network)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -151,7 +219,7 @@ enum Commands {
         amount: String,
         #[arg(short, long)]
         from: String,
-        #[arg(short, long, default_value = "eip155:1/slip44:60")]
+        #[arg(long, default_value = "eip155:1/slip44:60")]
         asset: String,
         #[arg(short, long)]
         protocol: Option<String>,
@@ -159,7 +227,7 @@ enum Commands {
         data: Option<String>,
         #[arg(short, long)]
         memo: Option<String>,
-        #[arg(short, long, default_value_t = 0)]
+        #[arg(long, default_value_t = 0)]
         account: u32,
     },
     /// Approve a previously submitted intent by providing the password
@@ -167,7 +235,7 @@ enum Commands {
         /// Password to authorize the signing
         #[arg(short, long)]
         password: String,
-        #[arg(short, long, default_value_t = 0)]
+        #[arg(long, default_value_t = 0)]
         account: u32,
     },
     /// Query the balance for a protocol and account
@@ -176,6 +244,9 @@ enum Commands {
         protocol: String,
         #[arg(short, long, default_value_t = 0)]
         account: u32,
+        /// Zcash address to query (overrides --account)
+        #[arg(long)]
+        address: Option<String>,
     },
     /// Launch the terminal user interface
     Tui,
@@ -185,6 +256,8 @@ enum Commands {
         socket_path: Option<String>,
         #[arg(short, long)]
         data_dir: Option<String>,
+        #[arg(short, long)]
+        zcash_network: Option<String>,
     },
     /// Launch paypunkd (app daemon) as a child process
     Paypunkd {
@@ -196,9 +269,26 @@ enum Commands {
         ethereum_rpc_url: Option<String>,
         #[arg(short, long)]
         data_dir: Option<String>,
+        #[arg(short, long)]
+        lightwalletd_host: Option<String>,
+        #[arg(short, long)]
+        zcash_network: Option<String>,
     },
     /// Remove all wallet data (seed, database, accounts) — resets to clean state
     Reset,
+    /// List all accounts in the wallet
+    ListAccounts,
+    /// Create a new account from a pre-derived viewing key
+    CreateAccount {
+        #[arg(short, long, default_value = "zcash")]
+        protocol: String,
+        #[arg(long, default_value_t = 0)]
+        account_index: u32,
+        #[arg(short, long)]
+        name: Option<String>,
+        #[arg(long)]
+        birthday_height: Option<u64>,
+    },
     /// Unlock the wallet and derive accounts
     Unlock {
         #[arg(short, long)]
@@ -235,6 +325,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut keypunkd_child = Command::new(&exe)
                 .arg("keypunkd")
+                .arg("--zcash-network")
+                .arg(&config.zcash_network)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -251,8 +343,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err("Timed out waiting for keypunkd socket".into());
             }
 
+            let config = ConfigLoader::load_or_default();
             let mut paypunkd_child = Command::new(&exe)
                 .arg("paypunkd")
+                .arg("--lightwalletd-host")
+                .arg(&config.lightwalletd_host)
+                .arg("--zcash-network")
+                .arg(&config.zcash_network)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -291,14 +388,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Keypunkd {
             socket_path,
             data_dir,
+            zcash_network,
         }) => {
             let config = ConfigLoader::load_or_default();
             let socket = socket_path.unwrap_or(config.keypunkd_socket_path);
             let dir = data_dir.unwrap_or(config.data_dir);
+            let znet = zcash_network.unwrap_or(config.zcash_network);
 
             keypunkd::run::run(keypunkd::run::Config {
                 socket_path: socket,
                 data_dir: dir,
+                zcash_network: znet,
             })
             .await
         }
@@ -307,18 +407,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             keypunkd_socket,
             ethereum_rpc_url,
             data_dir,
+            lightwalletd_host,
+            zcash_network,
         }) => {
             let config = ConfigLoader::load_or_default();
             let socket = socket_path.unwrap_or(config.paypunkd_socket_path);
             let ks = keypunkd_socket.unwrap_or(config.keypunkd_socket_path);
             let url = ethereum_rpc_url.unwrap_or(config.ethereum_rpc_url);
             let dir = data_dir.unwrap_or(config.data_dir);
+            let lwd = lightwalletd_host.unwrap_or(config.lightwalletd_host);
+            let znet = zcash_network.unwrap_or(config.zcash_network);
 
             paypunkd::run::run(paypunkd::run::Config {
                 socket_path: socket,
                 keypunkd_socket: ks,
                 ethereum_rpc_url: url,
                 data_dir: dir,
+                lightwalletd_host: lwd,
+                zcash_network: znet,
             })
             .await
         }
@@ -402,7 +508,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     client.restore_seed(mnemonic, password).await?;
                     println!("Seed restored successfully");
                 }
-                // TODO: Remove one of these commands the protocol should be derived from the asset type
                 Commands::SubmitTransfer {
                     to,
                     amount,
@@ -448,19 +553,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         _ => return Err("unsupported protocol".into()),
                     };
                     let path = client.derivation_path(protocol_id, account);
-                    submit_intent_flow(&client, intent, &path).await?;
+                    let data_dir = config.data_dir.clone();
+                    submit_intent_flow(&client, intent, &path, &data_dir, protocol_id).await?;
                 }
                 // TODO:
                 Commands::ApproveSignature {
-                    password: _password,
-                    account,
+                    password,
+                    account: _account,
                 } => {
-                    let _path = client.derivation_path(ProtocolId::Ethereum, account);
-                    println!("Approving signature for account {account}...");
-                    println!("ApproveSignature must be used interactively after SubmitIntent");
-                    println!("Re-run with a Submit* command first");
+                    let config = ConfigLoader::load_or_default();
+                    let data_dir = config.data_dir.clone();
+                    let pending = load_pending_intent(&data_dir)?;
+                    println!("Approving signature for {:?}...", pending.protocol);
+                    let signed_artifact = client
+                        .approve_signature(
+                            &pending.raw_artifact,
+                            &pending.keypunkd_signature,
+                            Zeroizing::new(password),
+                            &pending.derivation_path,
+                        )
+                        .await?;
+                    println!("Signature approved, broadcasting transaction...");
+                    let tx_hash = client
+                        .broadcast_transaction(pending.protocol, signed_artifact)
+                        .await?;
+                    println!("Transaction broadcasted: {tx_hash}");
+                    // Clean up pending file
+                    let _ = std::fs::remove_file(pending_intent_path(&data_dir));
                 }
-                Commands::GetBalance { protocol, account } => {
+                Commands::GetBalance {
+                    protocol,
+                    account,
+                    address,
+                } => {
                     let protocol_id = match protocol.to_lowercase().as_str() {
                         "zcash" => ProtocolId::Zcash,
                         "bitcoin" => ProtocolId::Bitcoin,
@@ -474,13 +599,72 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ProtocolId::Zcash => ("zcash:mainnet", "zcash:mainnet/slip44:133"),
                         _ => return Err(format!("unsupported protocol: {protocol}").into()),
                     };
-                    let address = format!("{}:{}", caip_chain, account);
+                    let address = match address {
+                        Some(raw) => format!("{}:{}", caip_chain, raw),
+                        None => {
+                            let expected_path = client.derivation_path(protocol_id, account);
+                            let accounts = client.list_accounts().await?;
+                            let matched = accounts.iter().find(|a| {
+                                a.protocol == protocol_id && a.derivation_path == expected_path
+                            });
+                            match matched {
+                                Some(a) => format!("{}:{}", caip_chain, a.address),
+                                None => {
+                                    return Err(format!(
+                                        "account {} not found for protocol {protocol}. Create it first.",
+                                        account
+                                    )
+                                    .into());
+                                }
+                            }
+                        }
+                    };
                     let balance = client.get_balance(address, caip_asset.to_string()).await?;
                     println!(
-                        "Balance (protocol={protocol}, account={account}): spendable={}, pending={}, total={}",
-                        balance.spendable.0,
-                        balance.pending.0,
-                        balance.total.0,
+                        "Balance (protocol={protocol}): spendable={}, pending={}, total={}",
+                        balance.spendable.0, balance.pending.0, balance.total.0,
+                    );
+                }
+                Commands::ListAccounts => {
+                    let accounts = client.list_accounts().await?;
+                    if accounts.is_empty() {
+                        println!("No accounts found.");
+                    } else {
+                        for a in &accounts {
+                            println!(
+                                "{} | {:?} | {} | {} | {}",
+                                a.id, a.protocol, a.derivation_path, a.name, a.address,
+                            );
+                        }
+                    }
+                }
+                Commands::CreateAccount {
+                    protocol,
+                    account_index,
+                    name,
+                    birthday_height,
+                } => {
+                    let protocol_id = match protocol.to_lowercase().as_str() {
+                        "zcash" => ProtocolId::Zcash,
+                        "bitcoin" => ProtocolId::Bitcoin,
+                        "ethereum" => ProtocolId::Ethereum,
+                        "monero" => ProtocolId::Monero,
+                        "solana" => ProtocolId::Solana,
+                        _ => return Err(format!("Unknown protocol: {protocol}").into()),
+                    };
+                    let path = client.derivation_path(protocol_id, account_index);
+                    let name =
+                        name.unwrap_or_else(|| format!("{protocol_id:?} Account {account_index}"));
+                    let account = client
+                        .create_account(protocol_id, path, account_index, name, birthday_height)
+                        .await?;
+                    println!(
+                        "Account created: {} | {:?} | {} | {} | {}",
+                        account.id,
+                        account.protocol,
+                        account.derivation_path,
+                        account.name,
+                        account.address,
                     );
                 }
                 Commands::Reset => unreachable!(),
@@ -514,6 +698,8 @@ async fn submit_intent_flow(
     client: &Client,
     intent: Intent,
     derivation_path: &str,
+    data_dir: &str,
+    protocol: ProtocolId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Submitting intent for preview...");
     match client.submit_intent(intent, derivation_path).await {
@@ -542,6 +728,18 @@ async fn submit_intent_flow(
 
             println!("  Signature: {} bytes", keypunkd_signature.len());
             println!("  Keypunkd public key: {:?}", keypunkd_public_key);
+
+            // Save pending intent for the approve step
+            save_pending_intent(
+                data_dir,
+                &PendingIntent {
+                    raw_artifact,
+                    keypunkd_signature,
+                    keypunkd_public_key,
+                    derivation_path: derivation_path.to_string(),
+                    protocol,
+                },
+            )?;
 
             println!();
             println!("To approve, run: paypunk approve-signature --password <your-password>");

@@ -2,6 +2,7 @@ use super::types::*;
 use super::WalletApi;
 use async_trait::async_trait;
 use std::collections::HashMap;
+
 use std::sync::Mutex;
 
 struct MockData {
@@ -9,6 +10,9 @@ struct MockData {
     next_account_index: u32,
     address_book: Vec<AddressBookEntry>,
     balances: HashMap<String, String>, // account_id → raw spendable balance
+    sync_in_progress: bool,
+    sync_current: u64,
+    sync_target: u64,
 }
 
 pub struct MockWalletApi {
@@ -58,6 +62,9 @@ impl MockWalletApi {
                     ("acc_1".into(), "1420000000000000000".into()),
                     ("acc_2".into(), "500000000".into()),
                 ]),
+                sync_in_progress: false,
+                sync_current: 0,
+                sync_target: 0,
             }),
             home_cache: Mutex::new(None),
             send_cache: Mutex::new(HashMap::new()),
@@ -194,12 +201,13 @@ impl WalletApi for MockWalletApi {
         Ok(())
     }
 
+    async fn add_zcash_account(&self, _birthday_height: u64) -> Result<(), ApiError> {
+        self.add_account().await
+    }
+
     async fn get_receive(&self, account_id: &str) -> ReceiveData {
         let data = self.data.lock().unwrap();
-        let account = data
-            .accounts
-            .iter()
-            .find(|a| a.account_id == account_id);
+        let account = data.accounts.iter().find(|a| a.account_id == account_id);
 
         match account {
             Some(acc) if acc.protocol == "Zcash" => ReceiveData {
@@ -275,6 +283,7 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn submit_send_review(&self, input: SendReviewInput) -> SendReviewData {
+        let _ = input.memo;
         *self.pending_account_id.lock().unwrap() = Some(input.account_id.clone());
         let fee_est = "409500000000000";
         let total = format!(
@@ -298,7 +307,8 @@ impl WalletApi for MockWalletApi {
             format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
             to_addr,
             "Ethereum".into(),
-        ).await;
+        )
+        .await;
 
         // Deduct from balance
         let total = input.reviewed.total_amount.parse::<u128>().unwrap_or(0);
@@ -327,9 +337,7 @@ impl WalletApi for MockWalletApi {
 
     async fn get_lock(&self) -> LockData {
         LockData {
-            auth_methods: LockAuthMethods {
-                password_set: true,
-            },
+            auth_methods: LockAuthMethods { password_set: true },
             failed_attempts: 0,
         }
     }
@@ -461,6 +469,39 @@ impl WalletApi for MockWalletApi {
                 address,
                 protocol,
             });
+        }
+    }
+
+    async fn get_sync_status(&self, _protocol: &str) -> SyncStatus {
+        SyncStatus {
+            is_syncing: false,
+            current_height: 2800000,
+            target_height: 2800000,
+        }
+    }
+
+    async fn get_history(&self, _account_id: &str) -> HistoryData {
+        HistoryData {
+            rows: vec![
+                HistoryRow {
+                    hash: "0xabcd...1234".into(),
+                    direction: "Sent".into(),
+                    counterparty: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".into(),
+                    amount: "0.05000000 ZEC".into(),
+                    status: "Confirmed".into(),
+                    timestamp: Some(1700000000),
+                },
+                HistoryRow {
+                    hash: "0xef01...5678".into(),
+                    direction: "Received".into(),
+                    counterparty: "0x1234567890abcdef1234567890abcdef12345678".into(),
+                    amount: "0.10000000 ZEC".into(),
+                    status: "Pending".into(),
+                    timestamp: Some(1699900000),
+                },
+            ],
+            next_cursor: None,
+            has_more: false,
         }
     }
 }

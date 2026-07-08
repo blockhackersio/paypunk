@@ -114,6 +114,7 @@ pub struct SendReviewInput {
     pub token_id: String,
     pub chain_id: String,
     pub account_id: String,
+    pub memo: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -245,4 +246,30 @@ pub struct AddressBookEntry {
 #[derive(Debug, Clone)]
 pub struct AddressBookData {
     pub entries: Vec<AddressBookEntry>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SyncStatus {
+    pub is_syncing: bool,
+    pub current_height: u64,
+    pub target_height: u64,
+}
+
+// ── History ──
+
+#[derive(Debug, Clone)]
+pub struct HistoryRow {
+    pub hash: String,
+    pub direction: String,
+    pub counterparty: String,
+    pub amount: String,
+    pub status: String,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HistoryData {
+    pub rows: Vec<HistoryRow>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
 }

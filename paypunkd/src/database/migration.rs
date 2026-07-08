@@ -74,6 +74,45 @@ impl Migration for PreDerivedKeysMigration {
     }
 }
 
+pub struct AddressBookMigration;
+
+impl Migration for AddressBookMigration {
+    fn version(&self) -> u32 {
+        4
+    }
+
+    fn up(&self, conn: &Connection) -> Result<(), String> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS address_book (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                address TEXT NOT NULL UNIQUE,
+                protocol TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );",
+        )
+        .map_err(|e| e.to_string())
+    }
+}
+
+pub struct SettingsMigration;
+
+impl Migration for SettingsMigration {
+    fn version(&self) -> u32 {
+        5
+    }
+
+    fn up(&self, conn: &Connection) -> Result<(), String> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+        )
+        .map_err(|e| e.to_string())
+    }
+}
+
 pub struct AccountsMigration;
 
 impl Migration for AccountsMigration {

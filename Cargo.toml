@@ -12,6 +12,7 @@ members = [
     "protocols/zcash",
     "protocols/ethereum",
     "tui",
+    "tools/derive-orchard",
 ]
 
 [workspace.package]
@@ -20,7 +21,7 @@ license = "AGPL-3.0-only"
 [workspace.dependencies]
 # Async / runtime
 tokio = "1"
-tactix = "1.0"
+tactix = "1.0.3"
 
 # Serialization
 serde = "1"
@@ -67,6 +68,9 @@ incrementalmerkletree = "0.8"
 rusqlite = "0.37"
 secrecy = "0.8"
 
+# gRPC
+tonic = "0.14"
+
 # CLI
 clap = "4"
 
@@ -82,6 +86,8 @@ tracing-subscriber = "0.3"
 bytes = "1"
 tempfile = "3"
 async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde_json = "1"
 
 # Workspace member path deps
 paypunk-config = { path = "config" }
@@ -97,7 +103,6 @@ paypunk-chains-ethereum = { path = "protocols/ethereum" }
 # Dev-only
 futures-util = "0.3"
 prost = "0.14"
-tonic = "0.14"
 
 [patch.crates-io]
 ratatui-widgets = { path = "vendor/ratatui-widgets" }
