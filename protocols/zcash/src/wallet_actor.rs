@@ -25,7 +25,7 @@ use zcash_client_sqlite::AccountUuid;
 use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
-use zcash_protocol::consensus::{BlockHeight, Network, NetworkType};
+use zcash_protocol::consensus::BlockHeight;
 use zcash_protocol::local_consensus::LocalNetwork;
 use zcash_protocol::memo::Memo;
 use zcash_protocol::ShieldedProtocol;
@@ -129,8 +129,8 @@ pub struct ScanBlocks {
 /// Chain scanning is delegated to `ScanActor` so that the wallet remains
 /// responsive during long sync operations.
 pub struct WalletDbActor {
-    db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-    params: Network,
+    db: WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
+    params: LocalNetwork,
     current_height: u64,
     target_height: u64,
     is_syncing: bool,
@@ -143,8 +143,8 @@ pub struct WalletDbActor {
 
 impl WalletDbActor {
     pub fn new(
-        db: WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-        params: Network,
+        db: WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
+        params: LocalNetwork,
         db_path: PathBuf,
         confirmations_policy: ConfirmationsPolicy,
         lightwalletd_host: String,
@@ -163,20 +163,9 @@ impl WalletDbActor {
         }
     }
 
-    /// Return the appropriate consensus parameters for transaction building.
-    /// On regtest, all network upgrades activate at block 1, matching the
-    /// `zcash.conf` used by the local regtest stack.
+    /// Return the appropriate consensus parameters for transaction building and scanning.
     fn build_params(&self) -> LocalNetwork {
-        LocalNetwork {
-            overwinter: Some(BlockHeight::from_u32(1)),
-            sapling: Some(BlockHeight::from_u32(1)),
-            blossom: Some(BlockHeight::from_u32(1)),
-            heartwood: Some(BlockHeight::from_u32(1)),
-            canopy: Some(BlockHeight::from_u32(1)),
-            nu5: Some(BlockHeight::from_u32(1)),
-            nu6: Some(BlockHeight::from_u32(1)),
-            nu6_1: Some(BlockHeight::from_u32(1)),
-        }
+        self.params
     }
 
     /// If the wallet DB file was deleted (e.g. by `paypunk reset` while the
@@ -289,7 +278,7 @@ impl WalletDbActor {
 
 /// Try to find an account in the WalletDb by its 96-byte Orchard FVK.
 fn lookup_account_by_fvk(
-    db: &mut WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+    db: &mut WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
     fvk_bytes: &[u8],
 ) -> Result<Option<AccountUuid>, String> {
     let bytes: [u8; 96] = fvk_bytes
@@ -424,14 +413,14 @@ impl Handler<ProposeAndBuild> for WalletDbActor {
             .map_err(|e| format!("invalid memo: {e}"))?
             .map(zcash_protocol::memo::MemoBytes::from);
 
-        let build_params = self.build_params();
+        let params = self.build_params();
         let proposal = propose_standard_transfer_to_address::<
-            WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+            WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
             LocalNetwork,
             SqliteClientError,
         >(
             &mut self.db,
-            &build_params,
+            &params,
             StandardFeeRule::Zip317,
             account_id,
             self.confirmations_policy,
@@ -448,7 +437,7 @@ impl Handler<ProposeAndBuild> for WalletDbActor {
         )?;
 
         let pczt = create_pczt_from_proposal::<
-            WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+            WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
             LocalNetwork,
             SqliteClientError,
             StandardFeeRule,
@@ -456,7 +445,7 @@ impl Handler<ProposeAndBuild> for WalletDbActor {
             ReceivedNoteId,
         >(
             &mut self.db,
-            &build_params,
+            &params,
             account_id,
             OvkPolicy::Sender,
             &proposal,
@@ -506,7 +495,7 @@ impl Handler<GetChainTip> for WalletDbActor {
 impl Handler<ScanBlocks> for WalletDbActor {
     async fn handle(&mut self, msg: ScanBlocks, _ctx: &Ctx<Self>) -> Result<String, String> {
         self.ensure_db_file_exists()?;
-
+        info!("{:?}", msg);
         let block_source = VecBlockSource {
             blocks: std::sync::Arc::new(msg.blocks),
         };
@@ -518,24 +507,21 @@ impl Handler<ScanBlocks> for WalletDbActor {
         self.is_syncing = true;
         self.target_height = target_u64;
 
-        match scan_cached_blocks(
-            &self.params,
+        let params = self.build_params();
+        scan_cached_blocks(
+            &params,
             &block_source,
             &mut self.db,
             msg.from_height,
             &msg.chain_state,
             block_count,
-        ) {
-            Ok(_summary) => {
-                info!("wallet_actor: scan_cached_blocks OK, updating chain tip");
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "wallet_actor: scan_cached_blocks failed (advancing chain tip anyway): {e}"
-                );
-            }
-        }
+        )
+        .map_err(|e| {
+            self.is_syncing = false;
+            format!("scan_cached_blocks failed: {e}")
+        })?;
 
+        info!("wallet_actor: scan_cached_blocks OK, updating chain tip");
         self.db
             .update_chain_tip(msg.target_height)
             .map_err(|e| format!("update_chain_tip failed: {e}"))?;
@@ -727,7 +713,7 @@ impl Handler<StoreTransaction> for WalletDbActor {
             pczt::Pczt::parse(&msg.pczt_bytes).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
         let orchard_vk = orchard::circuit::VerifyingKey::build();
         let txid = extract_and_store_transaction_from_pczt::<
-            WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+            WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
             ReceivedNoteId,
         >(&mut self.db, pczt, None, Some(&orchard_vk))
         .map_err(|e| format!("store transaction failed: {e}"))?;
@@ -790,8 +776,8 @@ impl Handler<EstimateFee> for WalletDbActor {
             .map(zcash_protocol::memo::MemoBytes::from);
 
         let proposal = propose_standard_transfer_to_address::<
-            WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
-            Network,
+            WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
+            LocalNetwork,
             SqliteClientError,
         >(
             &mut self.db,

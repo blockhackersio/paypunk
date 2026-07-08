@@ -15,6 +15,7 @@ use pczt::roles::{
 use tactix::{Addr, Recipient, Sender};
 use tokio;
 use zcash_keys::keys::UnifiedSpendingKey;
+use zcash_protocol::local_consensus::LocalNetwork;
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::scan_actor::SyncNewAccount;
@@ -24,7 +25,7 @@ use crate::wallet_actor::{
 };
 
 pub struct ZcashProtocol {
-    pub params: zcash_protocol::consensus::Network,
+    pub params: LocalNetwork,
     network_type: zcash_protocol::consensus::NetworkType,
     wallet_addr: Option<Addr<WalletDbActor>>,
     scan_recipient: Option<Arc<Recipient<SyncNewAccount>>>,
@@ -37,7 +38,7 @@ impl ZcashProtocol {
     pub const COIN_TYPE: u32 = 133;
 
     pub fn new(
-        params: zcash_protocol::consensus::Network,
+        params: LocalNetwork,
         network_type: zcash_protocol::consensus::NetworkType,
         wallet_addr: Option<Addr<WalletDbActor>>,
         scan_recipient: Option<Recipient<SyncNewAccount>>,
@@ -387,11 +388,11 @@ impl Protocol for ZcashProtocol {
     }
 
     fn native_asset(&self) -> String {
-        match self.params {
-            zcash_protocol::consensus::Network::MainNetwork => {
+        match self.network_type {
+            zcash_protocol::consensus::NetworkType::Main => {
                 "zcash:mainnet/slip44:133".to_string()
             }
-            zcash_protocol::consensus::Network::TestNetwork => {
+            _ => {
                 "zcash:testnet/slip44:133".to_string()
             }
         }
@@ -406,11 +407,11 @@ impl Protocol for ZcashProtocol {
     }
 
     fn block_explorer_url(&self, tx_hash: &str) -> String {
-        match self.params {
-            zcash_protocol::consensus::Network::MainNetwork => {
+        match self.network_type {
+            zcash_protocol::consensus::NetworkType::Main => {
                 format!("https://mainnet.zcashexplorer.app/tx/{}", tx_hash)
             }
-            zcash_protocol::consensus::Network::TestNetwork => {
+            _ => {
                 format!("https://testnet.zcashexplorer.app/tx/{}", tx_hash)
             }
         }

@@ -4,7 +4,8 @@ use tactix::{Actor, Ctx, Handler, Message, Recipient, Sender};
 use tracing::info;
 use zcash_client_backend::data_api::chain::ChainState;
 use zcash_client_backend::proto::compact_formats::CompactBlock;
-use zcash_protocol::consensus::{BlockHeight, Network};
+use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::local_consensus::LocalNetwork;
 
 use crate::lsp_client::LspClient;
 use crate::wallet_actor::{GetChainTip, ScanBlocks};
@@ -30,7 +31,7 @@ pub struct SyncNewAccount {
 /// blocks from lightwalletd and sends them to the `WalletDbActor` for
 /// scanning.
 pub struct ScanActor {
-    params: Network,
+    params: LocalNetwork,
     lightwalletd_host: String,
     get_chain_tip: Recipient<GetChainTip>,
     scan_blocks: Recipient<ScanBlocks>,
@@ -39,7 +40,7 @@ pub struct ScanActor {
 
 impl ScanActor {
     pub fn new(
-        params: Network,
+        params: LocalNetwork,
         lightwalletd_host: String,
         get_chain_tip: Recipient<GetChainTip>,
         scan_blocks: Recipient<ScanBlocks>,

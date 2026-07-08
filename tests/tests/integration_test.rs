@@ -7,6 +7,7 @@ use paypunk_api::Client;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::EthRpcClient;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_chains_zcash::to_local_params;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId};
 use paypunkd::database::Database;
@@ -104,7 +105,10 @@ impl TestBuilder {
         keypunkd_protocols.register(
             ProtocolId::Zcash,
             Box::new(ZcashProtocol::new(
-                zcash_protocol::consensus::Network::MainNetwork,
+                to_local_params(
+                    zcash_protocol::consensus::Network::MainNetwork,
+                    zcash_protocol::consensus::NetworkType::Main,
+                ),
                 zcash_protocol::consensus::NetworkType::Main,
                 None,
                 None,
@@ -118,7 +122,10 @@ impl TestBuilder {
         let keypunkd_recipient = keypunkd_addr.recipient();
 
         let paypunkd_zcash = ZcashProtocol::new(
-            zcash_protocol::consensus::Network::MainNetwork,
+            to_local_params(
+                zcash_protocol::consensus::Network::MainNetwork,
+                zcash_protocol::consensus::NetworkType::Main,
+            ),
             zcash_protocol::consensus::NetworkType::Main,
             None,
             None,

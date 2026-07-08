@@ -2,6 +2,7 @@ use crate::crypto::Keypair;
 use crate::keypunkd::Keypunkd;
 use crate::protocol::ProtocolService;
 use crate::seed_store::FilesystemSeedStore;
+use paypunk_chains_zcash::to_local_params;
 use paypunk_ipc::IpcReceiver;
 use paypunk_types::ProtocolId;
 use tactix::Actor;
@@ -58,7 +59,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     protocols.register(
         ProtocolId::Zcash,
         Box::new(paypunk_chains_zcash::protocol::ZcashProtocol::new(
-            params,
+            to_local_params(params, network_type),
             network_type,
             None,
             None,
