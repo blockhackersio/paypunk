@@ -48,7 +48,9 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 
     // ── 1. Generate keys and create a note ──────────────────────────────
     let seed = [0xab; 64];
-    let sk = SpendingKey::from_zip32_seed(&seed, 133, zip32::AccountId::try_from(0).unwrap())
+    // Use coin_type=1 (regtest) to match LocalNetwork::coin_type(), since
+    // LocalNetwork::network_type() always returns NetworkType::Regtest.
+    let sk = SpendingKey::from_zip32_seed(&seed, 1, zip32::AccountId::try_from(0).unwrap())
         .expect("SpendingKey from seed");
     let fvk = FullViewingKey::from(&sk);
     let recipient = fvk.address_at(0u32, Scope::External);
