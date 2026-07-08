@@ -14,6 +14,7 @@ members = [
     "tui",
     "tools/derive-orchard",
     "bridge",
+    "pong",
 ]
 
 [workspace.package]

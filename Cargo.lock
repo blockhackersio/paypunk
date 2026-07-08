@@ -4040,6 +4040,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "paypunk-pong"
+version = "0.1.0"
+dependencies = [
+ "paypunk-ipc",
+]
+
+[[package]]
 name = "paypunk-tests"
 version = "0.1.0"
 dependencies = [
