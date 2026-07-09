@@ -1,23 +1,25 @@
 [package]
 name = "paypunk-signer"
 version = "0.1.0"
-description = "PayPunk Signer — Tauri v2 mobile app"
-authors = ["you"]
 edition = "2021"
 
-[lib]
-name = "paypunk_signer_lib"
-crate-type = ["lib", "cdylib", "staticlib"]
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+paypunk-types = { path = "../../types", default-features = false }
+paypunk-chains-zcash = { path = "../../protocols/zcash", default-features = false }
+zcash_protocol = { workspace = true, features = ["local-consensus"] }
+bip39 = "2"
+postcard = { version = "1", features = ["alloc"] }
+blake2 = "0.10"
+thiserror = "2"
+tracing = "0.1"
+hex = "0.4"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-[dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-store = "2"
-tauri-plugin-barcode-scanner = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-qrcode = { version = "0.14", features = ["svg"] }
-base64 = "0.22"
-paypunk-pong = { path = "../../pong" }
+[lib]
+name = "paypunk_signer_lib"
+crate-type = ["lib", "cdylib", "staticlib"]

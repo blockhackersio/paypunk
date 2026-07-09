@@ -3,7 +3,6 @@
   "description": "Default permissions for PayPunk Signer",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "store:default"
+    "core:default"
   ]
 }
