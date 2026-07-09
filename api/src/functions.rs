@@ -1,7 +1,7 @@
 use argon2::Argon2;
 use bip39::{Language, Mnemonic};
 use keypunkd::crypto::Keypair;
-use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId, SubmitIntentResult};
 use paypunkd::messages::AddressBookEntry;
 use zeroize::Zeroizing;
 
@@ -157,7 +157,7 @@ pub async fn submit_intent(
     service: &paypunkd::services::PaypunkService,
     intent: Intent,
     derivation_path: &str,
-) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+) -> Result<SubmitIntentResult, String> {
     match service
         .submit_intent(intent, derivation_path.to_string())
         .await?
@@ -167,12 +167,15 @@ pub async fn submit_intent(
             parsed_summary,
             keypunkd_signature,
             keypunkd_public_key,
-        } => Ok((
+        } => Ok(SubmitIntentResult::SignablePreview {
             raw_artifact,
             parsed_summary,
             keypunkd_signature,
             keypunkd_public_key,
-        )),
+        }),
+        paypunkd::messages::PaypunkdResponse::SignatureApproved { signed_artifact } => {
+            Ok(SubmitIntentResult::SignatureApproved { signed_artifact })
+        }
         paypunkd::messages::PaypunkdResponse::Error { message } => Err(message),
         _ => Err("unexpected response from paypunkd".to_string()),
     }

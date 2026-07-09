@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use paypunk_api::Client;
-use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, ProtocolMetadata};
+use paypunk_types::{
+    ArtifactSummary, EthereumIntent, Intent, ProtocolId, ProtocolMetadata, SubmitIntentResult,
+};
 use std::collections::HashMap;
 use tracing::info;
 use zeroize::Zeroizing;
@@ -394,7 +396,12 @@ impl WalletApi for RealWalletApi {
         };
 
         match self.client.submit_intent(intent, &derivation_path).await {
-            Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
+            Ok(SubmitIntentResult::SignablePreview {
+                raw_artifact,
+                parsed_summary,
+                keypunkd_signature,
+                keypunkd_public_key,
+            }) => {
                 let pending = PendingSend {
                     raw_artifact,
                     keypunkd_signature,
@@ -441,6 +448,14 @@ impl WalletApi for RealWalletApi {
                     }
                 }
             }
+            Ok(SubmitIntentResult::SignatureApproved { .. }) => SendReviewData {
+                to_address: "already signed".into(),
+                amount: String::new(),
+                fee_estimate: String::new(),
+                total_amount: String::new(),
+                chain_id: input.chain_id,
+                nonce: 0,
+            },
             Err(e) => SendReviewData {
                 to_address: format!("Error: {e}"),
                 amount: String::new(),

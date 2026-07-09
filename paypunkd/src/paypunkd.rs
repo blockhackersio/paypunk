@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use keypunkd::crypto::Keypair;
 use paypunk_ipc::IpcMessage;
-use paypunk_types::ProtocolId;
+use paypunk_types::{KeypunkdResponse, ProtocolId};
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
@@ -105,24 +105,34 @@ impl Paypunkd {
         derivation_path: String,
     ) -> PaypunkdResponse {
         info!("handling SubmitIntent");
-        self.respond(
-            "submit_intent",
-            usecases::submit_intent(
-                &self.keypunk_service,
-                &self.protocols,
-                &intent,
-                &derivation_path,
-            )
-            .await,
-            |(raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)| {
-                PaypunkdResponse::SignablePreview {
-                    raw_artifact,
-                    parsed_summary,
-                    keypunkd_signature,
-                    keypunkd_public_key,
-                }
-            },
+        match usecases::submit_intent(
+            &self.keypunk_service,
+            &self.protocols,
+            &intent,
+            &derivation_path,
         )
+        .await
+        {
+            Ok(KeypunkdResponse::ArtifactPreview {
+                raw_artifact,
+                parsed_summary,
+                signature,
+                keypunkd_public_key,
+            }) => PaypunkdResponse::SignablePreview {
+                raw_artifact,
+                parsed_summary,
+                keypunkd_signature: signature,
+                keypunkd_public_key,
+            },
+            Ok(KeypunkdResponse::ArtifactAuthorized { signed_artifact }) => {
+                PaypunkdResponse::SignatureApproved { signed_artifact }
+            }
+            Ok(KeypunkdResponse::Error { message }) => PaypunkdResponse::Error { message },
+            Err(e) => PaypunkdResponse::Error { message: e },
+            _ => PaypunkdResponse::Error {
+                message: "unexpected response from keypunkd".to_string(),
+            },
+        }
     }
 
     async fn approve_signature(

@@ -11,7 +11,7 @@ use paypunk_chains_zcash::protocol::ZcashProtocol;
 use paypunk_chains_zcash::signer::ZcashSignerProtocol;
 use paypunk_chains_zcash::to_local_params;
 use paypunk_ipc::IpcMessage;
-use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId};
+use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, SubmitIntentResult};
 use paypunkd::database::Database;
 use paypunkd::protocol_service::ProtocolService;
 use paypunkd::Paypunkd;
@@ -378,44 +378,57 @@ async fn test_eth_send_full_flow() {
     });
     let path = "m/44'/60'/0'/0/0";
 
-    let (raw_artifact, parsed_summary, signature, _keypunkd_pk) = client
+    let result = client
         .submit_intent(intent, path)
         .await
         .expect("submit_intent should succeed");
 
-    assert!(!raw_artifact.is_empty(), "raw_artifact should not be empty");
-    assert!(
-        !parsed_summary.is_empty(),
-        "parsed_summary should not be empty"
-    );
-    assert!(!signature.is_empty(), "signature should not be empty");
+    match result {
+        SubmitIntentResult::SignablePreview {
+            raw_artifact,
+            parsed_summary,
+            keypunkd_signature,
+            keypunkd_public_key: _,
+        } => {
+            assert!(!raw_artifact.is_empty(), "raw_artifact should not be empty");
+            assert!(
+                !parsed_summary.is_empty(),
+                "parsed_summary should not be empty"
+            );
+            assert!(
+                !keypunkd_signature.is_empty(),
+                "signature should not be empty"
+            );
 
-    let summary: ArtifactSummary =
-        postcard::from_bytes(&parsed_summary).expect("should deserialize ArtifactSummary");
-    match &summary {
-        ArtifactSummary::Ethereum(eth) => {
-            assert_eq!(eth.to, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+            let summary: ArtifactSummary =
+                postcard::from_bytes(&parsed_summary).expect("should deserialize ArtifactSummary");
+            match &summary {
+                ArtifactSummary::Ethereum(eth) => {
+                    assert_eq!(eth.to, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+                }
+                _ => panic!("expected Ethereum summary"),
+            }
+
+            let signed_artifact = client
+                .approve_signature(&raw_artifact, &keypunkd_signature, password.clone(), path)
+                .await
+                .expect("approve_signature should succeed");
+
+            assert!(
+                !signed_artifact.is_empty(),
+                "signed_artifact should not be empty"
+            );
+
+            let tx_hash = client
+                .broadcast_transaction(ProtocolId::Ethereum, signed_artifact)
+                .await
+                .expect("broadcast should succeed");
+
+            assert!(!tx_hash.is_empty(), "tx_hash should not be empty");
+            assert_eq!(tx_hash, "0xdeadbeef", "should match mock RPC response");
         }
-        _ => panic!("expected Ethereum summary"),
+        _ => panic!("expected SignablePreview"),
     }
-
-    let signed_artifact = client
-        .approve_signature(&raw_artifact, &signature, password.clone(), path)
-        .await
-        .expect("approve_signature should succeed");
-
-    assert!(
-        !signed_artifact.is_empty(),
-        "signed_artifact should not be empty"
-    );
-
-    let tx_hash = client
-        .broadcast_transaction(ProtocolId::Ethereum, signed_artifact)
-        .await
-        .expect("broadcast should succeed");
-
-    assert!(!tx_hash.is_empty(), "tx_hash should not be empty");
-    assert_eq!(tx_hash, "0xdeadbeef", "should match mock RPC response");
 }
 
 #[tokio::test]

@@ -4,7 +4,9 @@ use clap::{Parser, Subcommand};
 use paypunk_api::Client;
 use paypunk_config::ConfigLoader;
 use paypunk_tui::run_tui;
-use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, ZcashIntent};
+use paypunk_types::{
+    ArtifactSummary, EthereumIntent, Intent, ProtocolId, SubmitIntentResult, ZcashIntent,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -708,7 +710,12 @@ async fn submit_intent_flow(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Submitting intent for preview...");
     match client.submit_intent(intent, derivation_path).await {
-        Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
+        Ok(SubmitIntentResult::SignablePreview {
+            raw_artifact,
+            parsed_summary,
+            keypunkd_signature,
+            keypunkd_public_key,
+        }) => {
             // Verify the signature: H(raw, parsed, path) should match
             let mut to_verify = Vec::new();
             to_verify.extend_from_slice(&raw_artifact);
@@ -752,6 +759,11 @@ async fn submit_intent_flow(
 
             println!();
             println!("To approve, run: paypunk approve-signature --password <your-password>");
+            Ok(())
+        }
+        Ok(SubmitIntentResult::SignatureApproved { signed_artifact }) => {
+            println!("Transaction signed by offline signer");
+            println!("Signed artifact: {} bytes", signed_artifact.len());
             Ok(())
         }
         Err(e) => Err(format!("Error: {e}").into()),

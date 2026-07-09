@@ -1,7 +1,8 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
 use paypunk_types::{
-    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SubmitIntentResult,
+    SyncStatus,
 };
 use paypunkd::messages::AddressBookEntry;
 use paypunkd::services::PaypunkService;
@@ -77,7 +78,7 @@ impl Client {
         &self,
         intent: Intent,
         derivation_path: &str,
-    ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+    ) -> Result<SubmitIntentResult, String> {
         crate::functions::submit_intent(&self.service, intent, derivation_path).await
     }
 

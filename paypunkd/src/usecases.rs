@@ -90,7 +90,7 @@ pub async fn submit_intent(
     protocols: &ProtocolService,
     intent: &Intent,
     derivation_path: &str,
-) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+) -> Result<KeypunkdResponse, String> {
     // Determine protocol from intent
     let protocol_id = match intent {
         Intent::Zcash(_) => ProtocolId::Zcash,
@@ -103,25 +103,14 @@ pub async fn submit_intent(
 
     // Forward to keypunkd for parsing and preview
     let chain_id = protocol.chain_id();
-    let preview = keypunk_service
+    keypunk_service
         .preview_artifact(
             raw_artifact,
             protocol_id,
             chain_id,
             derivation_path.to_string(),
         )
-        .await?;
-
-    match preview {
-        KeypunkdResponse::ArtifactPreview {
-            raw_artifact,
-            parsed_summary,
-            signature,
-            keypunkd_public_key,
-        } => Ok((raw_artifact, parsed_summary, signature, keypunkd_public_key)),
-        KeypunkdResponse::Error { message } => Err(message),
-        _ => Err("unexpected response from keypunkd".to_string()),
-    }
+        .await
 }
 
 /// Approve and sign an artifact.
