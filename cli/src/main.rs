@@ -384,7 +384,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 shutdown_clone.store(true, Ordering::SeqCst);
             });
 
-            let tui_result = run_tui(&paypunkd_socket, Some(shutdown)).await;
+            let tui_result = run_tui(&paypunkd_socket, Some(shutdown), false).await;
 
             let _ = keypunkd_child.kill();
             let _ = paypunkd_child.kill();
@@ -393,7 +393,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             tui_result.map_err(|e| e.into())
         }
-        Some(Commands::Tui) => run_tui(&socket_path, None).await.map_err(|e| e.into()),
+        Some(Commands::Tui) => run_tui(&socket_path, None, false)
+            .await
+            .map_err(|e| e.into()),
         Some(Commands::Keypunkd {
             socket_path,
             data_dir,

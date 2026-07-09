@@ -4,6 +4,8 @@ use paypunk_types::{
     ArtifactSummary, EthereumIntent, Intent, ProtocolId, ProtocolMetadata, SubmitIntentResult,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::oneshot;
 use tracing::info;
 use zeroize::Zeroizing;
 
@@ -20,29 +22,35 @@ struct PendingSend {
 }
 
 pub struct RealWalletApi {
-    client: Client,
+    client: Arc<Client>,
     pending: std::sync::Mutex<Option<PendingSend>>,
     pending_mnemonic: std::sync::Mutex<Option<Zeroizing<String>>>,
     protocol_metadata: std::sync::Mutex<HashMap<ProtocolId, ProtocolMetadata>>,
+    signer_mode: bool,
+    pending_send_result: std::sync::Mutex<Option<oneshot::Receiver<Result<SendResult, String>>>>,
 }
 
 impl RealWalletApi {
-    pub async fn connect(socket_path: &str) -> Result<Self, String> {
+    pub async fn connect(socket_path: &str, signer_mode: bool) -> Result<Self, String> {
         let client = Client::connect(socket_path).await?;
         Ok(Self {
-            client,
+            client: Arc::new(client),
             pending: std::sync::Mutex::new(None),
             pending_mnemonic: std::sync::Mutex::new(None),
             protocol_metadata: std::sync::Mutex::new(HashMap::new()),
+            signer_mode,
+            pending_send_result: std::sync::Mutex::new(None),
         })
     }
 
-    pub fn with_client(client: Client) -> Self {
+    pub fn with_client(client: Client, signer_mode: bool) -> Self {
         Self {
-            client,
+            client: Arc::new(client),
             pending: std::sync::Mutex::new(None),
             pending_mnemonic: std::sync::Mutex::new(None),
             protocol_metadata: std::sync::Mutex::new(HashMap::new()),
+            signer_mode,
+            pending_send_result: std::sync::Mutex::new(None),
         }
     }
 }
@@ -55,11 +63,12 @@ fn format_balance(raw: &str, decimals: u8, ticker: &str) -> String {
 
 impl RealWalletApi {
     async fn ensure_metadata(&self) {
-        let cache = self.protocol_metadata.lock().unwrap();
-        if !cache.is_empty() {
-            return;
+        {
+            let cache = self.protocol_metadata.lock().unwrap();
+            if !cache.is_empty() {
+                return;
+            }
         }
-        drop(cache);
         if let Ok(metadata) = self.client.get_protocol_metadata().await {
             let mut cache = self.protocol_metadata.lock().unwrap();
             for m in metadata {
@@ -111,7 +120,7 @@ impl RealWalletApi {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl WalletApi for RealWalletApi {
     async fn get_setup(&self) -> SetupData {
         let mnemonic = self.client.generate_mnemonic();
@@ -373,6 +382,7 @@ impl WalletApi for RealWalletApi {
                     total_amount: String::new(),
                     chain_id: input.chain_id,
                     nonce: 0,
+                    skip_review: false,
                 }
             }
         };
@@ -394,6 +404,46 @@ impl WalletApi for RealWalletApi {
                 memo: input.memo.clone(),
             }),
         };
+
+        if self.signer_mode {
+            let (tx, rx) = oneshot::channel();
+            *self.pending_send_result.lock().unwrap() = Some(rx);
+            let client = self.client.clone();
+            let protocol_id = protocol;
+            let intent = intent;
+            let derivation_path = derivation_path;
+
+            tokio::spawn(async move {
+                let result = match client.submit_intent(intent, &derivation_path).await {
+                    Ok(SubmitIntentResult::SignatureApproved { signed_artifact }) => {
+                        match client
+                            .broadcast_transaction(protocol_id, signed_artifact)
+                            .await
+                        {
+                            Ok(tx_hash) => Ok(SendResult {
+                                tx_hash,
+                                status: "broadcasted".to_string(),
+                                block_explorer_url: String::new(),
+                            }),
+                            Err(e) => Err(e),
+                        }
+                    }
+                    Ok(_) => Err("unexpected preview in signer mode".to_string()),
+                    Err(e) => Err(e),
+                };
+                let _ = tx.send(result);
+            });
+
+            return SendReviewData {
+                to_address: String::new(),
+                amount: String::new(),
+                fee_estimate: String::new(),
+                total_amount: String::new(),
+                chain_id: input.chain_id,
+                nonce: 0,
+                skip_review: true,
+            };
+        }
 
         match self.client.submit_intent(intent, &derivation_path).await {
             Ok(SubmitIntentResult::SignablePreview {
@@ -422,6 +472,7 @@ impl WalletApi for RealWalletApi {
                                 total_amount: total.to_string(),
                                 chain_id: input.chain_id,
                                 nonce: 0,
+                                skip_review: false,
                             }
                         }
                         ArtifactSummary::Ethereum(eth) => {
@@ -434,6 +485,7 @@ impl WalletApi for RealWalletApi {
                                 total_amount: total.to_string(),
                                 chain_id: input.chain_id,
                                 nonce: eth.nonce,
+                                skip_review: false,
                             }
                         }
                     }
@@ -445,6 +497,7 @@ impl WalletApi for RealWalletApi {
                         total_amount: input.amount,
                         chain_id: input.chain_id,
                         nonce: 0,
+                        skip_review: false,
                     }
                 }
             }
@@ -455,6 +508,7 @@ impl WalletApi for RealWalletApi {
                 total_amount: String::new(),
                 chain_id: input.chain_id,
                 nonce: 0,
+                skip_review: false,
             },
             Err(e) => SendReviewData {
                 to_address: format!("Error: {e}"),
@@ -463,6 +517,7 @@ impl WalletApi for RealWalletApi {
                 total_amount: String::new(),
                 chain_id: input.chain_id,
                 nonce: 0,
+                skip_review: false,
             },
         }
     }
@@ -535,6 +590,31 @@ impl WalletApi for RealWalletApi {
     }
 
     async fn refresh_send(&self, _account_id: &str) {}
+
+    async fn poll_send_result(&self) -> Option<SendResult> {
+        let mut guard = self.pending_send_result.lock().unwrap();
+        if let Some(rx) = guard.as_mut() {
+            match rx.try_recv() {
+                Ok(Ok(result)) => {
+                    *guard = None;
+                    return Some(result);
+                }
+                Ok(Err(_e)) => {
+                    *guard = None;
+                    return Some(SendResult {
+                        tx_hash: String::new(),
+                        status: "failed".to_string(),
+                        block_explorer_url: String::new(),
+                    });
+                }
+                Err(oneshot::error::TryRecvError::Empty) => {}
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    *guard = None;
+                }
+            }
+        }
+        None
+    }
 
     async fn get_lock(&self) -> LockData {
         match self.client.get_lock_state().await {

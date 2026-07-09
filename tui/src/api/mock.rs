@@ -78,7 +78,7 @@ impl MockWalletApi {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl WalletApi for MockWalletApi {
     async fn get_setup(&self) -> SetupData {
         SetupData {
@@ -297,6 +297,7 @@ impl WalletApi for MockWalletApi {
             total_amount: total,
             chain_id: input.chain_id,
             nonce: 42,
+            skip_review: false,
         }
     }
 
@@ -503,5 +504,9 @@ impl WalletApi for MockWalletApi {
             next_cursor: None,
             has_more: false,
         }
+    }
+
+    async fn poll_send_result(&self) -> Option<SendResult> {
+        None
     }
 }

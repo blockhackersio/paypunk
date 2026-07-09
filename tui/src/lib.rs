@@ -33,8 +33,13 @@ enum AppEvent {
     Resize(u16, u16),
 }
 
-pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io::Result<()> {
-    let api: Box<dyn WalletApi> = connect_with_retry(socket_path, shutdown.as_ref()).await?;
+pub async fn run_tui(
+    socket_path: &str,
+    shutdown: Option<Arc<AtomicBool>>,
+    signer_mode: bool,
+) -> io::Result<()> {
+    let api: Box<dyn WalletApi> =
+        connect_with_retry(socket_path, shutdown.as_ref(), signer_mode).await?;
 
     let mut app = App::new(api);
 
@@ -128,6 +133,7 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
 async fn connect_with_retry(
     socket_path: &str,
     shutdown: Option<&Arc<AtomicBool>>,
+    signer_mode: bool,
 ) -> io::Result<Box<dyn WalletApi>> {
     let deadline = Duration::from_secs(30);
     let poll_interval = Duration::from_millis(500);
@@ -143,7 +149,7 @@ async fn connect_with_retry(
             }
         }
 
-        match RealWalletApi::connect(socket_path).await {
+        match RealWalletApi::connect(socket_path, signer_mode).await {
             Ok(real) => return Ok(Box::new(real)),
             Err(e) => {
                 if start.elapsed() >= deadline {
