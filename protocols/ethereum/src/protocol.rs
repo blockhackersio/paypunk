@@ -221,14 +221,6 @@ fn parse_amount(amount: &str) -> Result<U256, String> {
 
 #[async_trait]
 impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
-    async fn chain(&self) -> ChainId {
-        let chain_id = self.client.get_chain_id().await.unwrap_or(1);
-        ChainId {
-            namespace: "eip155".to_string(),
-            reference: chain_id.to_string(),
-        }
-    }
-
     fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
         let parsed = bip32::DerivationPath::from_str(path)
             .map_err(|e| format!("invalid derivation path: {e}"))?;
@@ -388,10 +380,10 @@ mod tests {
         mnemonic.to_seed("")
     }
 
-    #[tokio::test]
-    async fn test_chain_id() {
+    #[test]
+    fn test_chain_id() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
-        let chain = protocol.chain().await;
+        let chain = protocol.chain_id();
         assert_eq!(chain.namespace, "eip155");
         assert_eq!(chain.reference, "1");
     }

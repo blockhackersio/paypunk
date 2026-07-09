@@ -77,23 +77,6 @@ impl ZcashProtocol {
 
 #[async_trait]
 impl SignerProtocol for ZcashProtocol {
-    async fn chain(&self) -> ChainId {
-        match self.network_type {
-            zcash_protocol::consensus::NetworkType::Main => ChainId {
-                namespace: "zcash".to_string(),
-                reference: "mainnet".to_string(),
-            },
-            zcash_protocol::consensus::NetworkType::Test => ChainId {
-                namespace: "zcash".to_string(),
-                reference: "testnet".to_string(),
-            },
-            zcash_protocol::consensus::NetworkType::Regtest => ChainId {
-                namespace: "zcash".to_string(),
-                reference: "regtest".to_string(),
-            },
-        }
-    }
-
     fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
         let account = Self::account_from_path(path)?;
         let account_id = zip32::AccountId::try_from(account)
