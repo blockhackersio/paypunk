@@ -6,7 +6,9 @@ use keypunkd::{Keypunk, Keypunkd};
 use paypunk_api::Client;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::EthRpcClient;
+use paypunk_chains_ethereum::signer::EthereumSignerProtocol;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_chains_zcash::signer::ZcashSignerProtocol;
 use paypunk_chains_zcash::to_local_params;
 use paypunk_ipc::IpcMessage;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId};
@@ -104,18 +106,18 @@ impl TestBuilder {
         let mut keypunkd_protocols = KeypunkdProtocolService::new();
         keypunkd_protocols.register(
             ProtocolId::Zcash,
-            Box::new(ZcashProtocol::new(
+            Box::new(ZcashSignerProtocol::new(
                 to_local_params(
                     zcash_protocol::consensus::Network::MainNetwork,
                     zcash_protocol::consensus::NetworkType::Main,
                 ),
                 zcash_protocol::consensus::NetworkType::Main,
-                None,
-                None,
-                None,
             )),
         );
-        keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
+        keypunkd_protocols.register(
+            ProtocolId::Ethereum,
+            Box::new(EthereumSignerProtocol::new()),
+        );
 
         let keypunkd_addr =
             Keypunkd::new(Keypunk::new(keystore, store, keypunkd_protocols)).start();
