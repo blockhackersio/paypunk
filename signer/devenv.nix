@@ -102,20 +102,29 @@
 
   # ── Scripts ───────────────────────────────────────────────────────
   scripts = {
+    fix-udev.description = "Install udev rules so adb can see USB-connected Pixel/Android devices.";
+    fix-udev.exec = ''
+      RULES_FILE="/etc/udev/rules.d/51-android.rules"
+      echo "SUBSYSTEM==\"usb\", ATTR{idVendor}==\"18d1\", MODE=\"0666\", GROUP=\"plugdev\"" | sudo tee "$RULES_FILE" >/dev/null
+      sudo udevadm control --reload-rules
+      sudo udevadm trigger
+      adb kill-server && adb start-server
+      echo "✅ udev rules installed. Reconnect your device if it still shows 'no permissions'."
+    '';
     dev-browser.exec = "pnpm dev";
     dev-tauri.exec = "cargo tauri dev";
     dev-android.exec = "cargo tauri android dev";
     build-android.exec = "cargo tauri android build --apk";
     build-android-release.exec = ''
-      if [ -z "''${KEYSTORE_PASSWORD:-}" ]; then
-        echo "ERROR: KEYSTORE_PASSWORD not set"
-        exit 1
-      fi
-      if [ -z "''${KEY_PASSWORD:-}" ]; then
-        echo "ERROR: KEY_PASSWORD not set"
-        exit 1
-      fi
-      cargo tauri android build --apk
+            if [ -z "''${KEYSTORE_PASSWORD:-}" ]; then
+              echo "ERROR: KEYSTORE_PASSWORD not set"
+      ajkchsljkADFHCP:IKLB      exit 1
+            fi
+            if [ -z "''${KEY_PASSWORD:-}" ]; then
+              echo "ERROR: KEY_PASSWORD not set"
+              exit 1
+            fi
+            cargo tauri android build --apk
     '';
   };
 }

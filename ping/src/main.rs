@@ -1,6 +1,7 @@
 use clap::Parser;
 use paypunk_ipc::{IpcMessage, IpcSender};
 use tactix::Sender;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(name = "paypunk-ping")]
@@ -11,6 +12,11 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .try_init();
     let cli = Cli::parse();
 
     println!("Connecting to {}...", cli.socket_path);

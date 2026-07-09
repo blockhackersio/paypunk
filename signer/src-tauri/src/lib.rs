@@ -1,7 +1,10 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
+
+use paypunk_pong::PongHandler;
 
 // ── Data types ────────────────────────────────────────────────────
 
@@ -150,6 +153,29 @@ fn save_settings(
     Ok(get_settings(app))
 }
 
+// ── QR scan → PongHandler → QR response ──────────────────────────
+
+#[tauri::command]
+fn process_scanned_qr(content: String) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&content)
+        .map_err(|e| format!("invalid base64: {}", e))?;
+
+    let handler = PongHandler;
+    let response = handler.handle(&bytes)?;
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&response);
+    let code = qrcode::QrCode::with_error_correction_level(b64.as_bytes(), qrcode::EcLevel::L)
+        .map_err(|e| format!("QR generation failed: {}", e))?;
+    let svg = code
+        .render()
+        .min_dimensions(300, 300)
+        .dark_color(qrcode::render::svg::Color("#000000"))
+        .light_color(qrcode::render::svg::Color("#ffffff"))
+        .build();
+    Ok(svg)
+}
+
 // ── Timer event emitter ───────────────────────────────────────────
 
 pub fn start_timer(app: AppHandle) {
@@ -179,8 +205,11 @@ pub fn run() {
             get_list_items,
             get_settings,
             save_settings,
+            process_scanned_qr,
         ])
         .setup(|app| {
+            #[cfg(mobile)]
+            app.handle().plugin(tauri_plugin_barcode_scanner::init());
             // Start the timer event emitter
             start_timer(app.handle().clone());
             Ok(())

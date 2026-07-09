@@ -3947,12 +3947,16 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "base64",
+ "blake2",
+ "paypunk-ipc",
  "qrcode",
+ "rand 0.8.6",
  "reqwest",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -4047,6 +4051,7 @@ dependencies = [
  "paypunk-ipc",
  "tactix",
  "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]

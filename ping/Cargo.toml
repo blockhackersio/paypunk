@@ -12,3 +12,4 @@ paypunk-ipc = { path = "../ipc" }
 tactix = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 clap = { workspace = true, features = ["derive"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

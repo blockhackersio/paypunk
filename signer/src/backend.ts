@@ -88,6 +88,24 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
       mockSettings = { ...mockSettings, ...(_args as Record<string, unknown>) as unknown as Partial<Settings> };
       return { ...mockSettings } as T;
 
+    case "process_scanned_qr": {
+      const content = _args?.content as string;
+      if (!content) {
+        throw new Error("no content provided");
+      }
+      // Simulate PongHandler: decode base64, check it looks like a ping frame
+      try {
+        const binary = atob(content);
+        if (binary.length < 5 || binary.charCodeAt(0) !== 0x04) {
+          throw new Error("expected MSG_APPLICATION frame");
+        }
+        // Return a mock QR SVG
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300"><rect width="300" height="300" fill="#fff"/><text x="150" y="140" text-anchor="middle" font-family="monospace" font-size="14" fill="#000">Mock QR</text><text x="150" y="160" text-anchor="middle" font-family="monospace" font-size="14" fill="#000">(browser mode)</text></svg>` as T;
+      } catch (e) {
+        throw new Error(`mock process error: ${e}`);
+      }
+    }
+
     default:
       throw new Error(`Unknown mock command: ${cmd}`);
   }

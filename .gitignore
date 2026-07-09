@@ -1,3 +1,4 @@
+.pnpm-store/
 # Devenv
 .devenv*
 devenv.local.nix

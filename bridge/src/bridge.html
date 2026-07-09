@@ -146,16 +146,29 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     let stream = null;
+    let scanTimer = null;
+
+    function onTrackEnded() {
+      if (!scanning) return;
+      stopCamera();
+      document.getElementById('status-text').textContent = 'Camera stopped, restarting...';
+      setTimeout(startCamera, 1000);
+    }
 
     async function startCamera() {
       if (scanning) return;
       scanning = true;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        stream.getTracks().forEach(t => {
+          t.addEventListener('ended', onTrackEnded);
+        });
         video.srcObject = stream;
         await video.play();
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        document.getElementById('status-text').textContent = 'Scan the QR code with your mobile device';
+        document.getElementById('error').style.display = 'none';
         scanFrame();
       } catch (e) {
         document.getElementById('error').textContent = 'Camera error: ' + e.message;
@@ -166,8 +179,15 @@
 
     function stopCamera() {
       scanning = false;
+      if (scanTimer) {
+        clearInterval(scanTimer);
+        scanTimer = null;
+      }
       if (stream) {
-        stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach(t => {
+          t.removeEventListener('ended', onTrackEnded);
+          t.stop();
+        });
         stream = null;
       }
       video.srcObject = null;
@@ -176,27 +196,26 @@
     function scanFrame() {
       if (!scanning) return;
       if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-        requestAnimationFrame(scanFrame);
+        scanTimer = setTimeout(scanFrame, 100);
         return;
       }
       ctx.drawImage(video, 0, 0);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(imageData.data, imageData.width, imageData.height);
       if (code) {
-        sendResponse(code.binaryData);
+        sendResponse(code.data);
         return;
       }
-      requestAnimationFrame(scanFrame);
+      scanTimer = setTimeout(scanFrame, 150);
     }
 
-    async function sendResponse(bytes) {
+    async function sendResponse(base64) {
       stopCamera();
       const dot = document.getElementById('status-dot');
       const text = document.getElementById('status-text');
       dot.className = 'dot green';
       text.textContent = 'Sending response...';
 
-      const base64 = btoa(String.fromCharCode.apply(null, bytes));
       try {
         const resp = await fetch('/response', {
           method: 'POST',

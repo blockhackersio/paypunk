@@ -1,6 +1,15 @@
 use std::sync::Arc;
 use tokio::sync::{oneshot, Mutex};
 
+use blake2::digest::consts::U32;
+use blake2::Digest;
+use paypunk_ipc::messages::{
+    MAC_LEN, MSG_APPLICATION, MSG_GET_PUBLIC_KEY, MSG_PUBLIC_KEY, MSG_REGISTER_CLIENT,
+    MSG_REGISTER_CLIENT_ACK,
+};
+use paypunk_ipc::transport::UnixSocketTransport;
+use rand::RngCore;
+
 pub struct BridgeConfig {
     pub port: u16,
     pub socket_path: String,
@@ -13,8 +22,30 @@ struct BridgeState {
 
 type SharedState = Arc<Mutex<BridgeState>>;
 
+fn generate_keypair() -> ([u8; 32], [u8; 32]) {
+    let mut secret = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut secret);
+    secret[0] &= 248;
+    secret[31] &= 127;
+    secret[31] |= 64;
+    let public = x25519_dalek::x25519(secret, x25519_dalek::X25519_BASEPOINT_BYTES);
+    (secret, public)
+}
+
+fn compute_mac(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
+    let mut hasher = blake2::Blake2b::<U32>::new();
+    hasher.update(key);
+    hasher.update(message);
+    let mut mac = [0u8; 32];
+    mac.copy_from_slice(&hasher.finalize());
+    mac
+}
+
 fn generate_qr_svg(bytes: &[u8]) -> String {
-    let code = qrcode::QrCode::with_error_correction_level(bytes, qrcode::EcLevel::L).unwrap();
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let code =
+        qrcode::QrCode::with_error_correction_level(b64.as_bytes(), qrcode::EcLevel::L).unwrap();
     code.render()
         .min_dimensions(400, 400)
         .dark_color(qrcode::render::svg::Color("#000000"))
@@ -145,44 +176,18 @@ pub async fn run(config: BridgeConfig) -> Result<(), Box<dyn std::error::Error>>
     let server_handle = server.handle();
     let http_handle = tokio::spawn(server);
 
+    let (secret, public) = generate_keypair();
+
     let accept_loop = async {
         loop {
             match listener.accept().await {
-                Ok((mut stream, _addr)) => {
-                    use tokio::io::AsyncReadExt;
-                    let mut buf = Vec::new();
-                    match stream.read_to_end(&mut buf).await {
-                        Ok(_) if buf.is_empty() => continue,
-                        Ok(_) => {
-                            if buf.len() > 2953 {
-                                use tokio::io::AsyncWriteExt;
-                                let _ = stream.write_all(b"ERR: message too large").await;
-                                continue;
-                            }
-
-                            let (tx, rx) = oneshot::channel();
-                            {
-                                let mut guard = state.lock().await;
-                                guard.pending_request = Some(buf);
-                                guard.response_tx = Some(tx);
-                            }
-
-                            match rx.await {
-                                Ok(resp_bytes) => {
-                                    use tokio::io::AsyncWriteExt;
-                                    let _ = stream.write_all(&resp_bytes).await;
-                                }
-                                Err(_oneshot_canceled) => {}
-                            }
-
-                            let mut guard = state.lock().await;
-                            guard.pending_request = None;
-                            guard.response_tx = None;
+                Ok((stream, _addr)) => {
+                    let state = state.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_ipc_connection(stream, state, secret, public).await {
+                            eprintln!("bridge connection error: {e}");
                         }
-                        Err(e) => {
-                            eprintln!("read error: {}", e);
-                        }
-                    }
+                    });
                 }
                 Err(e) => {
                     eprintln!("accept error: {}", e);
@@ -205,11 +210,151 @@ pub async fn run(config: BridgeConfig) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+async fn handle_ipc_connection(
+    stream: tokio::net::UnixStream,
+    state: SharedState,
+    secret: [u8; 32],
+    public: [u8; 32],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut transport = UnixSocketTransport::from_stream(stream);
+    let mut hmac_key: Option<[u8; 32]> = None;
+    let mut registered = false;
+
+    loop {
+        let frame = transport.read_frame().await?;
+        if frame.is_empty() {
+            return Ok(());
+        }
+
+        let msg_type = frame[0];
+        let payload = &frame[1..];
+
+        match msg_type {
+            MSG_GET_PUBLIC_KEY => {
+                let mut resp = vec![MSG_PUBLIC_KEY];
+                resp.extend_from_slice(&public);
+                transport.write_frame(&resp).await?;
+            }
+
+            MSG_REGISTER_CLIENT => {
+                if payload.len() != 32 {
+                    return Err("invalid client public key length".into());
+                }
+                let mut client_pk = [0u8; 32];
+                client_pk.copy_from_slice(payload);
+                let shared = x25519_dalek::x25519(secret, client_pk);
+                hmac_key = Some(compute_mac(&shared, b"paypunk-ipc-hmac"));
+                registered = true;
+                transport.write_frame(&[MSG_REGISTER_CLIENT_ACK]).await?;
+            }
+
+            MSG_APPLICATION => {
+                if !registered {
+                    return Err("application message before registration".into());
+                }
+                if payload.len() < MAC_LEN {
+                    return Err("malformed application message".into());
+                }
+                let (msg_payload, msg_mac) = payload.split_at(payload.len() - MAC_LEN);
+                let expected_mac = compute_mac(hmac_key.as_ref().unwrap(), msg_payload);
+                if msg_mac != expected_mac {
+                    return Err("MAC mismatch".into());
+                }
+
+                if msg_payload.len() > 2953 {
+                    let mut resp = vec![1u8];
+                    resp.extend_from_slice(b"message too large");
+                    transport.write_frame(&resp).await?;
+                    return Ok(());
+                }
+
+                let (tx, rx) = oneshot::channel();
+                {
+                    let mut guard = state.lock().await;
+                    guard.pending_request = Some(frame.to_vec());
+                    guard.response_tx = Some(tx);
+                }
+
+                match rx.await {
+                    Ok(resp_bytes) => {
+                        transport.write_frame(&resp_bytes).await?;
+                    }
+                    Err(_) => {
+                        let mut frame = vec![1u8];
+                        frame.extend_from_slice(b"request cancelled");
+                        transport.write_frame(&frame).await?;
+                    }
+                }
+
+                let mut guard = state.lock().await;
+                guard.pending_request = None;
+                guard.response_tx = None;
+
+                return Ok(());
+            }
+
+            _ => {
+                eprintln!("unknown IPC message type: {msg_type}");
+                return Ok(());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use paypunk_ipc::messages::MSG_APPLICATION;
+    use paypunk_ipc::transport::UnixSocketTransport;
     use tokio::net::UnixStream;
+
+    async fn ipc_handshake(transport: &mut UnixSocketTransport) -> ([u8; 32], [u8; 32]) {
+        transport.write_frame(&[MSG_GET_PUBLIC_KEY]).await.unwrap();
+
+        let frame = transport.read_frame().await.unwrap();
+        assert_eq!(frame.len(), 33);
+        assert_eq!(frame[0], MSG_PUBLIC_KEY);
+        let mut server_public = [0u8; 32];
+        server_public.copy_from_slice(&frame[1..33]);
+
+        let (client_secret, client_public) = generate_keypair();
+
+        let mut reg = vec![MSG_REGISTER_CLIENT];
+        reg.extend_from_slice(&client_public);
+        transport.write_frame(&reg).await.unwrap();
+
+        let ack = transport.read_frame().await.unwrap();
+        assert_eq!(ack, vec![MSG_REGISTER_CLIENT_ACK]);
+
+        let shared = x25519_dalek::x25519(client_secret, server_public);
+        let hmac_key = compute_mac(&shared, b"paypunk-ipc-hmac");
+
+        (server_public, hmac_key)
+    }
+
+    async fn send_application_msg(
+        transport: &mut UnixSocketTransport,
+        hmac_key: &[u8; 32],
+        payload: &[u8],
+    ) {
+        let mac = compute_mac(hmac_key, payload);
+        let mut frame = Vec::with_capacity(1 + payload.len() + MAC_LEN);
+        frame.push(MSG_APPLICATION);
+        frame.extend_from_slice(payload);
+        frame.extend_from_slice(&mac);
+        transport.write_frame(&frame).await.unwrap();
+    }
+
+    async fn read_application_response(
+        transport: &mut UnixSocketTransport,
+    ) -> Result<Vec<u8>, String> {
+        let raw = transport.read_frame().await.unwrap();
+        match raw[0] {
+            0 => Ok(raw[1..].to_vec()),
+            1 => Err(String::from_utf8_lossy(&raw[1..]).to_string()),
+            _ => Err("invalid status".into()),
+        }
+    }
 
     #[tokio::test]
     async fn test_bridge_roundtrip() {
@@ -228,15 +373,18 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        let mut stream = UnixStream::connect(&socket_path).await.unwrap();
-        stream.write_all(b"hello bridge").await.unwrap();
-        stream.shutdown().await.unwrap();
+        let stream = UnixStream::connect(&socket_path).await.unwrap();
+        let mut transport = UnixSocketTransport::from_stream(stream);
+
+        let (_server_public, hmac_key) = ipc_handshake(&mut transport).await;
+
+        send_application_msg(&mut transport, &hmac_key, b"hello bridge").await;
 
         let status_url = format!("http://127.0.0.1:{}/status", port);
         let resp = reqwest::get(&status_url).await.unwrap();
         let status_json: serde_json::Value = resp.json().await.unwrap();
         assert_eq!(status_json["pending"], true);
-        assert_eq!(status_json["size"], 12);
+        assert_eq!(status_json["size"], 1 + 12 + MAC_LEN);
 
         let qr_url = format!("http://127.0.0.1:{}/qr.svg", port);
         let qr_resp = reqwest::get(&qr_url).await.unwrap();
@@ -248,21 +396,28 @@ mod tests {
         let pb_resp = reqwest::get(&pending_url).await.unwrap();
         let pb_json: serde_json::Value = pb_resp.json().await.unwrap();
         assert_eq!(pb_json["pending"], true);
-        assert_eq!(pb_json["bytes"], "aGVsbG8gYnJpZGdl");
+        {
+            use base64::Engine;
+            let mut frame = vec![MSG_APPLICATION];
+            frame.extend_from_slice(b"hello bridge");
+            let mac = compute_mac(&hmac_key, b"hello bridge");
+            frame.extend_from_slice(&mac);
+            let expected_b64 = base64::engine::general_purpose::STANDARD.encode(&frame);
+            assert_eq!(pb_json["bytes"], expected_b64);
+        }
 
         let response_url = format!("http://127.0.0.1:{}/response", port);
         let client = reqwest::Client::new();
         let resp_resp = client
             .post(&response_url)
-            .json(&serde_json::json!({"bytes": "cmVzcG9uc2UgYnl0ZXM="}))
+            .json(&serde_json::json!({"bytes": "AHJlc3BvbnNlIGJ5dGVz"}))
             .send()
             .await
             .unwrap();
         assert_eq!(resp_resp.status(), 200);
 
-        let mut resp_buf = Vec::new();
-        stream.read_to_end(&mut resp_buf).await.unwrap();
-        assert_eq!(resp_buf, b"response bytes");
+        let resp_bytes = read_application_response(&mut transport).await.unwrap();
+        assert_eq!(resp_bytes, b"response bytes");
 
         handle.abort();
     }
@@ -343,14 +498,16 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        let mut stream = UnixStream::connect(&socket_path).await.unwrap();
-        let large = vec![0u8; 3000];
-        stream.write_all(&large).await.unwrap();
-        stream.shutdown().await.unwrap();
+        let stream = UnixStream::connect(&socket_path).await.unwrap();
+        let mut transport = UnixSocketTransport::from_stream(stream);
 
-        let mut resp_buf = Vec::new();
-        stream.read_to_end(&mut resp_buf).await.unwrap();
-        assert!(resp_buf.starts_with(b"ERR: message too large"));
+        let (_server_public, hmac_key) = ipc_handshake(&mut transport).await;
+
+        let large = vec![0u8; 3000];
+        send_application_msg(&mut transport, &hmac_key, &large).await;
+
+        let err = read_application_response(&mut transport).await.unwrap_err();
+        assert_eq!(err, "message too large");
 
         handle.abort();
     }
