@@ -1,4 +1,5 @@
 use crate::crypto::Keypair;
+use crate::keypunk::Keypunk;
 use crate::keypunkd::Keypunkd;
 use crate::protocol::ProtocolService;
 use crate::seed_store::FilesystemSeedStore;
@@ -72,7 +73,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     );
     info!("registered protocols: Zcash, Ethereum");
 
-    let keypunkd = Keypunkd::new(keystore, seed_store, protocols).start();
+    let inner = Keypunk::new(keystore, seed_store, protocols);
+    let keypunkd = Keypunkd::new(inner).start();
 
     let server = IpcReceiver::bind_with(&config.socket_path, secret, public).await?;
     info!("keypunkd listening on {}", config.socket_path);

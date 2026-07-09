@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use keypunkd::crypto::Keypair;
 use keypunkd::protocol::ProtocolService as KeypunkdProtocolService;
 use keypunkd::seed_store::InMemorySeedStore;
-use keypunkd::Keypunkd;
+use keypunkd::{Keypunk, Keypunkd};
 use paypunk_api::Client;
 use paypunk_chains_ethereum::protocol::EthereumProtocol;
 use paypunk_chains_ethereum::rpc::EthRpcClient;
@@ -117,7 +117,7 @@ impl TestBuilder {
         );
         keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
 
-        let keypunkd_addr = Keypunkd::new(keystore, store, keypunkd_protocols).start();
+        let keypunkd_addr = Keypunkd::new(Keypunk::new(keystore, store, keypunkd_protocols)).start();
         let keypunkd_recipient = keypunkd_addr.recipient();
 
         let paypunkd_zcash = ZcashProtocol::new(
