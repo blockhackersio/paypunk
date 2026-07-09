@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use paypunk_types::{
     ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol, ProtocolId,
-    SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
+    SignerProtocol, SyncStatus, TxStatus, ZcashArtifactSummary, ZcashIntent,
 };
 use pczt::roles::{
     prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
@@ -111,19 +111,10 @@ impl SignerProtocol for ZcashProtocol {
         let (value_sum, negative) = pczt.orchard().value_sum();
         let fee = if *negative { 0u64 } else { *value_sum };
 
-        // Extract information from the PCZT to build an ArtifactSummary
-        let to = "Zcash address (see PCZT)".to_string();
-        let amount = "0".to_string();
-        let memo = None;
-
-        let summary = ArtifactSummary {
-            to,
-            amount,
+        let summary = ArtifactSummary::Zcash(ZcashArtifactSummary {
+            outputs: vec![],
             fee: fee.to_string(),
-            nonce: 0,
-            memo,
-            protocol: ProtocolId::Zcash,
-        };
+        });
 
         postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
     }

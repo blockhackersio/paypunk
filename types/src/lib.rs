@@ -54,14 +54,129 @@ pub enum EthereumIntent {
 
 // ── Artifact summary ─────────────────────────────────────────────────────────
 
+/// A single output entry in the artifact summary.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ArtifactSummary {
+pub struct OutputEntry {
+    pub address: String,
+    pub amount: String,
+}
+
+/// Zcash-specific artifact summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ZcashArtifactSummary {
+    pub outputs: Vec<OutputEntry>,
+    pub fee: String,
+}
+
+/// Ethereum-specific artifact summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EthereumArtifactSummary {
     pub to: String,
     pub amount: String,
     pub fee: String,
     pub nonce: u64,
-    pub memo: Option<String>,
-    pub protocol: ProtocolId,
+}
+
+/// Protocol-specific artifact summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ArtifactSummary {
+    Zcash(ZcashArtifactSummary),
+    Ethereum(EthereumArtifactSummary),
+}
+
+/// Result of submit_intent for the API/TUI layer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SubmitIntentResult {
+    /// Keypunkd mode: preview to display in TUI, then approve_signature.
+    SignablePreview {
+        raw_artifact: Vec<u8>,
+        parsed_summary: Vec<u8>,
+        keypunkd_signature: Vec<u8>,
+        keypunkd_public_key: [u8; 32],
+    },
+    /// Signer mode: signed artifact, skip preview and password.
+    SignatureApproved { signed_artifact: Vec<u8> },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum KeypunkdRequest {
+    GetEncryptionKey,
+    GenerateSeed {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    RestoreSeed {
+        encrypted_mnemonic: Vec<u8>,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    PreviewArtifact {
+        raw_artifact: Vec<u8>,
+        protocol: ProtocolId,
+        chain_id: ChainId,
+        derivation_path: String,
+    },
+    AuthorizeArtifact {
+        encrypted_payload: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+        derivation_path: String,
+    },
+    ExportViewingKey {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        protocol: ProtocolId,
+        derivation_path: String,
+    },
+    HasSeed,
+    VerifyPassword {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    BulkExportViewingKeys {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
+    },
+    ExportMnemonic {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum KeypunkdResponse {
+    EncryptionKey {
+        key: [u8; 32],
+    },
+    SeedGenerated {
+        encrypted_mnemonic: Vec<u8>,
+    },
+    SeedRestored,
+    ArtifactPreview {
+        raw_artifact: Vec<u8>,
+        parsed_summary: Vec<u8>,
+        signature: Vec<u8>,
+        keypunkd_public_key: [u8; 32],
+    },
+    ArtifactAuthorized {
+        signed_artifact: Vec<u8>,
+    },
+    ViewingKey {
+        key: Vec<u8>,
+    },
+    HasSeed {
+        exists: bool,
+    },
+    PasswordVerified,
+    ViewingKeys {
+        keys: Vec<(ProtocolId, String, Vec<u8>)>,
+    },
+    MnemonicExported {
+        encrypted_mnemonic: Vec<u8>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // ── Protocol trait (paypunkd side) ───────────────────────────────────────────

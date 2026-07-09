@@ -358,6 +358,7 @@ impl<S: Storage> Keypunk<S> {
             KeypunkdRequest::PreviewArtifact {
                 raw_artifact,
                 protocol,
+                chain_id: _,
                 derivation_path,
             } => self.preview_artifact(raw_artifact, protocol, derivation_path, sender_public_key),
             KeypunkdRequest::AuthorizeArtifact {

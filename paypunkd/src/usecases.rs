@@ -1,5 +1,7 @@
 use keypunkd::services::KeypunkService;
-use paypunk_types::{Account, Balance, HistoryEntry, Intent, Page, ProtocolId, SyncStatus};
+use paypunk_types::{
+    Account, Balance, HistoryEntry, Intent, KeypunkdResponse, Page, ProtocolId, SyncStatus,
+};
 use rand::Rng;
 use tracing::info;
 
@@ -100,18 +102,24 @@ pub async fn submit_intent(
     let raw_artifact = protocol.build(intent).await?;
 
     // Forward to keypunkd for parsing and preview
+    let chain_id = protocol.chain_id();
     let preview = keypunk_service
-        .preview_artifact(raw_artifact, protocol_id, derivation_path.to_string())
+        .preview_artifact(
+            raw_artifact,
+            protocol_id,
+            chain_id,
+            derivation_path.to_string(),
+        )
         .await?;
 
     match preview {
-        keypunkd::messages::KeypunkdResponse::ArtifactPreview {
+        KeypunkdResponse::ArtifactPreview {
             raw_artifact,
             parsed_summary,
             signature,
             keypunkd_public_key,
         } => Ok((raw_artifact, parsed_summary, signature, keypunkd_public_key)),
-        keypunkd::messages::KeypunkdResponse::Error { message } => Err(message),
+        KeypunkdResponse::Error { message } => Err(message),
         _ => Err("unexpected response from keypunkd".to_string()),
     }
 }

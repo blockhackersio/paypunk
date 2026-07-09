@@ -405,15 +405,30 @@ impl WalletApi for RealWalletApi {
                 *self.pending.lock().unwrap() = Some(pending);
 
                 if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
-                    let total = summary.amount.parse::<u128>().unwrap_or(0)
-                        + summary.fee.parse::<u128>().unwrap_or(0);
-                    SendReviewData {
-                        to_address: summary.to,
-                        amount: summary.amount.clone(),
-                        fee_estimate: summary.fee,
-                        total_amount: total.to_string(),
-                        chain_id: input.chain_id,
-                        nonce: summary.nonce,
+                    match &summary {
+                        ArtifactSummary::Zcash(zcash) => {
+                            let total = zcash.fee.parse::<u128>().unwrap_or(0);
+                            SendReviewData {
+                                to_address: "Zcash transfer".to_string(),
+                                amount: "0".to_string(),
+                                fee_estimate: zcash.fee.clone(),
+                                total_amount: total.to_string(),
+                                chain_id: input.chain_id,
+                                nonce: 0,
+                            }
+                        }
+                        ArtifactSummary::Ethereum(eth) => {
+                            let total = eth.amount.parse::<u128>().unwrap_or(0)
+                                + eth.fee.parse::<u128>().unwrap_or(0);
+                            SendReviewData {
+                                to_address: eth.to.clone(),
+                                amount: eth.amount.clone(),
+                                fee_estimate: eth.fee.clone(),
+                                total_amount: total.to_string(),
+                                chain_id: input.chain_id,
+                                nonce: eth.nonce,
+                            }
+                        }
                     }
                 } else {
                     SendReviewData {

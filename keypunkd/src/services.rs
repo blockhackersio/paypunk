@@ -1,4 +1,4 @@
-use paypunk_types::ProtocolId;
+use paypunk_types::{ChainId, ProtocolId};
 
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
 use paypunk_ipc::IpcMessage;
@@ -71,11 +71,13 @@ impl KeypunkService {
         &self,
         raw_artifact: Vec<u8>,
         protocol: ProtocolId,
+        chain_id: ChainId,
         derivation_path: String,
     ) -> Result<KeypunkdResponse, String> {
         self.send(KeypunkdRequest::PreviewArtifact {
             raw_artifact,
             protocol,
+            chain_id,
             derivation_path,
         })
         .await

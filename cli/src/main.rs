@@ -720,13 +720,17 @@ async fn submit_intent_flow(
             println!("  Raw artifact: {} bytes", raw_artifact.len());
 
             if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
-                println!("  To: {}", summary.to);
-                println!("  Amount: {}", summary.amount);
-                println!("  Fee: {}", summary.fee);
-                if let Some(memo) = summary.memo {
-                    println!("  Memo: {memo}");
+                match &summary {
+                    ArtifactSummary::Zcash(zcash) => {
+                        println!("  Fee: {} zatoshis", zcash.fee);
+                    }
+                    ArtifactSummary::Ethereum(eth) => {
+                        println!("  To: {}", eth.to);
+                        println!("  Amount: {} wei", eth.amount);
+                        println!("  Fee: {} wei", eth.fee);
+                        println!("  Nonce: {}", eth.nonce);
+                    }
                 }
-                println!("  Protocol: {:?}", summary.protocol);
             } else {
                 println!("  Parsed summary: {} bytes (raw)", parsed_summary.len());
             }

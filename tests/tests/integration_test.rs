@@ -117,7 +117,8 @@ impl TestBuilder {
         );
         keypunkd_protocols.register(ProtocolId::Ethereum, Box::new(EthereumProtocol::new(())));
 
-        let keypunkd_addr = Keypunkd::new(Keypunk::new(keystore, store, keypunkd_protocols)).start();
+        let keypunkd_addr =
+            Keypunkd::new(Keypunk::new(keystore, store, keypunkd_protocols)).start();
         let keypunkd_recipient = keypunkd_addr.recipient();
 
         let paypunkd_zcash = ZcashProtocol::new(
@@ -389,8 +390,12 @@ async fn test_eth_send_full_flow() {
 
     let summary: ArtifactSummary =
         postcard::from_bytes(&parsed_summary).expect("should deserialize ArtifactSummary");
-    assert_eq!(summary.protocol, ProtocolId::Ethereum);
-    assert_eq!(summary.to, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+    match &summary {
+        ArtifactSummary::Ethereum(eth) => {
+            assert_eq!(eth.to, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+        }
+        _ => panic!("expected Ethereum summary"),
+    }
 
     let signed_artifact = client
         .approve_signature(&raw_artifact, &signature, password.clone(), path)
