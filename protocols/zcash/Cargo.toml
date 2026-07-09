@@ -5,7 +5,17 @@ edition = "2021"
 
 [features]
 default = ["wallet"]
-wallet = ["dep:tactix", "dep:tokio"]
+wallet = [
+    "dep:tactix",
+    "dep:tokio",
+    "dep:zcash_client_backend",
+    "dep:zcash_client_sqlite",
+    "dep:rusqlite",
+    "dep:tonic",
+    "dep:reqwest",
+    "dep:serde_json",
+    "dep:secrecy",
+]
 
 [dependencies]
 paypunk-types.workspace = true
@@ -26,16 +36,16 @@ postcard = { workspace = true, features = ["alloc"] }
 hex.workspace = true
 
 # Wallet / actor dependencies
-zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "lightwalletd-tonic", "lightwalletd-tonic-transport", "sync", "transparent-inputs", "zcash_proofs", "pczt"] }
-zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs", "serde"] }
+zcash_client_backend = { workspace = true, default-features = false, features = ["orchard", "lightwalletd-tonic", "lightwalletd-tonic-transport", "sync", "transparent-inputs", "zcash_proofs", "pczt"], optional = true }
+zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs", "serde"], optional = true }
 tactix = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
 tracing.workspace = true
-rusqlite = { workspace = true, features = ["bundled", "vtab", "array"] }
-secrecy = { workspace = true }
-tonic = { workspace = true, features = ["tls-native-roots"] }
-reqwest = { workspace = true }
-serde_json = { workspace = true }
+rusqlite = { workspace = true, features = ["bundled", "vtab", "array"], optional = true }
+secrecy = { workspace = true, optional = true }
+tonic = { workspace = true, features = ["tls-native-roots"], optional = true }
+reqwest = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 async-trait.workspace = true

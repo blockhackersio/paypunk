@@ -5,8 +5,8 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use paypunk_types::{
-    ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol, ProtocolId,
-    SignerProtocol, SyncStatus, TxStatus, ZcashArtifactSummary, ZcashIntent,
+    ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, OutputEntry, Page, Protocol,
+    ProtocolId, SignerProtocol, SyncStatus, TxStatus, ZcashArtifactSummary, ZcashIntent,
 };
 use pczt::roles::{
     prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
@@ -34,8 +34,6 @@ pub struct ZcashProtocol {
 }
 
 impl ZcashProtocol {
-    pub const COIN_TYPE: u32 = 133;
-
     pub fn new(
         params: LocalNetwork,
         network_type: zcash_protocol::consensus::NetworkType,
@@ -60,25 +58,12 @@ impl ZcashProtocol {
     pub fn scan_recipient(&self) -> Option<Arc<Recipient<SyncNewAccount>>> {
         self.scan_recipient.clone()
     }
-
-    /// Extract the account index from a BIP44-style derivation path.
-    /// Expects format like `m/44'/133'/{account}'` and returns `{account}`.
-    fn account_from_path(path: &str) -> Result<u32, String> {
-        let account_str = path
-            .rsplit('\'')
-            .nth(1)
-            .and_then(|s| s.split('/').last())
-            .ok_or_else(|| format!("invalid derivation path: {path}"))?;
-        account_str
-            .parse()
-            .map_err(|_| format!("invalid account index in path: {path}"))
-    }
 }
 
 #[async_trait]
 impl SignerProtocol for ZcashProtocol {
     fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
-        let account = Self::account_from_path(path)?;
+        let account = crate::common::account_from_path(path)?;
         let account_id = zip32::AccountId::try_from(account)
             .map_err(|_| format!("invalid account: {account}"))?;
         let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
@@ -94,8 +79,24 @@ impl SignerProtocol for ZcashProtocol {
         let (value_sum, negative) = pczt.orchard().value_sum();
         let fee = if *negative { 0u64 } else { *value_sum };
 
+        let mut outputs = Vec::new();
+        for action in pczt.orchard().actions() {
+            if let (Some(recipient_raw), Some(value)) =
+                (action.output().recipient(), action.output().value())
+            {
+                if let Some(addr) =
+                    crate::common::decode_orchard_recipient(recipient_raw, self.network_type)
+                {
+                    outputs.push(OutputEntry {
+                        address: addr,
+                        amount: value.to_string(),
+                    });
+                }
+            }
+        }
+
         let summary = ArtifactSummary::Zcash(ZcashArtifactSummary {
-            outputs: vec![],
+            outputs,
             fee: fee.to_string(),
         });
 
@@ -103,7 +104,7 @@ impl SignerProtocol for ZcashProtocol {
     }
 
     fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String> {
-        let account = Self::account_from_path(path)?;
+        let account = crate::common::account_from_path(path)?;
         self.sign_transaction_inner(seed, account, artifact)
     }
 }
@@ -125,7 +126,7 @@ impl ZcashProtocol {
 
         let seed_fp = SeedFingerprint::from_seed(seed)
             .ok_or_else(|| "seed too short for fingerprint".to_string())?;
-        let coin_type = zip32::ChildIndex::hardened(Self::COIN_TYPE);
+        let coin_type = zip32::ChildIndex::hardened(crate::common::ZCASH_COIN_TYPE);
         let mut keys: BTreeMap<zip32::AccountId, Vec<KeyRef>> = BTreeMap::new();
 
         let pczt = Verifier::new(pczt)
