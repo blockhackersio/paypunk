@@ -25,6 +25,47 @@ pub fn derivation_path(protocol: ProtocolId, account: u32) -> String {
         ProtocolId::Ethereum => paypunk_chains_ethereum::derivation_path(account),
     }
 }
+
+/// Build the default set of registration paths: 5 accounts per protocol.
+pub fn default_registration_paths(protocols: &[ProtocolId]) -> Vec<(ProtocolId, String)> {
+    let mut paths = Vec::new();
+    for &protocol in protocols {
+        for account in 0..5 {
+            paths.push((protocol, derivation_path(protocol, account)));
+        }
+    }
+    paths
+}
+
+/// Register an offline signer: send viewing key paths to paypunkd,
+/// which forwards to the bridge/signer. Returns the number of accounts derived.
+pub async fn register_signer(
+    service: &paypunkd::services::PaypunkService,
+    password: Zeroizing<String>,
+) -> Result<u32, String> {
+    let client_keypair = Keypair::new();
+    let paypunkd_pk = service.get_paypunkd_encryption_key().await?;
+
+    let encrypted_db_password = client_keypair.encrypt(
+        hash_for_domain(&password, b"paypunkd-db-key"),
+        &paypunkd_pk,
+    );
+
+    let protocols = service.get_supported_protocols().await?;
+    let paths = default_registration_paths(&protocols);
+
+    service
+        .register_signer(encrypted_db_password, client_keypair.public_key(), paths)
+        .await
+}
+
+/// Verify an existing signer session (no password needed).
+pub async fn verify_signer_session(
+    service: &paypunkd::services::PaypunkService,
+) -> Result<(), String> {
+    service.verify_signer_session().await
+}
+
 pub async fn check_wallet_exists(
     service: &paypunkd::services::PaypunkService,
 ) -> Result<bool, String> {

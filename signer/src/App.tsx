@@ -5,6 +5,7 @@ import ScanPage from "./pages/ScanPage";
 import PreviewPage from "./pages/PreviewPage";
 import SigningPage from "./pages/SigningPage";
 import ResultPage from "./pages/ResultPage";
+import RegistrationPage from "./pages/RegistrationPage";
 import { invoke } from "./backend";
 
 function CurrentPage() {
@@ -20,6 +21,8 @@ function CurrentPage() {
       return <SigningPage />;
     case "/result":
       return <ResultPage />;
+    case "/register":
+      return <RegistrationPage />;
     default:
       return <OnboardingPage />;
   }

@@ -146,6 +146,14 @@ pub enum PaypunkdRequest {
         protocol: ProtocolId,
         txid: String,
     },
+    // Register an offline signer: derive and return viewing keys for the given paths
+    RegisterSigner {
+        encrypted_db_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
+    },
+    // Verify an existing signer session (no password needed)
+    VerifySignerSession,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -237,6 +245,10 @@ pub enum PaypunkdResponse {
     TransactionStatusResult {
         status: paypunk_types::TxStatus,
     },
+    SignerRegistered {
+        accounts_count: u32,
+    },
+    SignerSessionVerified,
     Error {
         message: String,
     },

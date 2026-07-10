@@ -188,4 +188,26 @@ impl KeypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn register_viewing_keys(
+        &self,
+        paths: Vec<(ProtocolId, String)>,
+        challenge: [u8; 32],
+        paypunkd_public_key: [u8; 32],
+    ) -> Result<KeypunkdResponse, String> {
+        self.send(KeypunkdRequest::RegisterViewingKeys {
+            paths,
+            challenge,
+            paypunkd_public_key,
+        })
+        .await
+    }
+
+    pub async fn verify_signer_session(
+        &self,
+        challenge: [u8; 32],
+    ) -> Result<KeypunkdResponse, String> {
+        self.send(KeypunkdRequest::VerifySignerSession { challenge })
+        .await
+    }
 }

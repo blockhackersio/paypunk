@@ -3,6 +3,7 @@ mod signer;
 use base64::Engine;
 use paypunk_ipc::messages::{MAC_LEN, MSG_APPLICATION};
 use paypunk_pong::PongHandler;
+use paypunk_types::KeypunkdResponse;
 use serde::Serialize;
 use signer::{SignerState, SignerStatus};
 use std::sync::Mutex;
@@ -66,6 +67,7 @@ fn get_signer_status(state: State<AppState>) -> Result<String, String> {
     Ok(match guard.status() {
         SignerStatus::Idle => "idle".to_string(),
         SignerStatus::Previewing { .. } => "previewing".to_string(),
+        SignerStatus::AwaitingRegistration { .. } => "awaiting_registration".to_string(),
         SignerStatus::Signing => "signing".to_string(),
         SignerStatus::Signed { .. } => "signed".to_string(),
         SignerStatus::Error(e) => format!("error: {e}"),
@@ -114,7 +116,7 @@ fn process_scanned_qr(
         });
     }
 
-    // Real signing flow
+    // Process the request
     let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
     let result = guard.handle_request(payload);
 
@@ -122,8 +124,17 @@ fn process_scanned_qr(
     let b64 = base64::engine::general_purpose::STANDARD.encode(&result.response_bytes);
     *state.last_response.lock().map_err(|e| e.to_string())? = Some(b64);
 
+    // Detect registration mode
+    let is_registration = matches!(guard.status(), SignerStatus::AwaitingRegistration { .. });
+
+    let mode = if is_registration {
+        "register"
+    } else {
+        "preview"
+    };
+
     Ok(ProcessResult {
-        mode: "preview".to_string(),
+        mode: mode.to_string(),
         response: None,
         raw_artifact_b64: result.raw_artifact.map(|v| {
             base64::engine::general_purpose::STANDARD.encode(&v)
@@ -172,6 +183,33 @@ fn delete_seed(state: State<AppState>) -> Result<(), String> {
 fn has_seed(state: State<AppState>) -> Result<bool, String> {
     let guard = state.signer.lock().map_err(|e| e.to_string())?;
     Ok(guard.has_seed())
+}
+
+#[tauri::command]
+fn has_session_key(state: State<AppState>) -> Result<bool, String> {
+    let guard = state.signer.lock().map_err(|e| e.to_string())?;
+    Ok(guard.has_session_key())
+}
+
+#[tauri::command]
+fn complete_registration(
+    state: State<AppState>,
+    password: String,
+) -> Result<String, String> {
+    let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
+    let response = guard.complete_registration(&password)?;
+
+    let postcard_bytes =
+        postcard::to_allocvec(&response).map_err(|e| format!("serialize: {e}"))?;
+
+    let mut frame = Vec::with_capacity(1 + postcard_bytes.len());
+    frame.push(0x00);
+    frame.extend_from_slice(&postcard_bytes);
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&frame);
+    *state.last_response.lock().map_err(|e| e.to_string())? = Some(b64.clone());
+
+    Ok(b64)
 }
 
 #[tauri::command]
@@ -226,6 +264,8 @@ pub fn run() {
             process_scanned_qr,
             approve_and_sign,
             has_seed,
+            has_session_key,
+            complete_registration,
             get_preview,
             get_response,
             generate_response_qr,

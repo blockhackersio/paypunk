@@ -27,6 +27,10 @@ impl<S: Storage> Keypunk<S> {
         }
     }
 
+    pub fn seed_store(&self) -> &S {
+        &self.seed_store
+    }
+
     fn respond<T>(
         &self,
         label: &str,
@@ -296,6 +300,16 @@ impl<S: Storage> Keypunk<S> {
         }
     }
 
+    /// Export viewing keys directly from a decrypted seed (no password encryption).
+    /// Used by the signer app during registration where the user enters password on-device.
+    pub fn export_viewing_keys_direct(
+        &self,
+        seed: &[u8; 64],
+        paths: &[(ProtocolId, String)],
+    ) -> Result<Vec<(ProtocolId, String, Vec<u8>)>, String> {
+        usecases::bulk_export_viewing_keys(seed, &self.protocols, paths)
+    }
+
     fn bulk_export_viewing_keys(
         &self,
         encrypted_password: Vec<u8>,
@@ -396,6 +410,11 @@ impl<S: Storage> Keypunk<S> {
                 encrypted_password,
                 client_public_key,
             } => self.export_mnemonic(encrypted_password, client_public_key),
+            // These are handled by the signer app, not keypunkd
+            KeypunkdRequest::RegisterViewingKeys { .. }
+            | KeypunkdRequest::VerifySignerSession { .. } => KeypunkdResponse::Error {
+                message: "not supported in keypunkd mode".to_string(),
+            },
         }
     }
 }

@@ -165,6 +165,19 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
     case "has_seed":
       return mockHasSeed as T;
 
+    case "has_session_key":
+      return false as T;
+
+    case "complete_registration": {
+      const pw = _args?.password as string;
+      if (!pw) {
+        throw new Error("password required");
+      }
+      const response = String.fromCharCode(0x00) + "mock-registration-response";
+      mockResponse = btoa(response);
+      return mockResponse as T;
+    }
+
     case "get_response":
       if (!mockResponse) {
         throw new Error("no response available");

@@ -141,6 +141,17 @@ pub enum KeypunkdRequest {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
     },
+    /// Request viewing key export from an offline signer.
+    /// No encrypted payload — the signer prompts the user for their password on-device.
+    RegisterViewingKeys {
+        paths: Vec<(ProtocolId, String)>,
+        challenge: [u8; 32],
+        paypunkd_public_key: [u8; 32],
+    },
+    /// Verify an existing signer session via a signed challenge (no password needed).
+    VerifySignerSession {
+        challenge: [u8; 32],
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -173,6 +184,14 @@ pub enum KeypunkdResponse {
     },
     MnemonicExported {
         encrypted_mnemonic: Vec<u8>,
+    },
+    ViewingKeysRegistered {
+        keys: Vec<(ProtocolId, String, Vec<u8>)>,
+        session_public_key: [u8; 32],
+        signed_challenge: Vec<u8>,
+    },
+    SessionVerified {
+        signed_challenge: Vec<u8>,
     },
     Error {
         message: String,

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
 
-export type Page = "/" | "/scan" | "/preview" | "/signing" | "/result";
+export type Page = "/" | "/scan" | "/preview" | "/signing" | "/result" | "/register";
 
 interface NavContextValue {
   page: Page;

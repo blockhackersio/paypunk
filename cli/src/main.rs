@@ -302,7 +302,11 @@ enum Commands {
         address: Option<String>,
     },
     /// Launch the terminal user interface
-    Tui,
+    Tui {
+        /// Run in offline signer mode
+        #[arg(long, default_value_t = false)]
+        signer: bool,
+    },
     /// Launch keypunkd (key daemon) as a child process
     Keypunkd {
         #[arg(short, long)]
@@ -372,6 +376,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         None => {
+            // paypunk without arguments autolaunches daemons
             let config = ConfigLoader::load_or_default();
             let paypunkd_socket = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
             let keypunkd_socket = config.keypunkd_socket_path.clone();
@@ -397,9 +402,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await
                 .map_err(|e| e.into())
         }
-        Some(Commands::Tui) => {
+        Some(Commands::Tui { signer }) => {
+            // `paypunk tui` must NEVER start daemons this JUST runs the frontend
             let config = ConfigLoader::load_or_default();
-            let signer_mode = cli.signer || config.offline_signer;
+            let signer_mode = signer || config.offline_signer;
             run_tui(&socket_path, None, signer_mode)
                 .await
                 .map_err(|e| e.into())
@@ -697,7 +703,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let count = client.unlock(password).await?;
                     println!("Unlocked. {count} accounts derived.");
                 }
-                Commands::Tui => unreachable!(),
+                Commands::Tui { .. } => unreachable!(),
                 Commands::Bridge { .. } => unreachable!(),
                 Commands::Keypunkd { .. } => unreachable!(),
                 Commands::Paypunkd { .. } => unreachable!(),

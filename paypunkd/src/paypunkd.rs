@@ -8,7 +8,8 @@ use tracing::{debug, info, warn};
 
 use crate::database::repository::SqliteAccountsRepository;
 use crate::database::repository::SqliteAddressBookRepository;
-use crate::database::{AccountsRepository, AddressBookRepository, Database};
+use crate::database::repository::SqliteSignerStateRepository;
+use crate::database::{AccountsRepository, AddressBookRepository, Database, SignerStateRepository};
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
 use crate::protocol_service::ProtocolService;
 use crate::usecases;
@@ -19,6 +20,7 @@ pub struct Paypunkd {
     db: Database,
     accounts_repo: Box<dyn AccountsRepository>,
     address_book_repo: Box<dyn AddressBookRepository>,
+    signer_state_repo: Box<dyn SignerStateRepository>,
     keystore: Keypair,
     failed_attempts: u32,
 }
@@ -36,6 +38,7 @@ impl Paypunkd {
             db,
             accounts_repo: Box::new(SqliteAccountsRepository),
             address_book_repo: Box::new(SqliteAddressBookRepository),
+            signer_state_repo: Box::new(SqliteSignerStateRepository),
             keystore,
             failed_attempts: 0,
         }
@@ -698,6 +701,65 @@ impl Paypunkd {
             |accounts| PaypunkdResponse::AccountsBulkDerived { accounts },
         )
     }
+
+    async fn register_signer(
+        &mut self,
+        encrypted_db_password: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
+    ) -> PaypunkdResponse {
+        info!("handling RegisterSigner");
+
+        // Unlock DB first if needed
+        if self.db.is_locked() {
+            let decrypted_password = match self
+                .keystore
+                .decrypt(&encrypted_db_password, &ephemeral_public_key)
+            {
+                Ok(pw) => pw,
+                Err(e) => {
+                    return PaypunkdResponse::Error {
+                        message: format!("failed to decrypt db password: {e}"),
+                    }
+                }
+            };
+            if let Err(e) = self.db.unlock(&decrypted_password) {
+                return PaypunkdResponse::Error {
+                    message: format!("failed to unlock database: {e}"),
+                };
+            }
+        }
+
+        self.respond(
+            "register_signer",
+            usecases::register_signer(
+                &self.keypunk_service,
+                &self.protocols,
+                &self.db,
+                self.accounts_repo.as_ref(),
+                self.signer_state_repo.as_ref(),
+                &self.keystore,
+                paths,
+            )
+            .await,
+            |accounts_count| PaypunkdResponse::SignerRegistered { accounts_count },
+        )
+    }
+
+    async fn verify_signer_session(&self) -> PaypunkdResponse {
+        info!("handling VerifySignerSession");
+        self.respond(
+            "verify_signer_session",
+            usecases::verify_signer_session(
+                &self.keypunk_service,
+                &self.db,
+                self.signer_state_repo.as_ref(),
+                &self.keystore,
+            )
+            .await,
+            |()| PaypunkdResponse::SignerSessionVerified,
+        )
+    }
 }
 
 impl Actor for Paypunkd {}
@@ -868,6 +930,21 @@ impl Handler<IpcMessage> for Paypunkd {
             }
             PaypunkdRequest::GetTransactionStatus { protocol, txid } => {
                 self.get_transaction_status(protocol, txid).await
+            }
+            PaypunkdRequest::RegisterSigner {
+                encrypted_db_password,
+                client_public_key,
+                paths,
+            } => {
+                self.register_signer(
+                    encrypted_db_password,
+                    client_public_key,
+                    paths,
+                )
+                .await
+            }
+            PaypunkdRequest::VerifySignerSession => {
+                self.verify_signer_session().await
             }
         };
 

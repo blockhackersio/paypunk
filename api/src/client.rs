@@ -220,6 +220,25 @@ impl Client {
         crate::functions::reveal_phrase(&self.service, password).await
     }
 
+    /// Register an offline signer: derive viewing keys for 5 accounts per protocol.
+    ///
+    /// The user enters their password on the signer device. This function sends
+    /// the registration request to paypunkd which forwards it to the bridge.
+    pub async fn register_signer(
+        &self,
+        password: Zeroizing<String>,
+    ) -> Result<u32, String> {
+        crate::functions::register_signer(&self.service, password).await
+    }
+
+    /// Verify an existing signer session (no password needed).
+    ///
+    /// Sends a challenge to the signer via the bridge. The signer signs it
+    /// with its session key. If valid, the wallet unlocks.
+    pub async fn verify_signer_session(&self) -> Result<(), String> {
+        crate::functions::verify_signer_session(&self.service).await
+    }
+
     /// Add an entry to the address book.
     pub async fn add_address_book_entry(
         &self,

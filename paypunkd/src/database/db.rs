@@ -6,7 +6,7 @@ use rusqlite::Connection;
 use super::encryption::{decrypt_db, encrypt_db, DbCryptoError};
 use super::migration::{
     AccountsMigration, AddressBookMigration, Migration, Migrator, PreDerivedKeysMigration,
-    SettingsMigration,
+    SettingsMigration, SignerStateMigration,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -119,6 +119,7 @@ impl Database {
         migrator.register(Box::new(PreDerivedKeysMigration));
         migrator.register(Box::new(AddressBookMigration));
         migrator.register(Box::new(SettingsMigration));
+        migrator.register(Box::new(SignerStateMigration));
         migrator.migrate(&conn).map_err(DbError::Migration)?;
         Ok(())
     }

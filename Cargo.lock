@@ -4133,6 +4133,7 @@ dependencies = [
  "aes-gcm",
  "argon2",
  "async-trait",
+ "blake2",
  "keypunkd",
  "paypunk-chains-ethereum",
  "paypunk-chains-zcash",

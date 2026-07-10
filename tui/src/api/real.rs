@@ -682,11 +682,22 @@ impl WalletApi for RealWalletApi {
     }
 
     async fn unlock(&self, password: String) -> Result<UnlockData, ApiError> {
-        self.client
-            .unlock(Zeroizing::new(password))
-            .await
-            .map(|accounts_count| UnlockData { accounts_count })
-            .map_err(|e| ApiError(e))
+        if self.signer_mode {
+            // In signer mode, register (or re-register) the signer.
+            // This sends viewing key paths to the bridge, the user approves on-device,
+            // and paypunkd stores the viewing keys + creates accounts.
+            self.client
+                .register_signer(Zeroizing::new(password))
+                .await
+                .map(|accounts_count| UnlockData { accounts_count })
+                .map_err(|e| ApiError(e))
+        } else {
+            self.client
+                .unlock(Zeroizing::new(password))
+                .await
+                .map(|accounts_count| UnlockData { accounts_count })
+                .map_err(|e| ApiError(e))
+        }
     }
 
     async fn get_address_book(&self) -> AddressBookData {

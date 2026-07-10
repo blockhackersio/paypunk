@@ -403,4 +403,32 @@ impl PaypunkService {
             _ => Err("unexpected response variant".to_string()),
         }
     }
+
+    pub async fn register_signer(
+        &self,
+        encrypted_db_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
+    ) -> Result<u32, String> {
+        match self
+            .send(PaypunkdRequest::RegisterSigner {
+                encrypted_db_password,
+                client_public_key,
+                paths,
+            })
+            .await?
+        {
+            PaypunkdResponse::SignerRegistered { accounts_count } => Ok(accounts_count),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn verify_signer_session(&self) -> Result<(), String> {
+        match self.send(PaypunkdRequest::VerifySignerSession).await? {
+            PaypunkdResponse::SignerSessionVerified => Ok(()),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
 }

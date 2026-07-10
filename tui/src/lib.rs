@@ -42,17 +42,25 @@ pub async fn run_tui(
         connect_with_retry(socket_path, shutdown.as_ref(), signer_mode).await?;
 
     let mut app = App::new(api);
+    println!("app has instantiated!");
 
+    println!("checking wallet exists...");
     let wallet_exists = app.api.check_wallet_exists().await;
+    println!("wallet exists = {}", wallet_exists);
+
     if wallet_exists {
+        println!("wallet exists...");
+
         let mut greeting = Box::new(GreetingScreen::new());
         greeting.init(&*app.api).await;
         app.push_screen(greeting);
     } else {
+        println!("wallet does not exist...");
         let mut setup = Box::new(SetupScreen::new());
         setup.init(&*app.api).await;
         app.push_screen(setup);
     }
+    println!("taking hook...");
 
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -60,7 +68,9 @@ pub async fn run_tui(
         prev_hook(info);
     }));
 
+    println!("about to init ratatui...");
     let mut terminal = ratatui::init();
+    println!("ABOUT TO RUN TERMINAL CLEAR...");
     terminal.clear()?;
     crossterm::execute!(std::io::stdout(), EnableBracketedPaste)?;
 

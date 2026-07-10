@@ -50,6 +50,8 @@ export default function ScanPage() {
       const result = await invoke<ProcessResult>("process_scanned_qr", { qrData: content });
       if (result.mode === "response") {
         navigate("/result");
+      } else if (result.mode === "register") {
+        navigate("/register");
       } else {
         navigate("/preview");
       }

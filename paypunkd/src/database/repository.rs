@@ -176,3 +176,49 @@ impl AddressBookRepository for SqliteAddressBookRepository {
         Ok(())
     }
 }
+
+// ── Signer State Repository ────────────────────────────────────────────────
+
+pub trait SignerStateRepository: Send + Sync {
+    fn save_session_key(&self, conn: &Connection, session_public_key: &[u8; 32]) -> Result<(), String>;
+    fn get_session_key(&self, conn: &Connection) -> Result<Option<[u8; 32]>, String>;
+}
+
+pub struct SqliteSignerStateRepository;
+
+impl SignerStateRepository for SqliteSignerStateRepository {
+    fn save_session_key(&self, conn: &Connection, session_public_key: &[u8; 32]) -> Result<(), String> {
+        conn.execute(
+            "DELETE FROM signer_state",
+            [],
+        )
+        .map_err(|e| format!("failed to clear signer_state: {e}"))?;
+        conn.execute(
+            "INSERT INTO signer_state (session_public_key) VALUES (?1)",
+            rusqlite::params![session_public_key.to_vec()],
+        )
+        .map_err(|e| format!("failed to save session key: {e}"))?;
+        Ok(())
+    }
+
+    fn get_session_key(&self, conn: &Connection) -> Result<Option<[u8; 32]>, String> {
+        let result: Result<Vec<u8>, _> = conn.query_row(
+            "SELECT session_public_key FROM signer_state LIMIT 1",
+            [],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(bytes) => {
+                if bytes.len() == 32 {
+                    let mut key = [0u8; 32];
+                    key.copy_from_slice(&bytes);
+                    Ok(Some(key))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(format!("failed to get session key: {e}")),
+        }
+    }
+}
