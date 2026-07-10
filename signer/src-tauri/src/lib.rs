@@ -6,12 +6,10 @@ use paypunk_pong::PongHandler;
 use serde::Serialize;
 use signer::{SignerState, SignerStatus};
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
 
 struct AppState {
-    signer: Mutex<SignerState>,
-    /// Base64-encoded bridge response (for display as QR on the result page).
-    /// Set by process_scanned_qr (ping/pong) or approve_and_sign (real signing).
+    signer: Mutex<Option<SignerState>>,
     last_response: Mutex<Option<String>>,
 }
 
@@ -35,17 +33,33 @@ fn generate_qr_svg(data: &str) -> Result<String, String> {
         .build())
 }
 
+fn get_or_init_signer<'a>(
+    opt: &'a mut Option<SignerState>,
+    app: &tauri::AppHandle,
+) -> Result<&'a mut SignerState, String> {
+    if opt.is_none() {
+        let data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("failed to get app data dir: {e}"))?;
+        std::fs::create_dir_all(&data_dir).map_err(|e| format!("failed to create data dir: {e}"))?;
+        *opt = Some(SignerState::create(data_dir));
+    }
+    Ok(opt.as_mut().unwrap())
+}
+
 #[tauri::command]
-fn generate_seed(state: State<AppState>) -> Result<String, String> {
-    let mut signer = state.signer.lock().map_err(|e| e.to_string())?;
-    *signer = SignerState::create();
-    Ok(signer.mnemonic.clone())
+fn generate_seed(state: State<AppState>, app: tauri::AppHandle) -> Result<String, String> {
+    let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
+    let signer = get_or_init_signer(&mut guard, &app)?;
+    signer.generate_seed()
 }
 
 #[tauri::command]
 fn get_signer_status(state: State<AppState>) -> Result<String, String> {
-    let signer = state.signer.lock().map_err(|e| e.to_string())?;
-    Ok(match &signer.status {
+    let guard = state.signer.lock().map_err(|e| e.to_string())?;
+    let signer = guard.as_ref().ok_or("signer not initialized")?;
+    Ok(match signer.status() {
         SignerStatus::Idle => "idle".to_string(),
         SignerStatus::Previewing { .. } => "previewing".to_string(),
         SignerStatus::Signing => "signing".to_string(),
@@ -55,7 +69,11 @@ fn get_signer_status(state: State<AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn process_scanned_qr(state: State<AppState>, qr_data: String) -> Result<ProcessResult, String> {
+fn process_scanned_qr(
+    state: State<AppState>,
+    app: tauri::AppHandle,
+    qr_data: String,
+) -> Result<ProcessResult, String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&qr_data)
         .map_err(|e| format!("base64 decode: {e}"))?;
@@ -69,7 +87,10 @@ fn process_scanned_qr(state: State<AppState>, qr_data: String) -> Result<Process
         ));
     }
     if bytes[0] != MSG_APPLICATION {
-        return Err(format!("expected MSG_APPLICATION (0x04), got 0x{:02x}", bytes[0]));
+        return Err(format!(
+            "expected MSG_APPLICATION (0x04), got 0x{:02x}",
+            bytes[0]
+        ));
     }
     let payload = &bytes[1..bytes.len() - MAC_LEN];
 
@@ -88,7 +109,8 @@ fn process_scanned_qr(state: State<AppState>, qr_data: String) -> Result<Process
     }
 
     // Real signing flow: payload is postcard-serialized KeypunkdRequest
-    let mut signer = state.signer.lock().map_err(|e| e.to_string())?;
+    let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
+    let signer = get_or_init_signer(&mut guard, &app)?;
     let response_bytes = signer.handle_request(payload);
 
     // Store the bridge-compatible response for later (approve_and_sign will
@@ -103,8 +125,9 @@ fn process_scanned_qr(state: State<AppState>, qr_data: String) -> Result<Process
 }
 
 #[tauri::command]
-fn approve_and_sign(state: State<AppState>) -> Result<String, String> {
-    let mut signer = state.signer.lock().map_err(|e| e.to_string())?;
+fn approve_and_sign(state: State<AppState>, app: tauri::AppHandle) -> Result<String, String> {
+    let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
+    let signer = get_or_init_signer(&mut guard, &app)?;
     let signed = signer.approve_and_sign()?;
 
     // Wrap as bridge-compatible response: [0x00] [postcard KeypunkdResponse]
@@ -126,8 +149,9 @@ fn approve_and_sign(state: State<AppState>) -> Result<String, String> {
 
 #[tauri::command]
 fn get_preview(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let signer = state.signer.lock().map_err(|e| e.to_string())?;
-    match &signer.status {
+    let guard = state.signer.lock().map_err(|e| e.to_string())?;
+    let signer = guard.as_ref().ok_or("signer not initialized")?;
+    match signer.status() {
         SignerStatus::Previewing { summary, .. } => {
             serde_json::to_value(summary).map_err(|e| format!("serialize: {e}"))
         }
@@ -152,14 +176,21 @@ fn generate_response_qr(response_b64: String) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = AppState {
-        signer: Mutex::new(SignerState::create()),
-        last_response: Mutex::new(None),
-    };
-
     tauri::Builder::default()
         .plugin(tauri_plugin_barcode_scanner::init())
-        .manage(app_state)
+        .setup(|app| {
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to get app data dir");
+            std::fs::create_dir_all(&data_dir).expect("failed to create app data dir");
+            let signer = SignerState::create(data_dir);
+            app.manage(AppState {
+                signer: Mutex::new(Some(signer)),
+                last_response: Mutex::new(None),
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             generate_seed,
             get_signer_status,

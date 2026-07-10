@@ -25,10 +25,16 @@ base64 = "0.22"
 paypunk-pong = { path = "../../pong" }
 paypunk-ipc = { path = "../../ipc" }
 
-# Signer deps
+# Keypunk (key management library)
+keypunkd = { path = "../../keypunkd" }
+
+# Protocol implementations for signer registration
 paypunk-chains-zcash = { path = "../../protocols/zcash", default-features = false }
+paypunk-chains-ethereum = { path = "../../protocols/ethereum" }
+
+# Shared types (wire protocol for bridge QR frames)
 paypunk-types = { path = "../../types" }
 zcash_protocol = { version = "0.8", features = ["local-consensus"] }
-bip39 = "2"
 postcard = { version = "1", features = ["alloc"] }
-hex = "0.4"
+zeroize = "1"
+rand = "0.8"

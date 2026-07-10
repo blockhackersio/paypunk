@@ -1,17 +1,26 @@
+use keypunkd::crypto::Keypair;
+use keypunkd::keypunk::Keypunk;
+use keypunkd::protocol::ProtocolService;
+use keypunkd::seed_store::FilesystemSeedStore;
+use paypunk_chains_ethereum::signer::EthereumSignerProtocol;
 use paypunk_chains_zcash::signer::ZcashSignerProtocol;
 use paypunk_chains_zcash::to_local_params;
 use paypunk_types::{
-    ArtifactSummary, ChainId, KeypunkdRequest, KeypunkdResponse, ProtocolId, SignerProtocol,
+    ArtifactSummary, KeypunkdRequest, KeypunkdResponse, ProtocolId,
 };
+use std::path::PathBuf;
 use zcash_protocol::consensus::{Network, NetworkType};
-
-// TODO: refactor to use Keypunk
+use zeroize::Zeroizing;
+use base64::Engine;
+use rand::RngCore;
 
 pub struct SignerState {
-    pub seed: [u8; 64],
-    pub mnemonic: String,
-    zcash_signer: Option<ZcashSignerProtocol>,
-    pub status: SignerStatus,
+    keypunk: Keypunk<FilesystemSeedStore>,
+    client_keypair: Keypair,
+    server_public_key: [u8; 32],
+    status: SignerStatus,
+    password: Option<String>,
+    data_dir: PathBuf,
 }
 
 pub enum SignerStatus {
@@ -21,6 +30,7 @@ pub enum SignerStatus {
         summary: ArtifactSummary,
         derivation_path: String,
         protocol: ProtocolId,
+        preview_signature: Vec<u8>,
     },
     Signing,
     Signed {
@@ -30,32 +40,108 @@ pub enum SignerStatus {
 }
 
 impl SignerState {
-    pub fn create() -> Self {
-        let mnemonic = "test test test test test test test test test test test junk".to_string();
-        let seed = bip39::Mnemonic::parse(&mnemonic)
-            .expect("valid mnemonic")
-            .to_seed("");
+    pub fn create(data_dir: PathBuf) -> Self {
+        let server_keypair = Keypair::new();
+        let server_public_key = server_keypair.public_key();
+        let client_keypair = Keypair::new();
+
+        let seed_store = FilesystemSeedStore::new(
+            data_dir.join("seed.enc").into_boxed_path(),
+        );
+
+        let mut protocols = ProtocolService::new();
+        let (params, network_type) = (Network::TestNetwork, NetworkType::Regtest);
+        protocols.register(
+            ProtocolId::Zcash,
+            Box::new(ZcashSignerProtocol::new(
+                to_local_params(params, network_type),
+                network_type,
+            )),
+        );
+        protocols.register(
+            ProtocolId::Ethereum,
+            Box::new(EthereumSignerProtocol::new()),
+        );
+
+        let keypunk = Keypunk::new(server_keypair, seed_store, protocols);
+        let password = Self::load_password(&data_dir);
 
         Self {
-            seed,
-            mnemonic,
-            zcash_signer: None,
+            keypunk,
+            client_keypair,
+            server_public_key,
             status: SignerStatus::Idle,
+            password,
+            data_dir,
         }
     }
 
-    fn get_or_init_zcash(&mut self, chain_id: &ChainId) -> Result<&ZcashSignerProtocol, String> {
-        if self.zcash_signer.is_none() {
-            let (network, network_type) = match chain_id.reference.as_str() {
-                "mainnet" => (Network::MainNetwork, NetworkType::Main),
-                "testnet" => (Network::TestNetwork, NetworkType::Test),
-                "regtest" => (Network::TestNetwork, NetworkType::Regtest),
-                _ => return Err(format!("unsupported zcash network: {}", chain_id.reference)),
-            };
-            let params = to_local_params(network, network_type);
-            self.zcash_signer = Some(ZcashSignerProtocol::new(params, network_type));
+    fn password_path(&self) -> PathBuf {
+        self.data_dir.join(".seed-password")
+    }
+
+    fn load_password(data_dir: &std::path::Path) -> Option<String> {
+        let path = data_dir.join(".seed-password");
+        std::fs::read_to_string(path).ok()
+    }
+
+    fn ensure_password(&mut self) -> Result<String, String> {
+        if let Some(ref pwd) = self.password {
+            return Ok(pwd.clone());
         }
-        Ok(self.zcash_signer.as_ref().unwrap())
+        let mut bytes = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut bytes);
+        let password = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+        let path = self.password_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, &password).map_err(|e| e.to_string())?;
+
+        self.password = Some(password.clone());
+        Ok(password)
+    }
+
+    pub fn has_seed(&self) -> bool {
+        let response = self.keypunk.handle_request(
+            KeypunkdRequest::HasSeed,
+            Some(self.client_keypair.public_key()),
+        );
+        match response {
+            KeypunkdResponse::HasSeed { exists } => exists,
+            _ => false,
+        }
+    }
+
+    pub fn generate_seed(&mut self) -> Result<String, String> {
+        let password = self.ensure_password()?;
+        let client_pk = self.client_keypair.public_key();
+
+        let encrypted_password =
+            self.client_keypair
+                .encrypt(Zeroizing::new(password), &self.server_public_key);
+
+        let request = KeypunkdRequest::GenerateSeed {
+            encrypted_password,
+            client_public_key: client_pk,
+        };
+
+        let response = self.keypunk.handle_request(request, Some(client_pk));
+
+        match response {
+            KeypunkdResponse::SeedGenerated {
+                encrypted_mnemonic,
+            } => {
+                let mnemonic = self
+                    .client_keypair
+                    .decrypt(&encrypted_mnemonic, &self.server_public_key)
+                    .map_err(|e| format!("decrypt mnemonic failed: {e}"))?;
+                Ok(mnemonic.to_string())
+            }
+            KeypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response".to_string()),
+        }
     }
 
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Vec<u8> {
@@ -69,96 +155,118 @@ impl SignerState {
             }
         };
 
-        let response = match request {
+        let client_pk = self.client_keypair.public_key();
+
+        let (derivation_path, protocol) = match &request {
             KeypunkdRequest::PreviewArtifact {
-                raw_artifact,
-                protocol,
-                chain_id,
                 derivation_path,
-            } => match protocol {
-                ProtocolId::Zcash => {
-                    let signer = match self.get_or_init_zcash(&chain_id) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            return postcard::to_allocvec(&KeypunkdResponse::Error { message: e })
-                                .unwrap_or_default();
-                        }
-                    };
-
-                    let parsed = match signer.parse_artifact(&raw_artifact) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            return postcard::to_allocvec(&KeypunkdResponse::Error { message: e })
-                                .unwrap_or_default();
-                        }
-                    };
-
-                    let summary: ArtifactSummary = match postcard::from_bytes(&parsed) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            return postcard::to_allocvec(&KeypunkdResponse::Error {
-                                message: format!("summary deserialize: {e}"),
-                            })
-                            .unwrap_or_default();
-                        }
-                    };
-
-                    self.status = SignerStatus::Previewing {
-                        raw_artifact,
-                        summary,
-                        derivation_path,
-                        protocol,
-                    };
-
-                    KeypunkdResponse::ArtifactPreview {
-                        raw_artifact: vec![],
-                        parsed_summary: parsed,
-                        signature: vec![],
-                        keypunkd_public_key: [0u8; 32],
-                    }
-                }
-                ProtocolId::Ethereum => KeypunkdResponse::Error {
-                    message: "Ethereum signing not yet supported in signer".to_string(),
-                },
-            },
-            _ => KeypunkdResponse::Error {
-                message: "unsupported request".to_string(),
-            },
+                protocol,
+                ..
+            } => (Some(derivation_path.clone()), Some(*protocol)),
+            _ => (None, None),
         };
+
+        let response = self.keypunk.handle_request(request, Some(client_pk));
+
+        if let KeypunkdResponse::ArtifactPreview {
+            ref raw_artifact,
+            ref parsed_summary,
+            ref signature,
+            ..
+        } = response
+        {
+            let summary: ArtifactSummary = match postcard::from_bytes(parsed_summary) {
+                Ok(s) => s,
+                Err(_) => {
+                    let resp = KeypunkdResponse::Error {
+                        message: "summary deserialize failed".to_string(),
+                    };
+                    return postcard::to_allocvec(&resp).unwrap_or_default();
+                }
+            };
+
+            self.status = SignerStatus::Previewing {
+                raw_artifact: raw_artifact.clone(),
+                summary,
+                derivation_path: derivation_path.unwrap_or_default(),
+                protocol: protocol.unwrap_or(ProtocolId::Zcash),
+                preview_signature: signature.clone(),
+            };
+        }
 
         postcard::to_allocvec(&response).unwrap_or_default()
     }
 
     pub fn approve_and_sign(&mut self) -> Result<Vec<u8>, String> {
-        let (raw_artifact, derivation_path, protocol) = match &self.status {
+        let (raw_artifact, derivation_path, preview_signature) = match &self.status {
             SignerStatus::Previewing {
                 raw_artifact,
                 derivation_path,
-                protocol,
+                preview_signature,
                 ..
-            } => (raw_artifact.clone(), derivation_path.clone(), *protocol),
+            } => (
+                raw_artifact.clone(),
+                derivation_path.clone(),
+                preview_signature.clone(),
+            ),
             _ => return Err("no preview to sign".to_string()),
         };
 
         self.status = SignerStatus::Signing;
 
-        let signed = match protocol {
-            ProtocolId::Zcash => {
-                let signer = self
-                    .zcash_signer
-                    .as_ref()
-                    .ok_or("zcash signer not initialized")?;
-                signer.sign(&self.seed, &derivation_path, &raw_artifact)?
-            }
-            ProtocolId::Ethereum => {
-                return Err("Ethereum signing not yet supported".to_string());
-            }
+        let password = self
+            .password
+            .as_ref()
+            .ok_or("no password set — generate seed first")?;
+        let client_pk = self.client_keypair.public_key();
+
+        let mut plaintext = Vec::new();
+        plaintext.extend_from_slice(&(raw_artifact.len() as u32).to_le_bytes());
+        plaintext.extend_from_slice(&raw_artifact);
+        plaintext.extend_from_slice(&(preview_signature.len() as u32).to_le_bytes());
+        plaintext.extend_from_slice(&preview_signature);
+        plaintext.extend_from_slice(password.as_bytes());
+
+        let encrypted_payload =
+            self.client_keypair
+                .encrypt_bytes(&plaintext, &self.server_public_key);
+
+        let request = KeypunkdRequest::AuthorizeArtifact {
+            encrypted_payload,
+            ephemeral_public_key: client_pk,
+            derivation_path,
         };
 
-        self.status = SignerStatus::Signed {
-            signed_artifact: signed.clone(),
-        };
+        let response = self.keypunk.handle_request(request, Some(client_pk));
 
-        Ok(signed)
+        match response {
+            KeypunkdResponse::ArtifactAuthorized { signed_artifact } => {
+                self.status = SignerStatus::Signed {
+                    signed_artifact: signed_artifact.clone(),
+                };
+                Ok(signed_artifact)
+            }
+            KeypunkdResponse::Error { message } => {
+                self.status = SignerStatus::Error(message.clone());
+                Err(message)
+            }
+            _ => {
+                let msg = "unexpected response".to_string();
+                self.status = SignerStatus::Error(msg.clone());
+                Err(msg)
+            }
+        }
+    }
+
+    pub fn status(&self) -> &SignerStatus {
+        &self.status
+    }
+
+    pub fn status_mut(&mut self) -> &mut SignerStatus {
+        &mut self.status
+    }
+
+    pub fn mnemonic(&self) -> Option<&str> {
+        None
     }
 }
