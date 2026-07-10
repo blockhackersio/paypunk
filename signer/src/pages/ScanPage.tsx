@@ -11,6 +11,7 @@ interface ProcessResult {
 export default function ScanPage() {
   const { navigate } = useNav();
   const [scanning, setScanning] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleScan = async () => {
@@ -61,6 +62,19 @@ export default function ScanPage() {
     }
   };
 
+  const handleDeleteWallet = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      await invoke<null>("delete_seed");
+      navigate("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <Page>
       <Navbar title="Scan QR" />
@@ -74,6 +88,11 @@ export default function ScanPage() {
         </Button>
         <div className="flex justify-center mt-4" style={{ display: scanning ? "flex" : "none" }}>
           <Preloader />
+        </div>
+        <div className="mt-8">
+          <Button large rounded outline className="w-full" onClick={handleDeleteWallet} disabled={deleting}>
+            {deleting ? "Deleting..." : "Delete Wallet"}
+          </Button>
         </div>
       </Block>
       <Block strong className="text-center" style={{ display: error ? "block" : "none" }}>
