@@ -1,10 +1,31 @@
-export interface ArtifactSummary {
-  outputs: Array<{ address: string; amount: string }>;
-  fee: string;
+export interface AppInfo {
+  app_name: string;
+  app_version: string;
+  target_triple: string;
+  build_profile: string;
+  source: "rust" | "mock";
 }
 
-export interface ZcashPreview {
-  Zcash: ArtifactSummary;
+export interface GreetResult {
+  message: string;
+}
+
+export interface ListItem {
+  id: number;
+  title: string;
+  description: string;
+  category: string;
+}
+
+export interface Settings {
+  theme_preference: string;
+  launch_count: number;
+  favourite_color: string;
+  note: string;
+}
+
+export interface TimerTick {
+  tick: number;
 }
 
 function isTauri(): boolean {
@@ -19,59 +40,70 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return mockInvoke<T>(cmd, args);
 }
 
+async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
+  if (isTauri()) {
+    const { listen } = await import("@tauri-apps/api/event");
+    return listen<T>(event, (e) => handler(e.payload));
+  }
+  return mockListen(event, handler);
+}
+
 // ── Mock implementations ──────────────────────────────────────────
 
-let mockState: {
-  status: "idle" | "previewing" | "signed";
-  mnemonic: string;
-  preview: ZcashPreview | null;
-  signedHex: string;
-} = {
-  status: "idle",
-  mnemonic: "ribbon velvet ocean puzzle harvest guitar shadow ladder comfort raven spring anchor",
-  preview: null,
-  signedHex: "",
+let mockSettings: Settings = {
+  theme_preference: "material",
+  launch_count: 0,
+  favourite_color: "#ff0000",
+  note: "Browser mock — data is not persisted",
 };
 
-async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  switch (cmd) {
-    case "generate_seed": {
-      mockState.mnemonic = "mock seed phrase generated for browser testing";
-      mockState.status = "idle";
-      return mockState.mnemonic as T;
-    }
+let mockTimerRunning = false;
+const mockListeners: Record<string, Array<(payload: unknown) => void>> = {};
 
-    case "get_signer_status": {
-      return mockState.status as T;
-    }
+async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Promise<T> {
+  switch (cmd) {
+    case "get_app_info":
+      return {
+        app_name: "PayPunk Signer",
+        app_version: "0.1.0",
+        target_triple: "mock-x86_64-unknown-linux-gnu",
+        build_profile: "mock",
+        source: "mock",
+      } as T;
+
+    case "greet":
+      return { message: `Hello, ${_args?.name ?? "stranger"}! (mock)` } as T;
+
+    case "get_list_items":
+      return [
+        { id: 1, title: "Mock Item Alpha", description: "This is a mock item from the browser fallback", category: "mock" },
+        { id: 2, title: "Mock Item Beta", description: "Another mock item for demonstration", category: "mock" },
+        { id: 3, title: "Mock Item Gamma", description: "Yet another mock item", category: "mock" },
+      ] as T;
+
+    case "get_settings":
+      return { ...mockSettings } as T;
+
+    case "save_settings":
+      mockSettings = { ...mockSettings, ...(_args as Record<string, unknown>) as unknown as Partial<Settings> };
+      return { ...mockSettings } as T;
 
     case "process_scanned_qr": {
-      const qrData = args?.qr_data as string;
-      if (!qrData) throw new Error("no qr_data provided");
-      // In mock mode, simulate a preview artifact response
-      mockState.preview = {
-        Zcash: {
-          outputs: [
-            { address: "zs1mock...", amount: "10000" },
-          ],
-          fee: "1000",
-        },
-      };
-      mockState.status = "previewing";
-      return "00" as T;
-    }
-
-    case "approve_and_sign": {
-      mockState.signedHex = "deadbeef";
-      mockState.status = "signed";
-      return mockState.signedHex as T;
-    }
-
-    case "get_preview": {
-      if (mockState.preview) {
-        return mockState.preview as T;
+      const content = _args?.content as string;
+      if (!content) {
+        throw new Error("no content provided");
       }
-      throw new Error("no preview available");
+      // Simulate PongHandler: decode base64, check it looks like a ping frame
+      try {
+        const binary = atob(content);
+        if (binary.length < 5 || binary.charCodeAt(0) !== 0x04) {
+          throw new Error("expected MSG_APPLICATION frame");
+        }
+        // Return a mock QR SVG
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300"><rect width="300" height="300" fill="#fff"/><text x="150" y="140" text-anchor="middle" font-family="monospace" font-size="14" fill="#000">Mock QR</text><text x="150" y="160" text-anchor="middle" font-family="monospace" font-size="14" fill="#000">(browser mode)</text></svg>` as T;
+      } catch (e) {
+        throw new Error(`mock process error: ${e}`);
+      }
     }
 
     default:
@@ -79,4 +111,27 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
   }
 }
 
-export { isTauri, invoke };
+async function mockListen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
+  if (!mockListeners[event]) mockListeners[event] = [];
+  mockListeners[event].push(handler as (payload: unknown) => void);
+
+  if (event === "timer-tick" && !mockTimerRunning) {
+    mockTimerRunning = true;
+    let tick = 0;
+    const interval = setInterval(() => {
+      tick++;
+      (mockListeners["timer-tick"] ?? []).forEach((h) => h({ tick }));
+    }, 1000);
+    return () => {
+      clearInterval(interval);
+      mockTimerRunning = false;
+    };
+  }
+
+  return () => {
+    const idx = mockListeners[event]?.indexOf(handler as (payload: unknown) => void) ?? -1;
+    if (idx >= 0) mockListeners[event]?.splice(idx, 1);
+  };
+}
+
+export { isTauri, invoke, listen };
