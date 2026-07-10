@@ -5,6 +5,8 @@ use paypunk_types::{
 };
 use zcash_protocol::consensus::{Network, NetworkType};
 
+// TODO: refactor to use Keypunk
+
 pub struct SignerState {
     pub seed: [u8; 64],
     pub mnemonic: String,
@@ -29,9 +31,7 @@ pub enum SignerStatus {
 
 impl SignerState {
     pub fn create() -> Self {
-        let mnemonic =
-            "ribbon velvet ocean puzzle harvest guitar shadow ladder comfort raven spring anchor"
-                .to_string();
+        let mnemonic = "test test test test test test test test test test test junk".to_string();
         let seed = bip39::Mnemonic::parse(&mnemonic)
             .expect("valid mnemonic")
             .to_seed("");

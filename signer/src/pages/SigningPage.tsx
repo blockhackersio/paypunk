@@ -1,16 +1,18 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNav } from "../nav";
 import { Page, Navbar, Block, BlockTitle, Preloader } from "konsta/react";
 import { invoke } from "../backend";
 
 export default function SigningPage() {
-  const navigate = useNavigate();
+  const { navigate } = useNav();
   const [status, setStatus] = useState("signing");
 
   useEffect(() => {
+    let cancelled = false;
     const interval = setInterval(async () => {
       try {
         const s = await invoke<string>("get_signer_status");
+        if (cancelled) return;
         setStatus(s);
         if (s === "signed") {
           clearInterval(interval);
@@ -23,7 +25,10 @@ export default function SigningPage() {
       }
     }, 500);
 
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [navigate]);
 
   return (

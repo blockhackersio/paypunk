@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNav } from "../nav";
 import { Page, Navbar, Block, BlockTitle, Button, List, ListItem, Preloader } from "konsta/react";
 import { invoke } from "../backend";
 
@@ -18,7 +18,7 @@ interface ArtifactSummary {
 }
 
 export default function PreviewPage() {
-  const navigate = useNavigate();
+  const { navigate } = useNav();
   const [preview, setPreview] = useState<ArtifactSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
@@ -53,65 +53,55 @@ export default function PreviewPage() {
     navigate("/scan");
   };
 
-  if (loading) {
-    return (
-      <Page>
-        <Navbar title="Preview" />
-        <Block strong className="text-center">
-          <Preloader />
-          <p className="mt-4 text-gray-500">Loading preview...</p>
-        </Block>
-      </Page>
-    );
-  }
-
   const zcashPreview = preview?.Zcash;
 
   return (
     <Page>
       <Navbar title="Transaction Preview" />
       <BlockTitle>Transaction Details</BlockTitle>
-      {zcashPreview ? (
-        <>
-          <Block strong>
-            <List>
-              <ListItem title="Outputs" after={String(zcashPreview.outputs.length)} />
-              {zcashPreview.outputs.map((out, i) => (
-                <ListItem
-                  key={i}
-                  title={`Output ${i + 1}`}
-                  subtitle={`${out.amount} zatoshis`}
-                  after={out.address.slice(0, 12) + "..."}
-                />
-              ))}
-              <ListItem title="Fee" after={`${zcashPreview.fee} zatoshis`} />
-            </List>
-          </Block>
-          <Block strong className="text-center">
-            <Button large rounded className="w-full mb-2" onClick={handleApprove} disabled={signing}>
-              {signing ? "Signing..." : "Approve & Sign"}
-            </Button>
-            <Button large rounded outline className="w-full" onClick={handleReject} disabled={signing}>
-              Reject
-            </Button>
-          </Block>
-        </>
-      ) : (
-        <Block strong className="text-center">
-          <p className="text-gray-500">No preview data available.</p>
-          <Button className="mt-4" onClick={() => navigate("/scan")}>Back to Scan</Button>
+
+      <Block strong className="text-center" style={{ display: loading ? "block" : "none" }}>
+        <Preloader />
+        <p className="mt-4 text-gray-500">Loading preview...</p>
+      </Block>
+
+      <div style={{ display: !loading && zcashPreview ? "block" : "none" }}>
+        <Block strong>
+          <List>
+            <ListItem title="Outputs" after={String(zcashPreview?.outputs.length ?? 0)} />
+            {zcashPreview?.outputs.map((out, i) => (
+              <ListItem
+                key={i}
+                title={`Output ${i + 1}`}
+                subtitle={`${out.amount} zatoshis`}
+                after={out.address.slice(0, 12) + "..."}
+              />
+            ))}
+            <ListItem title="Fee" after={`${zcashPreview?.fee ?? ""} zatoshis`} />
+          </List>
         </Block>
-      )}
-      {signing && (
         <Block strong className="text-center">
-          <Preloader />
+          <Button large rounded className="w-full mb-2" onClick={handleApprove} disabled={signing}>
+            {signing ? "Signing..." : "Approve & Sign"}
+          </Button>
+          <Button large rounded outline className="w-full" onClick={handleReject} disabled={signing}>
+            Reject
+          </Button>
         </Block>
-      )}
-      {error && (
-        <Block strong className="text-center">
-          <p className="text-red-500">{error}</p>
-        </Block>
-      )}
+      </div>
+
+      <Block strong className="text-center" style={{ display: !loading && !zcashPreview ? "block" : "none" }}>
+        <p className="text-gray-500">No preview data available.</p>
+        <Button className="mt-4" onClick={() => navigate("/scan")}>Back to Scan</Button>
+      </Block>
+
+      <Block strong className="text-center" style={{ display: signing ? "block" : "none" }}>
+        <Preloader />
+      </Block>
+
+      <Block strong className="text-center" style={{ display: error ? "block" : "none" }}>
+        <p className="text-red-500">{error}</p>
+      </Block>
     </Page>
   );
 }

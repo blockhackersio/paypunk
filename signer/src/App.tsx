@@ -1,21 +1,32 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { NavProvider, useNav } from "./nav";
 import OnboardingPage from "./pages/OnboardingPage";
 import ScanPage from "./pages/ScanPage";
 import PreviewPage from "./pages/PreviewPage";
 import SigningPage from "./pages/SigningPage";
 import ResultPage from "./pages/ResultPage";
 
+function CurrentPage() {
+  const { page } = useNav();
+  switch (page) {
+    case "/":
+      return <OnboardingPage />;
+    case "/scan":
+      return <ScanPage />;
+    case "/preview":
+      return <PreviewPage />;
+    case "/signing":
+      return <SigningPage />;
+    case "/result":
+      return <ResultPage />;
+    default:
+      return <OnboardingPage />;
+  }
+}
+
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<OnboardingPage />} />
-        <Route path="/scan" element={<ScanPage />} />
-        <Route path="/preview" element={<PreviewPage />} />
-        <Route path="/signing" element={<SigningPage />} />
-        <Route path="/result" element={<ResultPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <NavProvider>
+      <CurrentPage />
+    </NavProvider>
   );
 }

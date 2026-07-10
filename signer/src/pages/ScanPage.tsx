@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNav } from "../nav";
 import { Page, Navbar, Block, BlockTitle, Button, Preloader } from "konsta/react";
 import { invoke, isTauri } from "../backend";
 
@@ -9,7 +9,7 @@ interface ProcessResult {
 }
 
 export default function ScanPage() {
-  const navigate = useNavigate();
+  const { navigate } = useNav();
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,18 +72,14 @@ export default function ScanPage() {
         <Button large rounded className="w-full" onClick={handleScan} disabled={scanning}>
           {scanning ? "Scanning..." : "Scan QR Code"}
         </Button>
-        {scanning && (
-          <div className="flex justify-center mt-4">
-            <Preloader />
-          </div>
-        )}
+        <div className="flex justify-center mt-4" style={{ display: scanning ? "flex" : "none" }}>
+          <Preloader />
+        </div>
       </Block>
-      {error && (
-        <Block strong className="text-center">
-          <p className="text-red-500">{error}</p>
-          <Button className="mt-2" onClick={() => setError(null)}>Dismiss</Button>
-        </Block>
-      )}
+      <Block strong className="text-center" style={{ display: error ? "block" : "none" }}>
+        <p className="text-red-500">{error}</p>
+        <Button className="mt-2" onClick={() => setError(null)}>Dismiss</Button>
+      </Block>
     </Page>
   );
 }

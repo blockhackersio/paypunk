@@ -158,6 +158,7 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_barcode_scanner::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             generate_seed,

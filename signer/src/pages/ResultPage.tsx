@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { useNav } from "../nav";
 import { Page, Navbar, Block, BlockTitle, Button } from "konsta/react";
 import { invoke } from "../backend";
 
 export default function ResultPage() {
-  const navigate = useNavigate();
+  const { navigate } = useNav();
   const [qrSvg, setQrSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const qrRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -20,6 +21,12 @@ export default function ResultPage() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (qrRef.current && qrSvg) {
+      qrRef.current.innerHTML = qrSvg;
+    }
+  }, [qrSvg]);
+
   return (
     <Page>
       <Navbar title="Signed" />
@@ -29,20 +36,20 @@ export default function ResultPage() {
           The transaction has been signed. Present this device back to the bridge
           to scan the response QR code and complete the flow.
         </p>
-        {error ? (
-          <p className="text-red-500">{error}</p>
-        ) : qrSvg ? (
-          <div
-            className="bg-white rounded-lg p-4 mb-4 flex justify-center inline-block"
-            dangerouslySetInnerHTML={{ __html: qrSvg }}
-          />
-        ) : (
-          <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-8 mb-4 flex justify-center">
-            <div className="w-48 h-48 bg-white rounded flex items-center justify-center">
-              <p className="text-gray-400 text-sm text-center">Loading QR...</p>
-            </div>
+        <p className="text-red-500" style={{ display: error ? "block" : "none" }}>{error}</p>
+        <div
+          ref={qrRef}
+          className="bg-white rounded-lg p-4 mb-4 flex justify-center inline-block"
+          style={{ display: !error && qrSvg ? "flex" : "none" }}
+        />
+        <div
+          className="bg-gray-100 dark:bg-gray-800 rounded-lg p-8 mb-4 flex justify-center"
+          style={{ display: !error && !qrSvg ? "flex" : "none" }}
+        >
+          <div className="w-48 h-48 bg-white rounded flex items-center justify-center">
+            <p className="text-gray-400 text-sm text-center">Loading QR...</p>
           </div>
-        )}
+        </div>
         <Button large rounded className="w-full" onClick={() => navigate("/scan")}>
           Done
         </Button>

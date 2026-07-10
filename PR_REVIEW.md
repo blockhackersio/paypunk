@@ -6,6 +6,15 @@
 
 ## Critical Issues
 
+## MAJOR ISSUE
+
+Refactor has been botched.
+
+It is essential we reuse Keypunk from `./keypunkd` in the signer tauri app found in `./signer`.
+
+We should plug in the appropriate seed store for android.
+
+
 
 ### 1. Hardcoded seed phrase in Tauri signer
 
