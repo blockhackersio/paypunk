@@ -9,17 +9,17 @@ use std::sync::Mutex;
 use tauri::{Manager, State};
 
 struct AppState {
-    signer: Mutex<Option<SignerState>>,
+    signer: Mutex<SignerState>,
     last_response: Mutex<Option<String>>,
 }
 
 #[derive(Serialize)]
 struct ProcessResult {
-    /// "preview" = real signing flow, navigate to /preview
-    /// "response" = immediate response (ping/pong), navigate to /result
     mode: String,
-    /// Base64-encoded bridge response (present when mode == "response")
     response: Option<String>,
+    raw_artifact_b64: Option<String>,
+    preview_signature_b64: Option<String>,
+    derivation_path: Option<String>,
 }
 
 fn generate_qr_svg(data: &str) -> Result<String, String> {
@@ -33,33 +33,37 @@ fn generate_qr_svg(data: &str) -> Result<String, String> {
         .build())
 }
 
-fn get_or_init_signer<'a>(
-    opt: &'a mut Option<SignerState>,
-    app: &tauri::AppHandle,
-) -> Result<&'a mut SignerState, String> {
-    if opt.is_none() {
-        let data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| format!("failed to get app data dir: {e}"))?;
-        std::fs::create_dir_all(&data_dir).map_err(|e| format!("failed to create data dir: {e}"))?;
-        *opt = Some(SignerState::create(data_dir));
-    }
-    Ok(opt.as_mut().unwrap())
+#[tauri::command]
+fn get_encryption_key(state: State<AppState>) -> Result<[u8; 32], String> {
+    let guard = state.signer.lock().map_err(|e| e.to_string())?;
+    Ok(guard.server_public_key())
 }
 
 #[tauri::command]
-fn generate_seed(state: State<AppState>, app: tauri::AppHandle) -> Result<String, String> {
+fn generate_seed(
+    state: State<AppState>,
+    encrypted_password: Vec<u8>,
+    ephemeral_public_key: [u8; 32],
+) -> Result<Vec<u8>, String> {
     let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
-    let signer = get_or_init_signer(&mut guard, &app)?;
-    signer.generate_seed()
+    guard.generate_seed(encrypted_password, ephemeral_public_key)
+}
+
+#[tauri::command]
+fn restore_seed(
+    state: State<AppState>,
+    encrypted_mnemonic: Vec<u8>,
+    encrypted_password: Vec<u8>,
+    ephemeral_public_key: [u8; 32],
+) -> Result<(), String> {
+    let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
+    guard.restore_seed(encrypted_mnemonic, encrypted_password, ephemeral_public_key)
 }
 
 #[tauri::command]
 fn get_signer_status(state: State<AppState>) -> Result<String, String> {
     let guard = state.signer.lock().map_err(|e| e.to_string())?;
-    let signer = guard.as_ref().ok_or("signer not initialized")?;
-    Ok(match signer.status() {
+    Ok(match guard.status() {
         SignerStatus::Idle => "idle".to_string(),
         SignerStatus::Previewing { .. } => "previewing".to_string(),
         SignerStatus::Signing => "signing".to_string(),
@@ -71,7 +75,6 @@ fn get_signer_status(state: State<AppState>) -> Result<String, String> {
 #[tauri::command]
 fn process_scanned_qr(
     state: State<AppState>,
-    app: tauri::AppHandle,
     qr_data: String,
 ) -> Result<ProcessResult, String> {
     let bytes = base64::engine::general_purpose::STANDARD
@@ -94,7 +97,7 @@ fn process_scanned_qr(
     }
     let payload = &bytes[1..bytes.len() - MAC_LEN];
 
-    // Ping/pong test flow: payload is raw bytes "ping"
+    // Ping/pong test flow
     if payload == b"ping" {
         let handler = PongHandler;
         let response = handler.handle(&bytes)?;
@@ -105,30 +108,42 @@ fn process_scanned_qr(
         return Ok(ProcessResult {
             mode: "response".to_string(),
             response: Some(b64),
+            raw_artifact_b64: None,
+            preview_signature_b64: None,
+            derivation_path: None,
         });
     }
 
-    // Real signing flow: payload is postcard-serialized KeypunkdRequest
+    // Real signing flow
     let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
-    let signer = get_or_init_signer(&mut guard, &app)?;
-    let response_bytes = signer.handle_request(payload);
+    let result = guard.handle_request(payload);
 
-    // Store the bridge-compatible response for later (approve_and_sign will
-    // overwrite it with the signed artifact response)
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&response_bytes);
+    // Store bridge-compatible response for get_response
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&result.response_bytes);
     *state.last_response.lock().map_err(|e| e.to_string())? = Some(b64);
 
     Ok(ProcessResult {
         mode: "preview".to_string(),
         response: None,
+        raw_artifact_b64: result.raw_artifact.map(|v| {
+            base64::engine::general_purpose::STANDARD.encode(&v)
+        }),
+        preview_signature_b64: result.preview_signature.map(|v| {
+            base64::engine::general_purpose::STANDARD.encode(&v)
+        }),
+        derivation_path: result.derivation_path,
     })
 }
 
 #[tauri::command]
-fn approve_and_sign(state: State<AppState>, app: tauri::AppHandle) -> Result<String, String> {
+fn approve_and_sign(
+    state: State<AppState>,
+    encrypted_payload: Vec<u8>,
+    ephemeral_public_key: [u8; 32],
+    derivation_path: String,
+) -> Result<String, String> {
     let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
-    let signer = get_or_init_signer(&mut guard, &app)?;
-    let signed = signer.approve_and_sign()?;
+    let signed = guard.approve_and_sign(encrypted_payload, ephemeral_public_key, derivation_path)?;
 
     // Wrap as bridge-compatible response: [0x00] [postcard KeypunkdResponse]
     let response = paypunk_types::KeypunkdResponse::ArtifactAuthorized {
@@ -148,10 +163,21 @@ fn approve_and_sign(state: State<AppState>, app: tauri::AppHandle) -> Result<Str
 }
 
 #[tauri::command]
+fn delete_seed(state: State<AppState>) -> Result<(), String> {
+    let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
+    guard.delete_seed()
+}
+
+#[tauri::command]
+fn has_seed(state: State<AppState>) -> Result<bool, String> {
+    let guard = state.signer.lock().map_err(|e| e.to_string())?;
+    Ok(guard.has_seed())
+}
+
+#[tauri::command]
 fn get_preview(state: State<AppState>) -> Result<serde_json::Value, String> {
     let guard = state.signer.lock().map_err(|e| e.to_string())?;
-    let signer = guard.as_ref().ok_or("signer not initialized")?;
-    match signer.status() {
+    match guard.status() {
         SignerStatus::Previewing { summary, .. } => {
             serde_json::to_value(summary).map_err(|e| format!("serialize: {e}"))
         }
@@ -186,16 +212,20 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir).expect("failed to create app data dir");
             let signer = SignerState::create(data_dir);
             app.manage(AppState {
-                signer: Mutex::new(Some(signer)),
+                signer: Mutex::new(signer),
                 last_response: Mutex::new(None),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_encryption_key,
             generate_seed,
+            restore_seed,
+            delete_seed,
             get_signer_status,
             process_scanned_qr,
             approve_and_sign,
+            has_seed,
             get_preview,
             get_response,
             generate_response_qr,

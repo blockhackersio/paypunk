@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import { NavProvider, useNav } from "./nav";
 import OnboardingPage from "./pages/OnboardingPage";
 import ScanPage from "./pages/ScanPage";
 import PreviewPage from "./pages/PreviewPage";
 import SigningPage from "./pages/SigningPage";
 import ResultPage from "./pages/ResultPage";
+import { invoke } from "./backend";
 
 function CurrentPage() {
   const { page } = useNav();
@@ -23,10 +25,27 @@ function CurrentPage() {
   }
 }
 
+function AppInner() {
+  const { setServerKey } = useNav();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const key = await invoke<number[]>("get_encryption_key");
+        setServerKey(new Uint8Array(key));
+      } catch (e) {
+        console.error("Failed to fetch encryption key:", e);
+      }
+    })();
+  }, [setServerKey]);
+
+  return <CurrentPage />;
+}
+
 export default function App() {
   return (
     <NavProvider>
-      <CurrentPage />
+      <AppInner />
     </NavProvider>
   );
 }

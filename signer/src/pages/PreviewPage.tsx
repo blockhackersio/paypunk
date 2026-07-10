@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNav } from "../nav";
-import { Page, Navbar, Block, BlockTitle, Button, List, ListItem, Preloader } from "konsta/react";
+import { Page, Navbar, Block, BlockTitle, Button, List, ListItem, ListInput, Preloader } from "konsta/react";
 import { invoke } from "../backend";
+import { generateEphemeralKeypair, encryptToServer } from "../crypto";
 
 interface OutputEntry {
   address: string;
@@ -17,11 +18,28 @@ interface ArtifactSummary {
   Zcash?: ZcashArtifactSummary;
 }
 
+function assembleAuthorizePayload(
+  rawArtifact: Uint8Array,
+  previewSignature: Uint8Array,
+  password: string,
+): Uint8Array {
+  const pwBytes = new TextEncoder().encode(password);
+  const payload = new Uint8Array(4 + rawArtifact.length + 4 + previewSignature.length + pwBytes.length);
+  const view = new DataView(payload.buffer);
+  view.setUint32(0, rawArtifact.length, true);
+  payload.set(rawArtifact, 4);
+  view.setUint32(4 + rawArtifact.length, previewSignature.length, true);
+  payload.set(previewSignature, 8 + rawArtifact.length);
+  payload.set(pwBytes, 12 + rawArtifact.length + previewSignature.length);
+  return payload;
+}
+
 export default function PreviewPage() {
-  const { navigate } = useNav();
+  const { navigate, serverKey } = useNav();
   const [preview, setPreview] = useState<ArtifactSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,14 +56,39 @@ export default function PreviewPage() {
   }, []);
 
   const handleApprove = async () => {
+    if (!serverKey) {
+      setError("Encryption key not loaded yet");
+      return;
+    }
+    if (!password) {
+      setError("Please enter your password");
+      return;
+    }
     setSigning(true);
     setError(null);
     try {
-      await invoke<string>("approve_and_sign");
+      const ephemeral = generateEphemeralKeypair();
+
+      const payload = assembleAuthorizePayload(
+        new Uint8Array(0),
+        new Uint8Array(0),
+        password,
+      );
+
+      const encryptedPayload = await encryptToServer(payload, serverKey, ephemeral.secret);
+
+      await invoke<string>("approve_and_sign", {
+        encryptedPayload: Array.from(encryptedPayload),
+        ephemeralPublicKey: Array.from(ephemeral.public),
+        derivationPath: "m/44'/133'/0'",
+      });
+
       navigate("/signing");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSigning(false);
+    } finally {
+      setPassword("");
     }
   };
 
@@ -80,8 +123,22 @@ export default function PreviewPage() {
             <ListItem title="Fee" after={`${zcashPreview?.fee ?? ""} zatoshis`} />
           </List>
         </Block>
+
+        <Block strong>
+          <List strong inset>
+            <ListInput
+              label="Wallet Password"
+              type="password"
+              value={password}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+              placeholder="Enter password to sign"
+              disabled={signing}
+            />
+          </List>
+        </Block>
+
         <Block strong className="text-center">
-          <Button large rounded className="w-full mb-2" onClick={handleApprove} disabled={signing}>
+          <Button large rounded className="w-full mb-2" onClick={handleApprove} disabled={signing || !password}>
             {signing ? "Signing..." : "Approve & Sign"}
           </Button>
           <Button large rounded outline className="w-full" onClick={handleReject} disabled={signing}>

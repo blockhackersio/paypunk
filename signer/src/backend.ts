@@ -31,6 +31,9 @@ export interface TimerTick {
 export interface ProcessResult {
   mode: string;
   response: string | null;
+  raw_artifact_b64?: string;
+  preview_signature_b64?: string;
+  derivation_path?: string;
 }
 
 function isTauri(): boolean {
@@ -67,6 +70,9 @@ const mockListeners: Record<string, Array<(payload: unknown) => void>> = {};
 
 let mockResponse: string | null = null;
 
+let mockServerKey: number[] | null = null;
+let mockHasSeed = false;
+
 async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Promise<T> {
   switch (cmd) {
     case "get_app_info":
@@ -95,8 +101,30 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
       mockSettings = { ...mockSettings, ...(_args as Record<string, unknown>) as unknown as Partial<Settings> };
       return { ...mockSettings } as T;
 
-    case "generate_seed":
-      return "ribbon velvet ocean puzzle harvest guitar shadow ladder comfort raven spring anchor" as T;
+    case "get_encryption_key":
+      if (!mockServerKey) {
+        mockServerKey = Array.from({ length: 32 }, () => Math.floor(Math.random() * 256));
+      }
+      return mockServerKey as T;
+
+    case "generate_seed": {
+      const encPw = _args?.encrypted_password as number[];
+      if (!encPw || encPw.length === 0) {
+        throw new Error("encrypted_password required");
+      }
+      const mnemonicBytes = new TextEncoder().encode(
+        "ribbon velvet ocean puzzle harvest guitar shadow ladder comfort raven spring anchor"
+      );
+      return Array.from(mnemonicBytes) as T;
+    }
+
+    case "restore_seed":
+      mockHasSeed = true;
+      return null as T;
+
+    case "delete_seed":
+      mockHasSeed = false;
+      return null as T;
 
     case "get_signer_status":
       return "idle" as T;
@@ -118,7 +146,13 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
           return { mode: "response", response: mockResponse } as T;
         }
         mockResponse = btoa(String.fromCharCode(0x00) + "mock-preview-response");
-        return { mode: "preview", response: null } as T;
+        return {
+          mode: "preview",
+          response: null,
+          raw_artifact_b64: btoa("mock-raw-artifact"),
+          preview_signature_b64: btoa("mock-preview-sig"),
+          derivation_path: "m/44'/133'/0'",
+        } as T;
       } catch (e) {
         throw new Error(`mock process error: ${e}`);
       }
@@ -127,6 +161,9 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
     case "approve_and_sign":
       mockResponse = btoa(String.fromCharCode(0x00) + "mock-signed-artifact");
       return mockResponse as T;
+
+    case "has_seed":
+      return mockHasSeed as T;
 
     case "get_response":
       if (!mockResponse) {

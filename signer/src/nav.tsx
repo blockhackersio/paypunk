@@ -5,19 +5,20 @@ export type Page = "/" | "/scan" | "/preview" | "/signing" | "/result";
 interface NavContextValue {
   page: Page;
   navigate: (to: Page) => void;
+  serverKey: Uint8Array | null;
+  setServerKey: (key: Uint8Array | null) => void;
 }
 
 const NavContext = createContext<NavContextValue | null>(null);
 
 export function NavProvider({ children }: { children: ReactNode }) {
-  console.log('NavProvider render');
   const [page, setPage] = useState<Page>("/");
+  const [serverKey, setServerKey] = useState<Uint8Array | null>(null);
   const navigate = useCallback((to: Page) => {
-    console.log("setPage called with :" + to);
-    setPage(to)
+    setPage(to);
   }, []);
   return (
-    <NavContext.Provider value={{ page, navigate }}>
+    <NavContext.Provider value={{ page, navigate, serverKey, setServerKey }}>
       {children}
     </NavContext.Provider>
   );
