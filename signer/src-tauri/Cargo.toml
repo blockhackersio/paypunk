@@ -20,4 +20,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 qrcode = { version = "0.14", features = ["svg"] }
 base64 = "0.22"
+
+# Ping/pong test flow
 paypunk-pong = { path = "../../pong" }
+paypunk-ipc = { path = "../../ipc" }
+
+# Signer deps
+paypunk-chains-zcash = { path = "../../protocols/zcash", default-features = false }
+paypunk-types = { path = "../../types" }
+zcash_protocol = { version = "0.8", features = ["local-consensus"] }
+bip39 = "2"
+postcard = { version = "1", features = ["alloc"] }
+hex = "0.4"

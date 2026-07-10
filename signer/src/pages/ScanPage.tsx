@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { Page, Navbar, Block, BlockTitle, Button, Preloader } from "konsta/react";
 import { invoke, isTauri } from "../backend";
 
+interface ProcessResult {
+  mode: string;
+  response: string | null;
+}
+
 export default function ScanPage() {
   const navigate = useNavigate();
   const [scanning, setScanning] = useState(false);
@@ -35,14 +40,16 @@ export default function ScanPage() {
         const scanned = await scan({ windowed: false, formats: [Format.QRCode] });
         content = scanned.content;
       } else {
-        content = prompt("Browser mock: paste hex QR content (or leave empty for demo data)") || "";
+        content = prompt("Browser mock: paste base64 QR content (or leave empty for demo data)") || "";
         if (!content) {
-          content = "00"; // minimal mock payload
+          content = "BAAAAQ=="; // minimal mock: base64 of [0x04, 0x00, ...32 zero bytes MAC]
         }
       }
 
-      const result = await invoke<string>("process_scanned_qr", { qr_data: content });
-      if (result) {
+      const result = await invoke<ProcessResult>("process_scanned_qr", { qrData: content });
+      if (result.mode === "response") {
+        navigate("/result");
+      } else {
         navigate("/preview");
       }
     } catch (e) {
