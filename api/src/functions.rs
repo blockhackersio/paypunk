@@ -26,11 +26,11 @@ pub fn derivation_path(protocol: ProtocolId, account: u32) -> String {
     }
 }
 
-/// Build the default set of registration paths: 5 accounts per protocol.
+/// Build the default set of registration paths: 2 accounts per protocol.
 pub fn default_registration_paths(protocols: &[ProtocolId]) -> Vec<(ProtocolId, String)> {
     let mut paths = Vec::new();
     for &protocol in protocols {
-        for account in 0..5 {
+        for account in 0..2 {
             paths.push((protocol, derivation_path(protocol, account)));
         }
     }
@@ -39,15 +39,11 @@ pub fn default_registration_paths(protocols: &[ProtocolId]) -> Vec<(ProtocolId, 
 
 /// Register an offline signer: send viewing key paths to paypunkd,
 /// which forwards to the bridge/signer. Returns the number of accounts derived.
-pub async fn register_signer(
-    service: &paypunkd::services::PaypunkService,
-) -> Result<u32, String> {
+pub async fn register_signer(service: &paypunkd::services::PaypunkService) -> Result<u32, String> {
     let protocols = service.get_supported_protocols().await?;
     let paths = default_registration_paths(&protocols);
 
-    service
-        .register_signer(paths)
-        .await
+    service.register_signer(paths).await
 }
 
 /// Verify an existing signer session (no password needed).
@@ -103,11 +99,7 @@ pub async fn unlock(
     }
 
     service
-        .unlock(
-            encrypted_keypunkd_password,
-            client_pk,
-            paths,
-        )
+        .unlock(encrypted_keypunkd_password, client_pk, paths)
         .await
 }
 

@@ -21,6 +21,7 @@ pub enum DbError {
 pub struct Database {
     pub conn: Option<Mutex<Connection>>,
     db_path: PathBuf,
+    marker_path: PathBuf,
 }
 
 impl Database {
@@ -28,12 +29,14 @@ impl Database {
         std::fs::create_dir_all(data_dir)?;
 
         let db_path = data_dir.join("paypunkd.db");
+        let marker_path = data_dir.join(".wallet_initialized");
 
         if db_path.exists() {
             let conn = Connection::open(&db_path)?;
             let db = Database {
                 conn: Some(Mutex::new(conn)),
                 db_path,
+                marker_path,
             };
             db.run_migrations()?;
             Ok(db)
@@ -42,6 +45,7 @@ impl Database {
             let db = Database {
                 conn: Some(Mutex::new(conn)),
                 db_path,
+                marker_path,
             };
             db.run_migrations()?;
             Ok(db)
@@ -49,7 +53,12 @@ impl Database {
     }
 
     pub fn wallet_exists(&self) -> bool {
-        self.db_path.exists()
+        self.marker_path.exists()
+    }
+
+    pub fn mark_initialized(&self) -> Result<(), DbError> {
+        std::fs::write(&self.marker_path, b"initialized")?;
+        Ok(())
     }
 
     pub fn is_locked(&self) -> bool {
@@ -168,20 +177,33 @@ mod tests {
     }
 
     #[test]
-    fn test_wallet_exists_true_when_db_exists() {
+    fn test_wallet_exists_true_when_marker_exists() {
         let dir = tempfile::TempDir::new().unwrap();
         let db_path = dir.path().join("paypunkd.db");
+        let marker_path = dir.path().join(".wallet_initialized");
         std::fs::write(&db_path, b"").unwrap();
+        std::fs::write(&marker_path, b"initialized").unwrap();
         let db = Database::open(dir.path()).unwrap();
         assert!(db.wallet_exists());
         assert!(!db.is_locked());
     }
 
     #[test]
-    fn test_wallet_exists_false_when_no_db() {
+    fn test_wallet_exists_false_when_no_marker() {
         let dir = tempfile::TempDir::new().unwrap();
         let db = Database::open(dir.path()).unwrap();
+        assert!(!db.wallet_exists());
+        db.close().unwrap();
+    }
+
+    #[test]
+    fn test_mark_initialized_creates_marker() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
+        assert!(!db.wallet_exists());
+        db.mark_initialized().unwrap();
         assert!(db.wallet_exists());
+        assert!(dir.path().join(".wallet_initialized").exists());
         db.close().unwrap();
     }
 

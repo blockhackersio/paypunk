@@ -422,6 +422,7 @@ pub async fn register_signer(
     }
 
     info!(count = account_count, "signer registered successfully");
+    db.mark_initialized().map_err(|e| format!("failed to write marker: {e}"))?;
     Ok(account_count)
 }
 

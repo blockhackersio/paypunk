@@ -405,7 +405,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Tui { signer }) => {
             // `paypunk tui` must NEVER start daemons this JUST runs the frontend
             let config = ConfigLoader::load_or_default();
-            let signer_mode = signer || config.offline_signer;
+            let signer_mode = signer || cli.signer || config.offline_signer;
             run_tui(&socket_path, None, signer_mode)
                 .await
                 .map_err(|e| e.into())

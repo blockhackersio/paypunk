@@ -34,6 +34,7 @@ paypunk-chains-ethereum = { path = "../../protocols/ethereum" }
 
 # Shared types (wire protocol for bridge QR frames)
 paypunk-types = { path = "../../types" }
+blake2 = { version = "0.10.6" }
 zcash_protocol = { version = "0.8", features = ["local-consensus"] }
 postcard = { version = "1", features = ["alloc"] }
 zeroize = "1"

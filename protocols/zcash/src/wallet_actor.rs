@@ -495,7 +495,6 @@ impl Handler<GetChainTip> for WalletDbActor {
 impl Handler<ScanBlocks> for WalletDbActor {
     async fn handle(&mut self, msg: ScanBlocks, _ctx: &Ctx<Self>) -> Result<String, String> {
         self.ensure_db_file_exists()?;
-        info!("{:?}", msg);
         let block_source = VecBlockSource {
             blocks: std::sync::Arc::new(msg.blocks),
         };

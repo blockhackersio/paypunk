@@ -74,12 +74,18 @@ impl Paypunkd {
         client_public_key: [u8; 32],
     ) -> PaypunkdResponse {
         info!("forwarding GenerateSeed to keypunkd");
-        self.respond(
-            "generate_seed",
-            usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key)
-                .await,
-            |encrypted_mnemonic| PaypunkdResponse::SeedGenerated { encrypted_mnemonic },
-        )
+        match usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key).await {
+            Ok(encrypted_mnemonic) => {
+                if let Err(e) = self.db.mark_initialized() {
+                    warn!(error = %e, "generate_seed: failed to write marker");
+                }
+                PaypunkdResponse::SeedGenerated { encrypted_mnemonic }
+            }
+            Err(e) => {
+                warn!(error = %e, "generate_seed failed");
+                PaypunkdResponse::Error { message: e }
+            }
+        }
     }
 
     async fn restore_seed(
@@ -89,17 +95,18 @@ impl Paypunkd {
         client_public_key: [u8; 32],
     ) -> PaypunkdResponse {
         info!("forwarding RestoreSeed to keypunkd");
-        self.respond(
-            "restore_seed",
-            usecases::restore_seed(
-                &self.keypunk_service,
-                encrypted_mnemonic,
-                encrypted_password,
-                client_public_key,
-            )
-            .await,
-            |()| PaypunkdResponse::SeedRestored,
-        )
+        match usecases::restore_seed(&self.keypunk_service, encrypted_mnemonic, encrypted_password, client_public_key).await {
+            Ok(()) => {
+                if let Err(e) = self.db.mark_initialized() {
+                    warn!(error = %e, "restore_seed: failed to write marker");
+                }
+                PaypunkdResponse::SeedRestored
+            }
+            Err(e) => {
+                warn!(error = %e, "restore_seed failed");
+                PaypunkdResponse::Error { message: e }
+            }
+        }
     }
 
     async fn submit_intent(
@@ -620,6 +627,9 @@ impl Paypunkd {
                     }
 
                     info!(count = derived.len(), "cached pre-derived viewing keys");
+                    if let Err(e) = self.db.mark_initialized() {
+                        warn!(error = %e, "unlock: failed to write marker");
+                    }
                     PaypunkdResponse::UnlockSuccess {
                         accounts_count: derived.len() as u32,
                     }
@@ -648,6 +658,9 @@ impl Paypunkd {
                         }
                     }
                 }
+            }
+            if let Err(e) = self.db.mark_initialized() {
+                warn!(error = %e, "unlock: failed to write marker");
             }
             PaypunkdResponse::UnlockSuccess { accounts_count }
         }

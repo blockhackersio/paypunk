@@ -2,7 +2,7 @@ use blake2::Digest;
 use keypunkd::crypto::Keypair;
 use keypunkd::keypunk::Keypunk;
 use keypunkd::protocol::ProtocolService;
-use keypunkd::seed_store::FilesystemSeedStore;
+use keypunkd::seed_store::{FilesystemSeedStore, SeedStore};
 use paypunk_chains_ethereum::signer::EthereumSignerProtocol;
 use paypunk_chains_zcash::signer::ZcashSignerProtocol;
 use paypunk_chains_zcash::to_local_params;
@@ -414,7 +414,7 @@ impl SignerState {
     }
 }
 
-fn load_session_key(path: &PathBuf) -> Option<Keypair> {
+fn load_session_key(_path: &PathBuf) -> Option<Keypair> {
     // Session key is not stored — we generate a fresh one each registration.
     // The keypair is held in memory for the lifetime of the app.
     // On restart, the user re-registers (quick VerifySignerSession flow).

@@ -3,7 +3,6 @@ mod signer;
 use base64::Engine;
 use paypunk_ipc::messages::{MAC_LEN, MSG_APPLICATION};
 use paypunk_pong::PongHandler;
-use paypunk_types::KeypunkdResponse;
 use serde::Serialize;
 use signer::{SignerState, SignerStatus};
 use std::sync::Mutex;

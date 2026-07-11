@@ -263,7 +263,8 @@ async fn handle_ipc_connection(
 
                 if msg_payload.len() > 2953 {
                     let mut resp = vec![1u8];
-                    resp.extend_from_slice(b"message too large");
+                    println!("Message too large: {}", msg_payload.len());
+                    resp.extend_from_slice(b"message too large.");
                     transport.write_frame(&resp).await?;
                     return Ok(());
                 }
@@ -290,7 +291,7 @@ async fn handle_ipc_connection(
                 guard.pending_request = None;
                 guard.response_tx = None;
 
-                return Ok(());
+                continue;
             }
 
             _ => {
