@@ -30,7 +30,6 @@ export interface TimerTick {
 
 export interface ProcessResult {
   mode: string;
-  response: string | null;
   raw_artifact_b64?: string;
   preview_signature_b64?: string;
   derivation_path?: string;
@@ -68,7 +67,7 @@ let mockSettings: Settings = {
 let mockTimerRunning = false;
 const mockListeners: Record<string, Array<(payload: unknown) => void>> = {};
 
-let mockResponse: string | null = null;
+let mockResponse: number[] | null = null;
 
 let mockServerKey: number[] | null = null;
 let mockHasSeed = false;
@@ -130,37 +129,31 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
       return "idle" as T;
 
     case "process_scanned_qr": {
-      const content = _args?.qrData as string;
-      if (!content) {
-        throw new Error("no content provided");
+      const payload = _args?.payload as number[];
+      if (!payload || payload.length === 0) {
+        throw new Error("no payload provided");
       }
-      try {
-        const binary = atob(content);
-        if (binary.length < 33 || binary.charCodeAt(0) !== 0x04) {
-          throw new Error("expected MSG_APPLICATION frame");
-        }
-        const payload = binary.slice(1, binary.length - 32);
-        if (payload === "ping") {
-          const response = String.fromCharCode(0x00) + "pong";
-          mockResponse = btoa(response);
-          return { mode: "response", response: mockResponse } as T;
-        }
-        mockResponse = btoa(String.fromCharCode(0x00) + "mock-preview-response");
-        return {
-          mode: "preview",
-          response: null,
-          raw_artifact_b64: btoa("mock-raw-artifact"),
-          preview_signature_b64: btoa("mock-preview-sig"),
-          derivation_path: "m/44'/133'/0'",
-        } as T;
-      } catch (e) {
-        throw new Error(`mock process error: ${e}`);
+      const bytes = new Uint8Array(payload);
+      const text = new TextDecoder().decode(bytes);
+      if (text === "ping") {
+        const response = new Uint8Array([0x00, ...new TextEncoder().encode("pong")]);
+        mockResponse = Array.from(response);
+        return { mode: "response" } as T;
       }
+      mockResponse = Array.from(new Uint8Array([0x00, ...new TextEncoder().encode("mock-preview-response")]));
+      return {
+        mode: "preview",
+        raw_artifact_b64: btoa("mock-raw-artifact"),
+        preview_signature_b64: btoa("mock-preview-sig"),
+        derivation_path: "m/44'/133'/0'",
+      } as T;
     }
 
-    case "approve_and_sign":
-      mockResponse = btoa(String.fromCharCode(0x00) + "mock-signed-artifact");
+    case "approve_and_sign": {
+      const response = new Uint8Array([0x00, ...new TextEncoder().encode("mock-signed-artifact")]);
+      mockResponse = Array.from(response);
       return mockResponse as T;
+    }
 
     case "has_seed":
       return mockHasSeed as T;
@@ -173,8 +166,8 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
       if (!pw) {
         throw new Error("password required");
       }
-      const response = String.fromCharCode(0x00) + "mock-registration-response";
-      mockResponse = btoa(response);
+      const response = new Uint8Array([0x00, ...new TextEncoder().encode("mock-registration-response")]);
+      mockResponse = Array.from(response);
       return mockResponse as T;
     }
 
@@ -183,10 +176,6 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
         throw new Error("no response available");
       }
       return mockResponse as T;
-
-    case "generate_response_qr": {
-      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300"><rect width="300" height="300" fill="#fff"/><text x="150" y="140" text-anchor="middle" font-family="monospace" font-size="14" fill="#000">Mock QR</text><text x="150" y="160" text-anchor="middle" font-family="monospace" font-size="14" fill="#000">(browser mode)</text></svg>` as T;
-    }
 
     case "get_preview":
       return {

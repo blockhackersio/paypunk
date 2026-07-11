@@ -1,14 +1,17 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNav } from "../nav";
 import { Page, Navbar, Block, BlockTitle, Button, List, ListInput, Preloader } from "konsta/react";
 import { invoke } from "../backend";
+import { startDisplay } from "../qr-display";
 
 export default function RegistrationPage() {
   const { navigate } = useNav();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [qrSvg, setQrSvg] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stopRef = useRef<(() => void) | null>(null);
 
   const handleRegister = async () => {
     if (!password) {
@@ -18,9 +21,14 @@ export default function RegistrationPage() {
     setBusy(true);
     setError(null);
     try {
-      const responseB64 = await invoke<string>("complete_registration", { password });
-      const svg = await invoke<string>("generate_response_qr", { responseB64 });
-      setQrSvg(svg);
+      const responseBytes = await invoke<number[]>("complete_registration", { password });
+      const bytes = new Uint8Array(responseBytes);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      canvas.width = 400;
+      canvas.height = 400;
+      stopRef.current = startDisplay(canvas, bytes);
+      setReady(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -28,6 +36,7 @@ export default function RegistrationPage() {
   };
 
   const handleDone = () => {
+    stopRef.current?.();
     navigate("/scan");
   };
 
@@ -36,7 +45,7 @@ export default function RegistrationPage() {
       <Navbar title="Register Wallet" />
       <BlockTitle>Register with PayPunk</BlockTitle>
 
-      <div style={{ display: !qrSvg && !busy ? "block" : "none" }}>
+      <div style={{ display: !ready && !busy ? "block" : "none" }}>
         <Block strong className="text-center">
           <p className="mb-4 text-gray-500">
             Enter your wallet password to register this signer with PayPunk.
@@ -62,22 +71,21 @@ export default function RegistrationPage() {
         </Block>
       </div>
 
-      <div style={{ display: busy && !qrSvg ? "block" : "none" }}>
+      <div style={{ display: busy && !ready ? "block" : "none" }}>
         <Block strong className="text-center">
           <Preloader />
           <p className="mt-4 text-gray-500">Deriving viewing keys...</p>
         </Block>
       </div>
 
-      <div style={{ display: qrSvg ? "block" : "none" }}>
+      <div style={{ display: ready ? "block" : "none" }}>
         <Block strong className="text-center">
           <p className="mb-4 text-gray-500">
-            Registration complete. Show this QR to the bridge to complete setup.
+            Registration complete. Show this animated QR to the bridge to complete setup.
           </p>
-          <div
-            className="bg-white rounded-lg p-4 mb-4 flex justify-center inline-block"
-            dangerouslySetInnerHTML={{ __html: qrSvg || "" }}
-          />
+          <div className="bg-white rounded-lg p-4 mb-4 flex justify-center inline-block">
+            <canvas ref={canvasRef} />
+          </div>
           <Button large rounded className="w-full" onClick={handleDone}>
             Done
           </Button>

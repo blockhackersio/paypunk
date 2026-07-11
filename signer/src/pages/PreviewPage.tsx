@@ -77,13 +77,13 @@ export default function PreviewPage() {
 
       const encryptedPayload = await encryptToServer(payload, serverKey, ephemeral.secret);
 
-      await invoke<string>("approve_and_sign", {
+      await invoke<number[]>("approve_and_sign", {
         encryptedPayload: Array.from(encryptedPayload),
         ephemeralPublicKey: Array.from(ephemeral.public),
         derivationPath: "m/44'/133'/0'",
       });
 
-      navigate("/signing");
+      navigate("/result");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSigning(false);

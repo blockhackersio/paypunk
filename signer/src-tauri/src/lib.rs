@@ -1,8 +1,8 @@
 mod signer;
 
 use base64::Engine;
-use paypunk_ipc::messages::{MAC_LEN, MSG_APPLICATION};
 use paypunk_pong::PongHandler;
+use paypunk_types::KeypunkdResponse;
 use serde::Serialize;
 use signer::{SignerState, SignerStatus};
 use std::sync::Mutex;
@@ -10,27 +10,15 @@ use tauri::{Manager, State};
 
 struct AppState {
     signer: Mutex<SignerState>,
-    last_response: Mutex<Option<String>>,
+    last_response: Mutex<Option<Vec<u8>>>,
 }
 
 #[derive(Serialize)]
 struct ProcessResult {
     mode: String,
-    response: Option<String>,
     raw_artifact_b64: Option<String>,
     preview_signature_b64: Option<String>,
     derivation_path: Option<String>,
-}
-
-fn generate_qr_svg(data: &str) -> Result<String, String> {
-    let code = qrcode::QrCode::with_error_correction_level(data.as_bytes(), qrcode::EcLevel::L)
-        .map_err(|e| format!("QR generation failed: {e}"))?;
-    Ok(code
-        .render()
-        .min_dimensions(300, 300)
-        .dark_color(qrcode::render::svg::Color("#000000"))
-        .light_color(qrcode::render::svg::Color("#ffffff"))
-        .build())
 }
 
 #[tauri::command]
@@ -76,54 +64,36 @@ fn get_signer_status(state: State<AppState>) -> Result<String, String> {
 #[tauri::command]
 fn process_scanned_qr(
     state: State<AppState>,
-    qr_data: String,
+    payload: Vec<u8>,
 ) -> Result<ProcessResult, String> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(&qr_data)
-        .map_err(|e| format!("base64 decode: {e}"))?;
-
-    // Strip IPC frame wrapper: [MSG_APPLICATION] [payload] [32-byte MAC]
-    if bytes.len() < 1 + MAC_LEN {
-        return Err(format!(
-            "frame too short: {} bytes, need at least {}",
-            bytes.len(),
-            1 + MAC_LEN
-        ));
-    }
-    if bytes[0] != MSG_APPLICATION {
-        return Err(format!(
-            "expected MSG_APPLICATION (0x04), got 0x{:02x}",
-            bytes[0]
-        ));
-    }
-    let payload = &bytes[1..bytes.len() - MAC_LEN];
-
     // Ping/pong test flow
     if payload == b"ping" {
         let handler = PongHandler;
-        let response = handler.handle(&bytes)?;
+        let response = handler.handle(&payload)?;
 
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&response);
-        *state.last_response.lock().map_err(|e| e.to_string())? = Some(b64.clone());
+        *state.last_response.lock().map_err(|e| e.to_string())? = Some(response.clone());
 
         return Ok(ProcessResult {
             mode: "response".to_string(),
-            response: Some(b64),
             raw_artifact_b64: None,
             preview_signature_b64: None,
             derivation_path: None,
         });
     }
 
-    // Process the request
+    // Process the request (payload is postcard-serialized KeypunkdRequest)
     let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
-    let result = guard.handle_request(payload);
+    let result = guard.handle_request(&payload);
 
-    // Store bridge-compatible response for get_response
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&result.response_bytes);
-    *state.last_response.lock().map_err(|e| e.to_string())? = Some(b64);
+    // Check if the response is an error
+    if let Ok(KeypunkdResponse::Error { message }) =
+        postcard::from_bytes(&result.response_bytes)
+    {
+        return Err(message);
+    }
 
-    // Detect registration mode
+    *state.last_response.lock().map_err(|e| e.to_string())? = Some(result.response_bytes);
+
     let is_registration = matches!(guard.status(), SignerStatus::AwaitingRegistration { .. });
 
     let mode = if is_registration {
@@ -134,7 +104,6 @@ fn process_scanned_qr(
 
     Ok(ProcessResult {
         mode: mode.to_string(),
-        response: None,
         raw_artifact_b64: result.raw_artifact.map(|v| {
             base64::engine::general_purpose::STANDARD.encode(&v)
         }),
@@ -151,11 +120,10 @@ fn approve_and_sign(
     encrypted_payload: Vec<u8>,
     ephemeral_public_key: [u8; 32],
     derivation_path: String,
-) -> Result<String, String> {
+) -> Result<Vec<u8>, String> {
     let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
     let signed = guard.approve_and_sign(encrypted_payload, ephemeral_public_key, derivation_path)?;
 
-    // Wrap as bridge-compatible response: [0x00] [postcard KeypunkdResponse]
     let response = paypunk_types::KeypunkdResponse::ArtifactAuthorized {
         signed_artifact: signed,
     };
@@ -166,10 +134,9 @@ fn approve_and_sign(
     frame.push(0x00);
     frame.extend_from_slice(&postcard_bytes);
 
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&frame);
-    *state.last_response.lock().map_err(|e| e.to_string())? = Some(b64.clone());
+    *state.last_response.lock().map_err(|e| e.to_string())? = Some(frame.clone());
 
-    Ok(b64)
+    Ok(frame)
 }
 
 #[tauri::command]
@@ -194,7 +161,7 @@ fn has_session_key(state: State<AppState>) -> Result<bool, String> {
 fn complete_registration(
     state: State<AppState>,
     password: String,
-) -> Result<String, String> {
+) -> Result<Vec<u8>, String> {
     let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
     let response = guard.complete_registration(&password)?;
 
@@ -205,10 +172,9 @@ fn complete_registration(
     frame.push(0x00);
     frame.extend_from_slice(&postcard_bytes);
 
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&frame);
-    *state.last_response.lock().map_err(|e| e.to_string())? = Some(b64.clone());
+    *state.last_response.lock().map_err(|e| e.to_string())? = Some(frame.clone());
 
-    Ok(b64)
+    Ok(frame)
 }
 
 #[tauri::command]
@@ -223,18 +189,13 @@ fn get_preview(state: State<AppState>) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn get_response(state: State<AppState>) -> Result<String, String> {
+fn get_response(state: State<AppState>) -> Result<Vec<u8>, String> {
     let resp = state
         .last_response
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
     resp.ok_or_else(|| "no response available".to_string())
-}
-
-#[tauri::command]
-fn generate_response_qr(response_b64: String) -> Result<String, String> {
-    generate_qr_svg(&response_b64)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -267,7 +228,6 @@ pub fn run() {
             complete_registration,
             get_preview,
             get_response,
-            generate_response_qr,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

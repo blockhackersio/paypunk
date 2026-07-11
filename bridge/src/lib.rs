@@ -16,7 +16,7 @@ pub struct BridgeConfig {
 }
 
 struct BridgeState {
-    pending_request: Option<Vec<u8>>,
+    browser: Option<actix_ws::Session>,
     response_tx: Option<oneshot::Sender<Vec<u8>>>,
 }
 
@@ -41,131 +41,75 @@ fn compute_mac(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
     mac
 }
 
-fn generate_qr_svg(bytes: &[u8]) -> String {
-    use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-    let code =
-        qrcode::QrCode::with_error_correction_level(b64.as_bytes(), qrcode::EcLevel::L).unwrap();
-    code.render()
-        .min_dimensions(400, 400)
-        .dark_color(qrcode::render::svg::Color("#000000"))
-        .light_color(qrcode::render::svg::Color("#ffffff"))
-        .build()
-}
-
-use actix_web::{get, post, web, HttpResponse};
+use actix_web::{get, web, HttpRequest, HttpResponse};
+use futures_util::StreamExt;
 
 #[get("/")]
 async fn index() -> HttpResponse {
     HttpResponse::Ok()
         .content_type("text/html")
-        .body(include_str!("bridge.html"))
+        .body(include_str!("../index.html"))
 }
 
-#[get("/jsqr.js")]
-async fn jsqr() -> HttpResponse {
-    HttpResponse::Ok()
-        .content_type("application/javascript")
-        .body(include_bytes!("jsqr.js").as_ref())
-}
+async fn ws(
+    req: HttpRequest,
+    body: web::Payload,
+    state: web::Data<SharedState>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let (res, session, mut stream) = actix_ws::handle(&req, body)?;
+    eprintln!("[bridge] WS connected");
+    state.lock().await.browser = Some(session);
 
-#[get("/status")]
-async fn status(state: web::Data<SharedState>) -> HttpResponse {
-    let guard = state.lock().await;
-    if let Some(ref req) = guard.pending_request {
-        HttpResponse::Ok().json(serde_json::json!({
-            "pending": true,
-            "size": req.len()
-        }))
-    } else {
-        HttpResponse::Ok().json(serde_json::json!({
-            "pending": false
-        }))
-    }
-}
-
-#[get("/qr.svg")]
-async fn qr_svg(state: web::Data<SharedState>) -> HttpResponse {
-    let guard = state.lock().await;
-    match guard.pending_request.as_ref() {
-        Some(bytes) => {
-            let svg = generate_qr_svg(bytes);
-            HttpResponse::Ok().content_type("image/svg+xml").body(svg)
+    let st = state.clone();
+    actix_web::rt::spawn(async move {
+        while let Some(Ok(msg)) = stream.next().await {
+            match msg {
+                actix_ws::Message::Binary(bytes) => {
+                    eprintln!(
+                        "[bridge] WS binary message received: {} bytes, first 32 hex: {}",
+                        bytes.len(),
+                        bytes.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+                    );
+                    if let Some(tx) = st.lock().await.response_tx.take() {
+                        eprintln!("[bridge] WS binary: sending to oneshot channel");
+                        let _ = tx.send(bytes.to_vec());
+                    } else {
+                        eprintln!("[bridge] WS binary: no response_tx available (already taken or not set)");
+                    }
+                }
+                actix_ws::Message::Ping(_) | actix_ws::Message::Pong(_) => {}
+                actix_ws::Message::Close(_) => {
+                    eprintln!("[bridge] WS closed");
+                    break;
+                }
+                _ => {
+                    eprintln!("[bridge] WS other message type");
+                }
+            }
         }
-        None => HttpResponse::NoContent().finish(),
-    }
-}
+        eprintln!("[bridge] WS stream ended, clearing browser");
+        st.lock().await.browser = None;
+    });
 
-#[get("/pending-bytes")]
-async fn pending_bytes(state: web::Data<SharedState>) -> HttpResponse {
-    let guard = state.lock().await;
-    match guard.pending_request.as_ref() {
-        Some(bytes) => {
-            use base64::Engine;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-            HttpResponse::Ok().json(serde_json::json!({
-                "pending": true,
-                "bytes": b64
-            }))
-        }
-        None => HttpResponse::Ok().json(serde_json::json!({
-            "pending": false
-        })),
-    }
-}
-
-#[derive(serde::Deserialize)]
-struct ResponseBody {
-    bytes: String,
-}
-
-#[post("/response")]
-async fn response(state: web::Data<SharedState>, body: web::Json<ResponseBody>) -> HttpResponse {
-    use base64::Engine;
-    let decoded = match base64::engine::general_purpose::STANDARD.decode(&body.bytes) {
-        Ok(d) => d,
-        Err(_) => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "invalid base64"
-            }))
-        }
-    };
-
-    let mut guard = state.lock().await;
-    match guard.response_tx.take() {
-        Some(tx) => {
-            let _ = tx.send(decoded);
-            guard.pending_request = None;
-            HttpResponse::Ok().json(serde_json::json!({
-                "status": "ok"
-            }))
-        }
-        None => HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "no pending request"
-        })),
-    }
+    Ok(res)
 }
 
 pub async fn run(config: BridgeConfig) -> Result<(), Box<dyn std::error::Error>> {
     let _ = std::fs::remove_file(&config.socket_path);
 
     let state: SharedState = Arc::new(Mutex::new(BridgeState {
-        pending_request: None,
+        browser: None,
         response_tx: None,
     }));
 
     let listener = tokio::net::UnixListener::bind(&config.socket_path)?;
 
-    let accept_state = state.clone();
+    let http_state = state.clone();
     let server = actix_web::HttpServer::new(move || {
         actix_web::App::new()
-            .app_data(web::Data::new(accept_state.clone()))
+            .app_data(web::Data::new(http_state.clone()))
             .service(index)
-            .service(jsqr)
-            .service(status)
-            .service(qr_svg)
-            .service(pending_bytes)
-            .service(response)
+            .route("/ws", web::get().to(ws))
     })
     .bind(format!("0.0.0.0:{}", config.port))?
     .run();
@@ -182,15 +126,17 @@ pub async fn run(config: BridgeConfig) -> Result<(), Box<dyn std::error::Error>>
         loop {
             match listener.accept().await {
                 Ok((stream, _addr)) => {
+                    eprintln!("[bridge] IPC connection accepted");
                     let state = state.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_ipc_connection(stream, state, secret, public).await {
-                            eprintln!("bridge connection error: {e}");
+                            eprintln!("[bridge] IPC connection error: {e}");
                         }
+                        eprintln!("[bridge] IPC connection finished");
                     });
                 }
                 Err(e) => {
-                    eprintln!("accept error: {}", e);
+                    eprintln!("[bridge] accept error: {}", e);
                 }
             }
         }
@@ -223,20 +169,25 @@ async fn handle_ipc_connection(
     loop {
         let frame = transport.read_frame().await?;
         if frame.is_empty() {
+            eprintln!("[bridge] IPC empty frame, closing");
             return Ok(());
         }
 
         let msg_type = frame[0];
         let payload = &frame[1..];
+        eprintln!("[bridge] IPC msg_type=0x{:02x} payload_len={}", msg_type, payload.len());
 
         match msg_type {
             MSG_GET_PUBLIC_KEY => {
+                eprintln!("[bridge] IPC MSG_GET_PUBLIC_KEY");
                 let mut resp = vec![MSG_PUBLIC_KEY];
                 resp.extend_from_slice(&public);
                 transport.write_frame(&resp).await?;
+                eprintln!("[bridge] IPC replied with MSG_PUBLIC_KEY");
             }
 
             MSG_REGISTER_CLIENT => {
+                eprintln!("[bridge] IPC MSG_REGISTER_CLIENT");
                 if payload.len() != 32 {
                     return Err("invalid client public key length".into());
                 }
@@ -246,6 +197,7 @@ async fn handle_ipc_connection(
                 hmac_key = Some(compute_mac(&shared, b"paypunk-ipc-hmac"));
                 registered = true;
                 transport.write_frame(&[MSG_REGISTER_CLIENT_ACK]).await?;
+                eprintln!("[bridge] IPC registration complete");
             }
 
             MSG_APPLICATION => {
@@ -256,46 +208,58 @@ async fn handle_ipc_connection(
                     return Err("malformed application message".into());
                 }
                 let (msg_payload, msg_mac) = payload.split_at(payload.len() - MAC_LEN);
+                eprintln!(
+                    "[bridge] IPC MSG_APPLICATION: payload {} bytes, MAC {} bytes",
+                    msg_payload.len(),
+                    msg_mac.len()
+                );
+                eprintln!(
+                    "[bridge] IPC msg_payload first 32 hex: {}",
+                    msg_payload.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+                );
+                if let Ok(text) = std::str::from_utf8(msg_payload.get(..64).unwrap_or(msg_payload)) {
+                    eprintln!("[bridge] IPC msg_payload as text: {}", text);
+                }
                 let expected_mac = compute_mac(hmac_key.as_ref().unwrap(), msg_payload);
                 if msg_mac != expected_mac {
+                    eprintln!("[bridge] IPC MAC mismatch");
                     return Err("MAC mismatch".into());
                 }
-
-                if msg_payload.len() > 2953 {
-                    let mut resp = vec![1u8];
-                    println!("Message too large: {}", msg_payload.len());
-                    resp.extend_from_slice(b"message too large.");
-                    transport.write_frame(&resp).await?;
-                    return Ok(());
-                }
+                eprintln!("[bridge] IPC MAC verified OK");
 
                 let (tx, rx) = oneshot::channel();
                 {
-                    let mut guard = state.lock().await;
-                    guard.pending_request = Some(frame.to_vec());
-                    guard.response_tx = Some(tx);
+                    let mut g = state.lock().await;
+                    g.response_tx = Some(tx);
+                    match g.browser.as_mut() {
+                        Some(sess) => {
+                            eprintln!("[bridge] IPC forwarding {} bytes to browser WS", msg_payload.len());
+                            let _ = sess.binary(msg_payload.to_vec()).await;
+                            eprintln!("[bridge] IPC forwarded to browser OK");
+                        }
+                        None => {
+                            eprintln!("[bridge] IPC ERROR: no browser connected");
+                            return Err("no browser connected".into());
+                        }
+                    }
                 }
 
-                match rx.await {
-                    Ok(resp_bytes) => {
-                        transport.write_frame(&resp_bytes).await?;
-                    }
-                    Err(_) => {
-                        let mut frame = vec![1u8];
-                        frame.extend_from_slice(b"request cancelled");
-                        transport.write_frame(&frame).await?;
-                    }
-                }
-
-                let mut guard = state.lock().await;
-                guard.pending_request = None;
-                guard.response_tx = None;
-
-                continue;
+                eprintln!("[bridge] IPC waiting for response from browser...");
+                let resp = rx.await.unwrap_or_else(|_| {
+                    eprintln!("[bridge] IPC oneshot cancelled");
+                    b"request cancelled".to_vec()
+                });
+                eprintln!(
+                    "[bridge] IPC got response from browser: {} bytes, first 32 hex: {}",
+                    resp.len(),
+                    resp.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+                );
+                transport.write_frame(&resp).await?;
+                eprintln!("[bridge] IPC response written to socket");
             }
 
             _ => {
-                eprintln!("unknown IPC message type: {msg_type}");
+                eprintln!("[bridge] IPC unknown message type: {msg_type}");
                 return Ok(());
             }
         }
@@ -349,12 +313,8 @@ mod tests {
     async fn read_application_response(
         transport: &mut UnixSocketTransport,
     ) -> Result<Vec<u8>, String> {
-        let raw = transport.read_frame().await.unwrap();
-        match raw[0] {
-            0 => Ok(raw[1..].to_vec()),
-            1 => Err(String::from_utf8_lossy(&raw[1..]).to_string()),
-            _ => Err("invalid status".into()),
-        }
+        let raw = transport.read_frame().await.map_err(|e| format!("{e}"))?;
+        Ok(raw)
     }
 
     #[tokio::test]
@@ -379,44 +339,31 @@ mod tests {
 
         let (_server_public, hmac_key) = ipc_handshake(&mut transport).await;
 
+        // Connect a WebSocket client to simulate the browser
+        let ws_url = format!("ws://127.0.0.1:{}/ws", port);
+        let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+        let (mut ws_write, mut ws_read) = ws_stream.split();
+
+        // Send application message
         send_application_msg(&mut transport, &hmac_key, b"hello bridge").await;
 
-        let status_url = format!("http://127.0.0.1:{}/status", port);
-        let resp = reqwest::get(&status_url).await.unwrap();
-        let status_json: serde_json::Value = resp.json().await.unwrap();
-        assert_eq!(status_json["pending"], true);
-        assert_eq!(status_json["size"], 1 + 12 + MAC_LEN);
+        // Read the forwarded message from the WebSocket
+        use futures_util::StreamExt;
+        let ws_msg = ws_read.next().await.unwrap().unwrap();
+        let forwarded = match ws_msg {
+            tokio_tungstenite::tungstenite::Message::Binary(data) => data,
+            _ => panic!("expected binary ws message"),
+        };
+        assert_eq!(forwarded, b"hello bridge");
 
-        let qr_url = format!("http://127.0.0.1:{}/qr.svg", port);
-        let qr_resp = reqwest::get(&qr_url).await.unwrap();
-        assert_eq!(qr_resp.status(), 200);
-        let svg_body = qr_resp.text().await.unwrap();
-        assert!(svg_body.contains("<svg"));
-
-        let pending_url = format!("http://127.0.0.1:{}/pending-bytes", port);
-        let pb_resp = reqwest::get(&pending_url).await.unwrap();
-        let pb_json: serde_json::Value = pb_resp.json().await.unwrap();
-        assert_eq!(pb_json["pending"], true);
-        {
-            use base64::Engine;
-            let mut frame = vec![MSG_APPLICATION];
-            frame.extend_from_slice(b"hello bridge");
-            let mac = compute_mac(&hmac_key, b"hello bridge");
-            frame.extend_from_slice(&mac);
-            let expected_b64 = base64::engine::general_purpose::STANDARD.encode(&frame);
-            assert_eq!(pb_json["bytes"], expected_b64);
-        }
-
-        let response_url = format!("http://127.0.0.1:{}/response", port);
-        let client = reqwest::Client::new();
-        let resp_resp = client
-            .post(&response_url)
-            .json(&serde_json::json!({"bytes": "AHJlc3BvbnNlIGJ5dGVz"}))
-            .send()
+        // Send response back through WebSocket
+        use futures_util::SinkExt;
+        ws_write
+            .send(tokio_tungstenite::tungstenite::Message::Binary(b"response bytes".to_vec()))
             .await
             .unwrap();
-        assert_eq!(resp_resp.status(), 200);
 
+        // Read the response on the IPC side
         let resp_bytes = read_application_response(&mut transport).await.unwrap();
         assert_eq!(resp_bytes, b"response bytes");
 
@@ -424,69 +371,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_no_pending_returns_400() {
+    async fn test_no_browser_returns_error() {
         let dir = tempfile::tempdir().unwrap();
         let socket_path = dir.path().join("test2.sock").to_string_lossy().to_string();
         let port = 18445u16;
-
-        let config = BridgeConfig {
-            port,
-            socket_path: socket_path.clone(),
-        };
-
-        let handle = tokio::spawn(async move {
-            run(config).await.unwrap();
-        });
-
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        let response_url = format!("http://127.0.0.1:{}/response", port);
-        let client = reqwest::Client::new();
-        let resp = client
-            .post(&response_url)
-            .json(&serde_json::json!({"bytes": "dGVzdA=="}))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), 400);
-
-        let status_url = format!("http://127.0.0.1:{}/status", port);
-        let resp = reqwest::get(&status_url).await.unwrap();
-        let json: serde_json::Value = resp.json().await.unwrap();
-        assert_eq!(json["pending"], false);
-
-        handle.abort();
-    }
-
-    #[tokio::test]
-    async fn test_qr_svg_returns_204_when_idle() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket_path = dir.path().join("test3.sock").to_string_lossy().to_string();
-        let port = 18446u16;
-
-        let config = BridgeConfig {
-            port,
-            socket_path: socket_path.clone(),
-        };
-
-        let handle = tokio::spawn(async move {
-            run(config).await.unwrap();
-        });
-
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        let qr_url = format!("http://127.0.0.1:{}/qr.svg", port);
-        let resp = reqwest::get(&qr_url).await.unwrap();
-        assert_eq!(resp.status(), 204);
-
-        handle.abort();
-    }
-
-    #[tokio::test]
-    async fn test_message_too_large() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket_path = dir.path().join("test4.sock").to_string_lossy().to_string();
-        let port = 18447u16;
 
         let config = BridgeConfig {
             port,
@@ -504,11 +392,38 @@ mod tests {
 
         let (_server_public, hmac_key) = ipc_handshake(&mut transport).await;
 
-        let large = vec![0u8; 3000];
-        send_application_msg(&mut transport, &hmac_key, &large).await;
+        // No browser connected — sending an application message should fail
+        send_application_msg(&mut transport, &hmac_key, b"hello").await;
 
-        let err = read_application_response(&mut transport).await.unwrap_err();
-        assert_eq!(err, "message too large");
+        let err = read_application_response(&mut transport).await;
+        assert!(err.is_err(), "expected error when no browser connected");
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_index_returns_html() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket_path = dir.path().join("test3.sock").to_string_lossy().to_string();
+        let port = 18446u16;
+
+        let config = BridgeConfig {
+            port,
+            socket_path: socket_path.clone(),
+        };
+
+        let handle = tokio::spawn(async move {
+            run(config).await.unwrap();
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let resp = reqwest::get(&format!("http://127.0.0.1:{}/", port))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let body = resp.text().await.unwrap();
+        assert!(body.contains("Paypunk Bridge"));
 
         handle.abort();
     }

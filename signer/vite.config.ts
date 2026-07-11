@@ -21,6 +21,12 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_DEBUG,
   },
   optimizeDeps: {
+    include: ["@ngraveio/bc-ur"],
     exclude: ["konsta/react"],
+  },
+  resolve: {
+    alias: {
+      buffer: "buffer/",
+    },
   },
 });
