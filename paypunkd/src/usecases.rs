@@ -15,11 +15,6 @@ pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8;
     service.get_encryption_key().await
 }
 
-/// Forward a HasSeed request to keypunkd.
-pub async fn has_seed(service: &KeypunkService) -> Result<bool, String> {
-    service.has_seed().await
-}
-
 /// Verify a password by forwarding to keypunkd for seed decryption.
 pub async fn verify_password(
     service: &KeypunkService,

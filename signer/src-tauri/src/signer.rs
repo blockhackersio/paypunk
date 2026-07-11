@@ -105,14 +105,7 @@ impl SignerState {
     }
 
     pub fn has_seed(&self) -> bool {
-        let response = self.keypunk.handle_request(
-            KeypunkdRequest::HasSeed,
-            Some(self.client_keypair.public_key()),
-        );
-        match response {
-            KeypunkdResponse::HasSeed { exists } => exists,
-            _ => false,
-        }
+        self.keypunk.seed_store().read().ok().flatten().is_some()
     }
 
     pub fn has_session_key(&self) -> bool {

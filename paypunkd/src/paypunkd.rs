@@ -312,12 +312,9 @@ impl Paypunkd {
     }
 
     async fn has_seed(&self) -> PaypunkdResponse {
-        info!("forwarding HasSeed to keypunkd");
-        self.respond(
-            "has_seed",
-            usecases::has_seed(&self.keypunk_service).await,
-            |exists| PaypunkdResponse::HasSeed { exists },
-        )
+        info!("checking wallet exists in database");
+        let exists = self.db.wallet_exists();
+        PaypunkdResponse::HasSeed { exists }
     }
 
     async fn get_sync_status(&self, protocol: ProtocolId) -> PaypunkdResponse {

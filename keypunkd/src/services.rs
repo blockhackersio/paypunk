@@ -125,14 +125,6 @@ impl KeypunkService {
         }
     }
 
-    pub async fn has_seed(&self) -> Result<bool, String> {
-        match self.send(KeypunkdRequest::HasSeed).await? {
-            KeypunkdResponse::HasSeed { exists } => Ok(exists),
-            KeypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
     pub async fn verify_password(
         &self,
         encrypted_password: Vec<u8>,

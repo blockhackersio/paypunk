@@ -277,12 +277,6 @@ impl<S: Storage> Keypunk<S> {
         )
     }
 
-    fn has_seed(&self) -> KeypunkdResponse {
-        info!("handling HasSeed");
-        let exists = self.seed_store.read().ok().flatten().is_some();
-        KeypunkdResponse::HasSeed { exists }
-    }
-
     fn verify_password(
         &self,
         encrypted_password: Vec<u8>,
@@ -396,7 +390,6 @@ impl<S: Storage> Keypunk<S> {
                 protocol,
                 derivation_path,
             ),
-            KeypunkdRequest::HasSeed => self.has_seed(),
             KeypunkdRequest::VerifyPassword {
                 encrypted_password,
                 client_public_key,

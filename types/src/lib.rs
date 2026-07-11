@@ -127,7 +127,6 @@ pub enum KeypunkdRequest {
         protocol: ProtocolId,
         derivation_path: String,
     },
-    HasSeed,
     VerifyPassword {
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
@@ -174,9 +173,6 @@ pub enum KeypunkdResponse {
     },
     ViewingKey {
         key: Vec<u8>,
-    },
-    HasSeed {
-        exists: bool,
     },
     PasswordVerified,
     ViewingKeys {
