@@ -516,8 +516,6 @@ impl Paypunkd {
 
     async fn unlock(
         &mut self,
-        encrypted_db_password: Vec<u8>,
-        ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
@@ -532,28 +530,7 @@ impl Paypunkd {
             };
         }
 
-        // 1. If DB is already unlocked (fresh, no .enc file), skip decryption
-        if self.db.is_locked() {
-            let decrypted_password = match self
-                .keystore
-                .decrypt(&encrypted_db_password, &ephemeral_public_key)
-            {
-                Ok(pw) => pw,
-                Err(e) => {
-                    return PaypunkdResponse::Error {
-                        message: format!("failed to decrypt db password: {e}"),
-                    }
-                }
-            };
-
-            if let Err(e) = self.db.unlock(&decrypted_password) {
-                return PaypunkdResponse::Error {
-                    message: format!("failed to unlock database: {e}"),
-                };
-            }
-        }
-
-        // 3. Check if accounts exist
+        // Check if accounts exist
         let accounts = match usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
             Ok(a) => a,
             Err(e) => {
@@ -565,7 +542,7 @@ impl Paypunkd {
         info!("list_accounts {accounts:?}");
         let accounts_count = accounts.len() as u32;
 
-        // 4. If no accounts, bulk-derive from keypunkd and cache viewing keys
+        // If no accounts, bulk-derive from keypunkd and cache viewing keys
         if accounts.is_empty() {
             info!("no accounts found, bulk-deriving from keypunkd");
 
@@ -700,32 +677,10 @@ impl Paypunkd {
     }
 
     async fn register_signer(
-        &mut self,
-        encrypted_db_password: Vec<u8>,
-        ephemeral_public_key: [u8; 32],
+        &self,
         paths: Vec<(ProtocolId, String)>,
     ) -> PaypunkdResponse {
         info!("handling RegisterSigner");
-
-        // Unlock DB first if needed
-        if self.db.is_locked() {
-            let decrypted_password = match self
-                .keystore
-                .decrypt(&encrypted_db_password, &ephemeral_public_key)
-            {
-                Ok(pw) => pw,
-                Err(e) => {
-                    return PaypunkdResponse::Error {
-                        message: format!("failed to decrypt db password: {e}"),
-                    }
-                }
-            };
-            if let Err(e) = self.db.unlock(&decrypted_password) {
-                return PaypunkdResponse::Error {
-                    message: format!("failed to unlock database: {e}"),
-                };
-            }
-        }
 
         self.respond(
             "register_signer",
@@ -841,15 +796,11 @@ impl Handler<IpcMessage> for Paypunkd {
             PaypunkdRequest::HasSeed => self.has_seed().await,
             PaypunkdRequest::GetSupportedProtocols => self.get_supported_protocols(),
             PaypunkdRequest::Unlock {
-                encrypted_db_password,
-                ephemeral_public_key,
                 encrypted_keypunkd_password,
                 keypunkd_client_pk,
                 paths,
             } => {
                 self.unlock(
-                    encrypted_db_password,
-                    ephemeral_public_key,
                     encrypted_keypunkd_password,
                     keypunkd_client_pk,
                     paths,
@@ -929,16 +880,9 @@ impl Handler<IpcMessage> for Paypunkd {
                 self.get_transaction_status(protocol, txid).await
             }
             PaypunkdRequest::RegisterSigner {
-                encrypted_db_password,
-                client_public_key,
                 paths,
             } => {
-                self.register_signer(
-                    encrypted_db_password,
-                    client_public_key,
-                    paths,
-                )
-                .await
+                self.register_signer(paths).await
             }
             PaypunkdRequest::VerifySignerSession => {
                 self.verify_signer_session().await

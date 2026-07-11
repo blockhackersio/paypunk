@@ -74,8 +74,6 @@ pub enum PaypunkdRequest {
         protocol: ProtocolId,
     },
     Unlock {
-        encrypted_db_password: Vec<u8>,
-        ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
@@ -148,8 +146,6 @@ pub enum PaypunkdRequest {
     },
     // Register an offline signer: derive and return viewing keys for the given paths
     RegisterSigner {
-        encrypted_db_password: Vec<u8>,
-        client_public_key: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
     },
     // Verify an existing signer session (no password needed)

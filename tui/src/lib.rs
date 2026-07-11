@@ -8,7 +8,9 @@ mod ui;
 use crate::api::WalletApi;
 use api::real::RealWalletApi;
 use app::App;
+use screens::connect_signer::ConnectSignerScreen;
 use screens::greeting::GreetingScreen;
+use screens::home::HomeScreen;
 use screens::setup::SetupScreen;
 use screens::Screen;
 
@@ -49,11 +51,21 @@ pub async fn run_tui(
     println!("wallet exists = {}", wallet_exists);
 
     if wallet_exists {
-        println!("wallet exists...");
-
-        let mut greeting = Box::new(GreetingScreen::new());
-        greeting.init(&*app.api).await;
-        app.push_screen(greeting);
+        if signer_mode {
+            // In signer mode the DB is plaintext — no password needed.
+            let mut home = Box::new(HomeScreen::new());
+            home.init(&*app.api).await;
+            app.push_screen(home);
+        } else {
+            println!("wallet exists...");
+            let mut greeting = Box::new(GreetingScreen::new());
+            greeting.init(&*app.api).await;
+            app.push_screen(greeting);
+        }
+    } else if signer_mode {
+        let mut connect = Box::new(ConnectSignerScreen::new());
+        connect.init(&*app.api).await;
+        app.push_screen(connect);
     } else {
         println!("wallet does not exist...");
         let mut setup = Box::new(SetupScreen::new());

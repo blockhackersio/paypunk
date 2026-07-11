@@ -265,16 +265,12 @@ impl PaypunkService {
 
     pub async fn unlock(
         &self,
-        encrypted_db_password: Vec<u8>,
-        ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
     ) -> Result<u32, String> {
         match self
             .send(PaypunkdRequest::Unlock {
-                encrypted_db_password,
-                ephemeral_public_key,
                 encrypted_keypunkd_password,
                 keypunkd_client_pk,
                 paths,
@@ -406,14 +402,10 @@ impl PaypunkService {
 
     pub async fn register_signer(
         &self,
-        encrypted_db_password: Vec<u8>,
-        client_public_key: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
     ) -> Result<u32, String> {
         match self
             .send(PaypunkdRequest::RegisterSigner {
-                encrypted_db_password,
-                client_public_key,
                 paths,
             })
             .await?

@@ -3,7 +3,6 @@ use std::sync::Mutex;
 
 use rusqlite::Connection;
 
-use super::encryption::{decrypt_db, encrypt_db, DbCryptoError};
 use super::migration::{
     AccountsMigration, AddressBookMigration, Migration, Migrator, PreDerivedKeysMigration,
     SettingsMigration, SignerStateMigration,
@@ -17,82 +16,46 @@ pub enum DbError {
     Sqlite(#[from] rusqlite::Error),
     #[error("Migration error: {0}")]
     Migration(String),
-    #[error("Encryption error: {0}")]
-    Crypto(#[from] DbCryptoError),
 }
 
 pub struct Database {
     pub conn: Option<Mutex<Connection>>,
     db_path: PathBuf,
-    enc_path: PathBuf,
-    encrypted_bytes: Option<Vec<u8>>,
-    password: Option<String>,
 }
 
 impl Database {
     pub fn open(data_dir: &Path) -> Result<Self, DbError> {
         std::fs::create_dir_all(data_dir)?;
 
-        let enc_path = data_dir.join("paypunkd.db.enc");
         let db_path = data_dir.join("paypunkd.db");
 
-        if enc_path.exists() {
-            let encrypted_bytes = std::fs::read(&enc_path)?;
-            Ok(Database {
-                conn: None,
+        if db_path.exists() {
+            let conn = Connection::open(&db_path)?;
+            let db = Database {
+                conn: Some(Mutex::new(conn)),
                 db_path,
-                enc_path,
-                encrypted_bytes: Some(encrypted_bytes),
-                password: None,
-            })
+            };
+            db.run_migrations()?;
+            Ok(db)
         } else {
             let conn = Connection::open(&db_path)?;
             let db = Database {
                 conn: Some(Mutex::new(conn)),
                 db_path,
-                enc_path,
-                encrypted_bytes: None,
-                password: None,
             };
             db.run_migrations()?;
             Ok(db)
         }
     }
 
-    pub fn unlock(&mut self, password: &str) -> Result<(), DbError> {
-        let encrypted = self
-            .encrypted_bytes
-            .as_ref()
-            .ok_or_else(|| DbError::Crypto(DbCryptoError::DecryptionFailed))?;
-
-        let plaintext = decrypt_db(encrypted, password)?;
-
-        let temp_path = self.db_path.with_extension("db.tmp");
-        std::fs::write(&temp_path, &plaintext)?;
-        std::fs::rename(&temp_path, &self.db_path)?;
-
-        let conn = Connection::open(&self.db_path)?;
-
-        self.conn = Some(Mutex::new(conn));
-        self.password = Some(password.to_string());
-        self.run_migrations()?;
-
-        Ok(())
-    }
-
     pub fn wallet_exists(&self) -> bool {
-        self.enc_path.exists()
+        self.db_path.exists()
     }
 
     pub fn is_locked(&self) -> bool {
-        self.conn.is_none()
+        false
     }
 
-    /// Ensure the underlying database file still exists.
-    ///
-    /// If the file was deleted (e.g. by `paypunk reset` while the daemon is
-    /// running), the stale connection is dropped and a fresh database is
-    /// created. This makes startup idempotent regardless of filesystem state.
     pub fn ensure_file_exists(&mut self) -> Result<(), DbError> {
         if self.conn.is_some() && !self.db_path.exists() {
             tracing::warn!("database file deleted, reinitializing");
@@ -111,7 +74,7 @@ impl Database {
         let conn = self
             .conn
             .as_ref()
-            .ok_or_else(|| DbError::Migration("database is locked".to_string()))?;
+            .ok_or_else(|| DbError::Migration("database is not open".to_string()))?;
         let conn = conn.lock().map_err(|e| DbError::Migration(e.to_string()))?;
         let mut migrator = Migrator::new();
         migrator.register(Box::new(InitialMigration));
@@ -126,19 +89,9 @@ impl Database {
 
     pub fn close(self) -> Result<(), DbError> {
         if let Some(conn) = self.conn {
-            {
-                let conn = conn.lock().map_err(|e| DbError::Migration(e.to_string()))?;
-                conn.execute_batch("VACUUM;").map_err(DbError::Sqlite)?;
-            }
-
-            if let Some(password) = self.password {
-                let plaintext = std::fs::read(&self.db_path)?;
-                let encrypted = encrypt_db(&plaintext, &password)?;
-                std::fs::write(&self.enc_path, &encrypted)?;
-                std::fs::remove_file(&self.db_path)?;
-            }
+            let conn = conn.lock().map_err(|e| DbError::Migration(e.to_string()))?;
+            conn.execute_batch("VACUUM;").map_err(DbError::Sqlite)?;
         }
-
         Ok(())
     }
 }
@@ -178,7 +131,7 @@ mod tests {
             .unwrap()
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 5);
+        assert_eq!(count, 6);
         db.close().unwrap();
     }
 
@@ -215,98 +168,25 @@ mod tests {
     }
 
     #[test]
-    fn test_wallet_exists_false_when_no_encrypted_file() {
+    fn test_wallet_exists_true_when_db_exists() {
         let dir = tempfile::TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
-        assert!(!db.wallet_exists());
-        db.close().unwrap();
-    }
-
-    #[test]
-    fn test_wallet_exists_true_when_encrypted_file_present() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let enc_path = dir.path().join("paypunkd.db.enc");
-        std::fs::write(&enc_path, b"fake encrypted data").unwrap();
+        let db_path = dir.path().join("paypunkd.db");
+        std::fs::write(&db_path, b"").unwrap();
         let db = Database::open(dir.path()).unwrap();
         assert!(db.wallet_exists());
-        assert!(db.is_locked());
-    }
-
-    #[test]
-    fn test_open_locked_when_encrypted_file_exists() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let enc_path = dir.path().join("paypunkd.db.enc");
-        std::fs::write(&enc_path, b"some encrypted blob").unwrap();
-        let db = Database::open(dir.path()).unwrap();
-        assert!(db.is_locked());
-        assert!(db.conn.is_none());
-    }
-
-    #[test]
-    fn test_unlock_roundtrip() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let password = "test-password";
-
-        // Create a real SQLite DB file to use as plaintext
-        let db_path = dir.path().join("paypunkd.db");
-        {
-            let conn = Connection::open(&db_path).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT);
-                 INSERT INTO test VALUES (1, 'hello');",
-            )
-            .unwrap();
-        }
-
-        // Read the plaintext and encrypt it
-        let plaintext = std::fs::read(&db_path).unwrap();
-        let encrypted = encrypt_db(&plaintext, password).unwrap();
-        let enc_path = dir.path().join("paypunkd.db.enc");
-        std::fs::write(&enc_path, &encrypted).unwrap();
-        std::fs::remove_file(&db_path).unwrap();
-
-        // Open in locked state
-        let mut db = Database::open(dir.path()).unwrap();
-        assert!(db.is_locked());
-
-        // Unlock
-        db.unlock(password).unwrap();
         assert!(!db.is_locked());
-
-        // Verify data survived
-        let conn = db.conn.as_ref().unwrap().lock().unwrap();
-        let value: String = conn
-            .query_row("SELECT value FROM test WHERE id = 1", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(value, "hello");
-        drop(conn);
-
-        db.close().unwrap();
-        // After close, enc file should exist and plaintext removed
-        assert!(enc_path.exists());
-        assert!(!dir.path().join("paypunkd.db").exists());
     }
 
     #[test]
-    fn test_unlock_wrong_password_fails() {
+    fn test_wallet_exists_false_when_no_db() {
         let dir = tempfile::TempDir::new().unwrap();
-        let password = "correct-password";
-
-        let plaintext = b"test data";
-        let encrypted = encrypt_db(plaintext, password).unwrap();
-        let enc_path = dir.path().join("paypunkd.db.enc");
-        std::fs::write(&enc_path, &encrypted).unwrap();
-
-        let mut db = Database::open(dir.path()).unwrap();
-        assert!(db.is_locked());
-
-        let result = db.unlock("wrong-password");
-        assert!(result.is_err());
-        assert!(db.is_locked());
+        let db = Database::open(dir.path()).unwrap();
+        assert!(db.wallet_exists());
+        db.close().unwrap();
     }
 
     #[test]
-    fn test_open_creates_db_when_no_encrypted_file() {
+    fn test_open_creates_db_when_not_exists() {
         let dir = tempfile::TempDir::new().unwrap();
         let db = Database::open(dir.path()).unwrap();
         assert!(!db.is_locked());

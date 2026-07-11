@@ -683,11 +683,8 @@ impl WalletApi for RealWalletApi {
 
     async fn unlock(&self, password: String) -> Result<UnlockData, ApiError> {
         if self.signer_mode {
-            // In signer mode, register (or re-register) the signer.
-            // This sends viewing key paths to the bridge, the user approves on-device,
-            // and paypunkd stores the viewing keys + creates accounts.
             self.client
-                .register_signer(Zeroizing::new(password))
+                .register_signer()
                 .await
                 .map(|accounts_count| UnlockData { accounts_count })
                 .map_err(|e| ApiError(e))

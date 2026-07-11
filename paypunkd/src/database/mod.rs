@@ -1,5 +1,4 @@
 pub mod db;
-pub mod encryption;
 pub mod migration;
 pub mod repository;
 

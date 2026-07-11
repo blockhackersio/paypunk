@@ -41,21 +41,12 @@ pub fn default_registration_paths(protocols: &[ProtocolId]) -> Vec<(ProtocolId, 
 /// which forwards to the bridge/signer. Returns the number of accounts derived.
 pub async fn register_signer(
     service: &paypunkd::services::PaypunkService,
-    password: Zeroizing<String>,
 ) -> Result<u32, String> {
-    let client_keypair = Keypair::new();
-    let paypunkd_pk = service.get_paypunkd_encryption_key().await?;
-
-    let encrypted_db_password = client_keypair.encrypt(
-        hash_for_domain(&password, b"paypunkd-db-key"),
-        &paypunkd_pk,
-    );
-
     let protocols = service.get_supported_protocols().await?;
     let paths = default_registration_paths(&protocols);
 
     service
-        .register_signer(encrypted_db_password, client_keypair.public_key(), paths)
+        .register_signer(paths)
         .await
 }
 
@@ -80,32 +71,27 @@ pub fn generate_mnemonic() -> Zeroizing<String> {
     Zeroizing::new(mnemonic.to_string())
 }
 
-/// Unlock the wallet by decrypting the DB and deriving initial accounts.
+/// Unlock the wallet by deriving initial accounts.
 ///
 /// 1. Creates ephemeral keypair
 /// 2. Fetches keypunkd's public key from paypunkd
-/// 3. Fetches paypunkd's public encryption key
-/// 4. Queries paypunkd for supported protocols
-/// 5. Builds derivation paths for each supported protocol
-/// 6. Encrypts password to paypunkd's key (for DB unlock)
-/// 7. Encrypts password to keypunkd's key (for bulk derivation)
-/// 8. Sends Unlock to paypunkd with both encrypted payloads and paths
-/// 9. Returns accounts count from UnlockSuccess
+/// 3. Queries paypunkd for supported protocols
+/// 4. Builds derivation paths for each supported protocol
+/// 5. Encrypts password to keypunkd's key (for bulk derivation)
+/// 6. Sends Unlock to paypunkd with encrypted payload and paths
+/// 7. Returns accounts count from UnlockSuccess
 pub async fn unlock(
     service: &paypunkd::services::PaypunkService,
     password: Zeroizing<String>,
 ) -> Result<u32, String> {
     let client_keypair = Keypair::new();
     let keypunk_pk = service.get_keypunk_encryption_key().await?;
-    let paypunkd_pk = service.get_paypunkd_encryption_key().await?;
     let client_pk = client_keypair.public_key();
 
     let encrypted_keypunkd_password = client_keypair.encrypt(
         hash_for_domain(&password, b"keypunkd-seed-key"),
         &keypunk_pk,
     );
-    let encrypted_db_password =
-        client_keypair.encrypt(hash_for_domain(&password, b"paypunkd-db-key"), &paypunkd_pk);
 
     // Query supported protocols and build derivation paths for each (accounts 0..30)
     let protocols = service.get_supported_protocols().await?;
@@ -118,8 +104,6 @@ pub async fn unlock(
 
     service
         .unlock(
-            encrypted_db_password,
-            client_pk,
             encrypted_keypunkd_password,
             client_pk,
             paths,
