@@ -7,7 +7,7 @@ _This is experimental software and should not be used with real funds_
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![Status](https://img.shields.io/badge/status-alpha-yellow.svg)]()
 
-Wallet infrastructure for privacy-preserving commerce on desktop and agentic workflows.
+Flexible Wallet infrastructure for privacy-preserving commerce. 
 
 ## Architecture
 
