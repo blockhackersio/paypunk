@@ -33,7 +33,7 @@ Three processes with a strict security boundary:
 - Orchard only funds
 - Blind LSP scanning — view keys never leave your machine, only diversifier prefixes are sent to public servers
 - Seed encrypted at rest with Argon2id-derived key
-- Separate encryption for wallet state database via HKDF-split key
+- Separate encryption for wallet state database via HKDF-split key (coming soon) 
 
 ## Getting started
 
