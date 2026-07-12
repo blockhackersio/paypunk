@@ -41,42 +41,35 @@ impl Component<AssetAction> for AssetItem {
         };
         let amount_style = Style::new().fg(ui::palette().foreground);
 
-        let name_width = (area.width as usize).saturating_sub(32);
+        let rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(area);
 
+        let balance_str = &self.asset.holdings_amount;
+        let gap = (area.width as usize).saturating_sub(self.asset.name.len() + balance_str.len() + 3);
         let line = Line::from(vec![
-            Span::styled(
-                format!(" {:width$} ", self.asset.name, width = name_width),
-                name_style,
-            ),
-            Span::styled(
-                format!(" {:>14} ", self.asset.holdings_amount),
-                amount_style,
-            ),
-            Span::styled(format!(" {:>14} ", ""), Style::new()),
+            Span::styled(format!(" {}", self.asset.name), name_style),
+            Span::styled(" ".repeat(gap), Style::new()),
+            Span::styled(format!(" {}", balance_str), amount_style),
         ]);
-        frame.render_widget(Paragraph::new(line).style(Style::new().bg(row_bg)), area);
-
-        let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
-        let btn_area = rows[1];
+        frame.render_widget(Paragraph::new(line).style(Style::new().bg(row_bg)), rows[1]);
 
         let btn_labels = [" Send ", " Receive ", " History "];
-        let total_btn_width: u16 = btn_labels.iter().map(|l| l.len() as u16 + 2).sum::<u16>() + 4;
-        let btn_start = if total_btn_width < btn_area.width {
-            btn_area.width.saturating_sub(total_btn_width)
-        } else {
-            0
-        };
-
-        let mut x_offset = btn_start;
+        let mut x_offset = 1u16;
         for (i, label) in btn_labels.iter().enumerate() {
             let w = label.len() as u16 + 2;
             let btn_rect = Rect {
-                x: btn_area.x + x_offset,
-                y: btn_area.y,
+                x: area.x + x_offset,
+                y: rows[3].y,
                 width: w,
                 height: 1,
             };
-            x_offset += w + 2;
+            x_offset += w + 1;
 
             let is_btn_focused = self.focused && i == self.button_focus;
             let (bg, fg) = if is_btn_focused {

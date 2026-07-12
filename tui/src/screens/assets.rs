@@ -43,7 +43,7 @@ impl AssetsScreen {
         Self {
             account,
             data: None,
-            list: List::new(vec![]).row_height(2),
+            list: List::new(vec![]).row_height(5),
             focus: AssetsFocus::Back,
             protocol,
             sync_status: SyncStatus::default(),
@@ -64,7 +64,7 @@ impl Screen for AssetsScreen {
             .iter()
             .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
             .collect();
-        self.list = List::new(items).row_height(2);
+        self.list = List::new(items).row_height(5);
         self.data = Some(data);
     }
 
@@ -76,7 +76,7 @@ impl Screen for AssetsScreen {
             .iter()
             .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
             .collect();
-        self.list = List::new(items).row_height(2);
+        self.list = List::new(items).row_height(5);
         self.data = Some(data);
     }
 
@@ -90,7 +90,7 @@ impl Screen for AssetsScreen {
                 .iter()
                 .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
                 .collect();
-            self.list = List::new(items).row_height(2);
+            self.list = List::new(items).row_height(5);
             self.data = Some(data);
         }
     }
@@ -99,7 +99,7 @@ impl Screen for AssetsScreen {
         let theme = ui::theme();
         let area = frame.area();
         let chunks = Layout::vertical([
-            Constraint::Length(4),
+            Constraint::Length(5),
             Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Length(3),
@@ -119,17 +119,26 @@ impl Screen for AssetsScreen {
             "Zcash"
         };
         let subtitle = Paragraph::new(
-            Line::from(format!(
-                "{} — {} ({}) — {}",
-                self.account.name, chain_label, self.account.chain_id, self.account.address
-            ))
-            .centered(),
+            Line::from(format!("{} — {} ({})", self.account.name, chain_label, self.account.chain_id))
+                .centered(),
         )
         .style(theme.text);
         frame.render_widget(
             subtitle,
             header.inner(Margin {
                 vertical: 2,
+                horizontal: 0,
+            }),
+        );
+
+        let addr_line = Paragraph::new(
+            Line::from(vec![theme.muted(format!(" {}", self.account.address))]).centered(),
+        )
+        .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            addr_line,
+            header.inner(Margin {
+                vertical: 3,
                 horizontal: 0,
             }),
         );
@@ -143,7 +152,7 @@ impl Screen for AssetsScreen {
             frame.render_widget(
                 sync_line,
                 header.inner(Margin {
-                    vertical: 3,
+                    vertical: 4,
                     horizontal: 0,
                 }),
             );
@@ -177,14 +186,13 @@ impl Screen for AssetsScreen {
             horizontal: 1,
         });
         let header_style = Style::new().fg(ui::palette().muted);
-        let name_width = (table_area.width as usize).saturating_sub(32);
+        let name_width = (table_area.width as usize).saturating_sub(11);
         let header_line = Line::from(vec![
             ratatui::text::Span::styled(
                 format!(" {:width$} ", "Asset", width = name_width),
                 header_style,
             ),
-            ratatui::text::Span::styled(format!(" {:>14} ", "Balance"), header_style),
-            ratatui::text::Span::styled(format!(" {:>14} ", " "), header_style),
+            ratatui::text::Span::styled(format!(" {:>7} ", "Balance"), header_style),
         ]);
         frame.render_widget(
             Paragraph::new(header_line).style(Style::new().bg(ui::BG)),
@@ -200,8 +208,7 @@ impl Screen for AssetsScreen {
                 format!(" {:-<width$} ", "", width = name_width),
                 sep_style,
             ),
-            ratatui::text::Span::styled(format!(" {:->14} ", ""), sep_style),
-            ratatui::text::Span::styled(format!(" {:->14} ", ""), sep_style),
+            ratatui::text::Span::styled(format!(" {:->7} ", ""), sep_style),
         ]);
         frame.render_widget(
             Paragraph::new(sep_line).style(Style::new().bg(ui::BG)),
