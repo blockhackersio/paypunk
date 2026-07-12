@@ -87,7 +87,7 @@ impl Screen for ConnectSignerScreen {
             );
         } else {
             let instruction = Paragraph::new(Line::from(vec![
-                theme.span("Set up the PayPunk Signer app on your mobile device,"),
+                theme.span("Set up the PayPunk Signer app on your mobile device,")
             ]));
             frame.render_widget(
                 instruction,
@@ -97,9 +97,8 @@ impl Screen for ConnectSignerScreen {
                 }),
             );
 
-            let instruction2 = Paragraph::new(Line::from(vec![
-                theme.span("then press Enter to connect."),
-            ]));
+            let instruction2 =
+                Paragraph::new(Line::from(vec![theme.span("then press Enter to connect.")]));
             frame.render_widget(
                 instruction2,
                 inner.inner(Margin {
@@ -108,9 +107,8 @@ impl Screen for ConnectSignerScreen {
                 }),
             );
 
-            let connect_hint = Paragraph::new(Line::from(vec![
-                theme.accent(" Press Enter to connect ")
-            ]));
+            let connect_hint =
+                Paragraph::new(Line::from(vec![theme.accent(" Press Enter to connect ")]));
             frame.render_widget(
                 connect_hint,
                 inner.inner(Margin {
@@ -120,8 +118,8 @@ impl Screen for ConnectSignerScreen {
             );
 
             if let Some(ref err) = self.error_msg {
-                let err_para =
-                    Paragraph::new(Line::from(vec![theme.error(err)])).style(Style::new().bg(ui::BG));
+                let err_para = Paragraph::new(Line::from(vec![theme.error(err)]))
+                    .style(Style::new().bg(ui::BG));
                 frame.render_widget(
                     err_para,
                     inner.inner(Margin {

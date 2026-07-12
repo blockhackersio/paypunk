@@ -200,6 +200,6 @@ impl KeypunkService {
         challenge: [u8; 32],
     ) -> Result<KeypunkdResponse, String> {
         self.send(KeypunkdRequest::VerifySignerSession { challenge })
-        .await
+            .await
     }
 }

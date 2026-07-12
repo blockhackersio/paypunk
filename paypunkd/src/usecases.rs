@@ -1,3 +1,4 @@
+use blake2::Digest;
 use keypunkd::crypto::Keypair;
 use keypunkd::services::KeypunkService;
 use paypunk_types::{
@@ -5,7 +6,6 @@ use paypunk_types::{
 };
 use rand::Rng;
 use tracing::{info, warn};
-use blake2::Digest;
 
 use crate::database::{AccountsRepository, AddressBookRepository, Database, SignerStateRepository};
 use crate::protocol_service::ProtocolService;
@@ -415,14 +415,18 @@ pub async fn register_signer(
     // Sync accounts (requires .await, no DB lock held)
     for (protocol, account) in &created_accounts {
         if let Ok(proto) = protocols.get(*protocol) {
-            if let Err(e) = proto.sync_account(&account.viewing_key, 0, &account.address).await {
+            if let Err(e) = proto
+                .sync_account(&account.viewing_key, 0, &account.address)
+                .await
+            {
                 warn!(?protocol, account = %account.id, error = %e, "sync_account after register failed");
             }
         }
     }
 
     info!(count = account_count, "signer registered successfully");
-    db.mark_initialized().map_err(|e| format!("failed to write marker: {e}"))?;
+    db.mark_initialized()
+        .map_err(|e| format!("failed to write marker: {e}"))?;
     Ok(account_count)
 }
 
@@ -445,9 +449,7 @@ pub async fn verify_signer_session(
 
     let challenge: [u8; 32] = rand::thread_rng().gen();
 
-    let response = keypunk_service
-        .verify_signer_session(challenge)
-        .await?;
+    let response = keypunk_service.verify_signer_session(challenge).await?;
 
     let signed_challenge = match response {
         KeypunkdResponse::SessionVerified { signed_challenge } => signed_challenge,

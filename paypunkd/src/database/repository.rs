@@ -180,19 +180,24 @@ impl AddressBookRepository for SqliteAddressBookRepository {
 // ── Signer State Repository ────────────────────────────────────────────────
 
 pub trait SignerStateRepository: Send + Sync {
-    fn save_session_key(&self, conn: &Connection, session_public_key: &[u8; 32]) -> Result<(), String>;
+    fn save_session_key(
+        &self,
+        conn: &Connection,
+        session_public_key: &[u8; 32],
+    ) -> Result<(), String>;
     fn get_session_key(&self, conn: &Connection) -> Result<Option<[u8; 32]>, String>;
 }
 
 pub struct SqliteSignerStateRepository;
 
 impl SignerStateRepository for SqliteSignerStateRepository {
-    fn save_session_key(&self, conn: &Connection, session_public_key: &[u8; 32]) -> Result<(), String> {
-        conn.execute(
-            "DELETE FROM signer_state",
-            [],
-        )
-        .map_err(|e| format!("failed to clear signer_state: {e}"))?;
+    fn save_session_key(
+        &self,
+        conn: &Connection,
+        session_public_key: &[u8; 32],
+    ) -> Result<(), String> {
+        conn.execute("DELETE FROM signer_state", [])
+            .map_err(|e| format!("failed to clear signer_state: {e}"))?;
         conn.execute(
             "INSERT INTO signer_state (session_public_key) VALUES (?1)",
             rusqlite::params![session_public_key.to_vec()],

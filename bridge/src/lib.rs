@@ -68,7 +68,12 @@ async fn ws(
                     eprintln!(
                         "[bridge] WS binary message received: {} bytes, first 32 hex: {}",
                         bytes.len(),
-                        bytes.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+                        bytes
+                            .iter()
+                            .take(32)
+                            .map(|b| format!("{:02x}", b))
+                            .collect::<Vec<_>>()
+                            .join(" ")
                     );
                     if let Some(tx) = st.lock().await.response_tx.take() {
                         eprintln!("[bridge] WS binary: sending to oneshot channel");
@@ -175,7 +180,11 @@ async fn handle_ipc_connection(
 
         let msg_type = frame[0];
         let payload = &frame[1..];
-        eprintln!("[bridge] IPC msg_type=0x{:02x} payload_len={}", msg_type, payload.len());
+        eprintln!(
+            "[bridge] IPC msg_type=0x{:02x} payload_len={}",
+            msg_type,
+            payload.len()
+        );
 
         match msg_type {
             MSG_GET_PUBLIC_KEY => {
@@ -215,9 +224,15 @@ async fn handle_ipc_connection(
                 );
                 eprintln!(
                     "[bridge] IPC msg_payload first 32 hex: {}",
-                    msg_payload.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+                    msg_payload
+                        .iter()
+                        .take(32)
+                        .map(|b| format!("{:02x}", b))
+                        .collect::<Vec<_>>()
+                        .join(" ")
                 );
-                if let Ok(text) = std::str::from_utf8(msg_payload.get(..64).unwrap_or(msg_payload)) {
+                if let Ok(text) = std::str::from_utf8(msg_payload.get(..64).unwrap_or(msg_payload))
+                {
                     eprintln!("[bridge] IPC msg_payload as text: {}", text);
                 }
                 let expected_mac = compute_mac(hmac_key.as_ref().unwrap(), msg_payload);
@@ -233,7 +248,10 @@ async fn handle_ipc_connection(
                     g.response_tx = Some(tx);
                     match g.browser.as_mut() {
                         Some(sess) => {
-                            eprintln!("[bridge] IPC forwarding {} bytes to browser WS", msg_payload.len());
+                            eprintln!(
+                                "[bridge] IPC forwarding {} bytes to browser WS",
+                                msg_payload.len()
+                            );
                             let _ = sess.binary(msg_payload.to_vec()).await;
                             eprintln!("[bridge] IPC forwarded to browser OK");
                         }
@@ -252,7 +270,11 @@ async fn handle_ipc_connection(
                 eprintln!(
                     "[bridge] IPC got response from browser: {} bytes, first 32 hex: {}",
                     resp.len(),
-                    resp.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+                    resp.iter()
+                        .take(32)
+                        .map(|b| format!("{:02x}", b))
+                        .collect::<Vec<_>>()
+                        .join(" ")
                 );
                 transport.write_frame(&resp).await?;
                 eprintln!("[bridge] IPC response written to socket");
@@ -359,7 +381,9 @@ mod tests {
         // Send response back through WebSocket
         use futures_util::SinkExt;
         ws_write
-            .send(tokio_tungstenite::tungstenite::Message::Binary(b"response bytes".to_vec()))
+            .send(tokio_tungstenite::tungstenite::Message::Binary(
+                b"response bytes".to_vec(),
+            ))
             .await
             .unwrap();
 

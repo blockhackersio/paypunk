@@ -400,16 +400,8 @@ impl PaypunkService {
         }
     }
 
-    pub async fn register_signer(
-        &self,
-        paths: Vec<(ProtocolId, String)>,
-    ) -> Result<u32, String> {
-        match self
-            .send(PaypunkdRequest::RegisterSigner {
-                paths,
-            })
-            .await?
-        {
+    pub async fn register_signer(&self, paths: Vec<(ProtocolId, String)>) -> Result<u32, String> {
+        match self.send(PaypunkdRequest::RegisterSigner { paths }).await? {
             PaypunkdResponse::SignerRegistered { accounts_count } => Ok(accounts_count),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),

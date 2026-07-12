@@ -74,7 +74,9 @@ impl Paypunkd {
         client_public_key: [u8; 32],
     ) -> PaypunkdResponse {
         info!("forwarding GenerateSeed to keypunkd");
-        match usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key).await {
+        match usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key)
+            .await
+        {
             Ok(encrypted_mnemonic) => {
                 if let Err(e) = self.db.mark_initialized() {
                     warn!(error = %e, "generate_seed: failed to write marker");
@@ -95,7 +97,14 @@ impl Paypunkd {
         client_public_key: [u8; 32],
     ) -> PaypunkdResponse {
         info!("forwarding RestoreSeed to keypunkd");
-        match usecases::restore_seed(&self.keypunk_service, encrypted_mnemonic, encrypted_password, client_public_key).await {
+        match usecases::restore_seed(
+            &self.keypunk_service,
+            encrypted_mnemonic,
+            encrypted_password,
+            client_public_key,
+        )
+        .await
+        {
             Ok(()) => {
                 if let Err(e) = self.db.mark_initialized() {
                     warn!(error = %e, "restore_seed: failed to write marker");
@@ -689,10 +698,7 @@ impl Paypunkd {
         )
     }
 
-    async fn register_signer(
-        &self,
-        paths: Vec<(ProtocolId, String)>,
-    ) -> PaypunkdResponse {
+    async fn register_signer(&self, paths: Vec<(ProtocolId, String)>) -> PaypunkdResponse {
         info!("handling RegisterSigner");
 
         self.respond(
@@ -813,12 +819,8 @@ impl Handler<IpcMessage> for Paypunkd {
                 keypunkd_client_pk,
                 paths,
             } => {
-                self.unlock(
-                    encrypted_keypunkd_password,
-                    keypunkd_client_pk,
-                    paths,
-                )
-                .await
+                self.unlock(encrypted_keypunkd_password, keypunkd_client_pk, paths)
+                    .await
             }
             PaypunkdRequest::GetSyncStatus { protocol } => self.get_sync_status(protocol).await,
             PaypunkdRequest::BulkDeriveAccounts {
@@ -892,14 +894,8 @@ impl Handler<IpcMessage> for Paypunkd {
             PaypunkdRequest::GetTransactionStatus { protocol, txid } => {
                 self.get_transaction_status(protocol, txid).await
             }
-            PaypunkdRequest::RegisterSigner {
-                paths,
-            } => {
-                self.register_signer(paths).await
-            }
-            PaypunkdRequest::VerifySignerSession => {
-                self.verify_signer_session().await
-            }
+            PaypunkdRequest::RegisterSigner { paths } => self.register_signer(paths).await,
+            PaypunkdRequest::VerifySignerSession => self.verify_signer_session().await,
         };
 
         let encoded =
