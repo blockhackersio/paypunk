@@ -85,16 +85,20 @@ fn process_scanned_qr(
     let mut guard = state.signer.lock().map_err(|e| e.to_string())?;
     let result = guard.handle_request(&payload);
 
-    // Check if the response is an error
-    if let Ok(KeypunkdResponse::Error { message }) =
-        postcard::from_bytes(&result.response_bytes)
-    {
-        return Err(message);
+    // If the signer is now awaiting registration, this is not an error —
+    // it means the bridge sent a RegisterViewingKeys request and needs
+    // the user to enter their password to complete registration.
+    let is_registration = matches!(guard.status(), SignerStatus::AwaitingRegistration { .. });
+
+    if !is_registration {
+        if let Ok(KeypunkdResponse::Error { message }) =
+            postcard::from_bytes(&result.response_bytes)
+        {
+            return Err(message);
+        }
     }
 
     *state.last_response.lock().map_err(|e| e.to_string())? = Some(result.response_bytes);
-
-    let is_registration = matches!(guard.status(), SignerStatus::AwaitingRegistration { .. });
 
     let mode = if is_registration {
         "register"
