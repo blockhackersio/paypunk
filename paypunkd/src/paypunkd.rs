@@ -2,13 +2,14 @@ use std::collections::HashMap;
 
 use keypunkd::crypto::Keypair;
 use paypunk_ipc::IpcMessage;
-use paypunk_types::ProtocolId;
+use paypunk_types::{KeypunkdResponse, ProtocolId};
 use tactix::{Actor, Ctx, Handler, Recipient};
 use tracing::{debug, info, warn};
 
 use crate::database::repository::SqliteAccountsRepository;
 use crate::database::repository::SqliteAddressBookRepository;
-use crate::database::{AccountsRepository, AddressBookRepository, Database};
+use crate::database::repository::SqliteSignerStateRepository;
+use crate::database::{AccountsRepository, AddressBookRepository, Database, SignerStateRepository};
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
 use crate::protocol_service::ProtocolService;
 use crate::usecases;
@@ -19,6 +20,7 @@ pub struct Paypunkd {
     db: Database,
     accounts_repo: Box<dyn AccountsRepository>,
     address_book_repo: Box<dyn AddressBookRepository>,
+    signer_state_repo: Box<dyn SignerStateRepository>,
     keystore: Keypair,
     failed_attempts: u32,
 }
@@ -36,6 +38,7 @@ impl Paypunkd {
             db,
             accounts_repo: Box::new(SqliteAccountsRepository),
             address_book_repo: Box::new(SqliteAddressBookRepository),
+            signer_state_repo: Box::new(SqliteSignerStateRepository),
             keystore,
             failed_attempts: 0,
         }
@@ -71,12 +74,20 @@ impl Paypunkd {
         client_public_key: [u8; 32],
     ) -> PaypunkdResponse {
         info!("forwarding GenerateSeed to keypunkd");
-        self.respond(
-            "generate_seed",
-            usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key)
-                .await,
-            |encrypted_mnemonic| PaypunkdResponse::SeedGenerated { encrypted_mnemonic },
-        )
+        match usecases::generate_seed(&self.keypunk_service, encrypted_password, client_public_key)
+            .await
+        {
+            Ok(encrypted_mnemonic) => {
+                if let Err(e) = self.db.mark_initialized() {
+                    warn!(error = %e, "generate_seed: failed to write marker");
+                }
+                PaypunkdResponse::SeedGenerated { encrypted_mnemonic }
+            }
+            Err(e) => {
+                warn!(error = %e, "generate_seed failed");
+                PaypunkdResponse::Error { message: e }
+            }
+        }
     }
 
     async fn restore_seed(
@@ -86,17 +97,25 @@ impl Paypunkd {
         client_public_key: [u8; 32],
     ) -> PaypunkdResponse {
         info!("forwarding RestoreSeed to keypunkd");
-        self.respond(
-            "restore_seed",
-            usecases::restore_seed(
-                &self.keypunk_service,
-                encrypted_mnemonic,
-                encrypted_password,
-                client_public_key,
-            )
-            .await,
-            |()| PaypunkdResponse::SeedRestored,
+        match usecases::restore_seed(
+            &self.keypunk_service,
+            encrypted_mnemonic,
+            encrypted_password,
+            client_public_key,
         )
+        .await
+        {
+            Ok(()) => {
+                if let Err(e) = self.db.mark_initialized() {
+                    warn!(error = %e, "restore_seed: failed to write marker");
+                }
+                PaypunkdResponse::SeedRestored
+            }
+            Err(e) => {
+                warn!(error = %e, "restore_seed failed");
+                PaypunkdResponse::Error { message: e }
+            }
+        }
     }
 
     async fn submit_intent(
@@ -105,24 +124,34 @@ impl Paypunkd {
         derivation_path: String,
     ) -> PaypunkdResponse {
         info!("handling SubmitIntent");
-        self.respond(
-            "submit_intent",
-            usecases::submit_intent(
-                &self.keypunk_service,
-                &self.protocols,
-                &intent,
-                &derivation_path,
-            )
-            .await,
-            |(raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)| {
-                PaypunkdResponse::SignablePreview {
-                    raw_artifact,
-                    parsed_summary,
-                    keypunkd_signature,
-                    keypunkd_public_key,
-                }
-            },
+        match usecases::submit_intent(
+            &self.keypunk_service,
+            &self.protocols,
+            &intent,
+            &derivation_path,
         )
+        .await
+        {
+            Ok(KeypunkdResponse::ArtifactPreview {
+                raw_artifact,
+                parsed_summary,
+                signature,
+                keypunkd_public_key,
+            }) => PaypunkdResponse::SignablePreview {
+                raw_artifact,
+                parsed_summary,
+                keypunkd_signature: signature,
+                keypunkd_public_key,
+            },
+            Ok(KeypunkdResponse::ArtifactAuthorized { signed_artifact }) => {
+                PaypunkdResponse::SignatureApproved { signed_artifact }
+            }
+            Ok(KeypunkdResponse::Error { message }) => PaypunkdResponse::Error { message },
+            Err(e) => PaypunkdResponse::Error { message: e },
+            _ => PaypunkdResponse::Error {
+                message: "unexpected response from keypunkd".to_string(),
+            },
+        }
     }
 
     async fn approve_signature(
@@ -299,12 +328,9 @@ impl Paypunkd {
     }
 
     async fn has_seed(&self) -> PaypunkdResponse {
-        info!("forwarding HasSeed to keypunkd");
-        self.respond(
-            "has_seed",
-            usecases::has_seed(&self.keypunk_service).await,
-            |exists| PaypunkdResponse::HasSeed { exists },
-        )
+        info!("checking wallet exists in database");
+        let exists = self.db.wallet_exists();
+        PaypunkdResponse::HasSeed { exists }
     }
 
     async fn get_sync_status(&self, protocol: ProtocolId) -> PaypunkdResponse {
@@ -506,8 +532,6 @@ impl Paypunkd {
 
     async fn unlock(
         &mut self,
-        encrypted_db_password: Vec<u8>,
-        ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
@@ -522,28 +546,7 @@ impl Paypunkd {
             };
         }
 
-        // 1. If DB is already unlocked (fresh, no .enc file), skip decryption
-        if self.db.is_locked() {
-            let decrypted_password = match self
-                .keystore
-                .decrypt(&encrypted_db_password, &ephemeral_public_key)
-            {
-                Ok(pw) => pw,
-                Err(e) => {
-                    return PaypunkdResponse::Error {
-                        message: format!("failed to decrypt db password: {e}"),
-                    }
-                }
-            };
-
-            if let Err(e) = self.db.unlock(&decrypted_password) {
-                return PaypunkdResponse::Error {
-                    message: format!("failed to unlock database: {e}"),
-                };
-            }
-        }
-
-        // 3. Check if accounts exist
+        // Check if accounts exist
         let accounts = match usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
             Ok(a) => a,
             Err(e) => {
@@ -555,7 +558,7 @@ impl Paypunkd {
         info!("list_accounts {accounts:?}");
         let accounts_count = accounts.len() as u32;
 
-        // 4. If no accounts, bulk-derive from keypunkd and cache viewing keys
+        // If no accounts, bulk-derive from keypunkd and cache viewing keys
         if accounts.is_empty() {
             info!("no accounts found, bulk-deriving from keypunkd");
 
@@ -633,6 +636,9 @@ impl Paypunkd {
                     }
 
                     info!(count = derived.len(), "cached pre-derived viewing keys");
+                    if let Err(e) = self.db.mark_initialized() {
+                        warn!(error = %e, "unlock: failed to write marker");
+                    }
                     PaypunkdResponse::UnlockSuccess {
                         accounts_count: derived.len() as u32,
                     }
@@ -662,6 +668,9 @@ impl Paypunkd {
                     }
                 }
             }
+            if let Err(e) = self.db.mark_initialized() {
+                warn!(error = %e, "unlock: failed to write marker");
+            }
             PaypunkdResponse::UnlockSuccess { accounts_count }
         }
     }
@@ -686,6 +695,40 @@ impl Paypunkd {
             )
             .await,
             |accounts| PaypunkdResponse::AccountsBulkDerived { accounts },
+        )
+    }
+
+    async fn register_signer(&self, paths: Vec<(ProtocolId, String)>) -> PaypunkdResponse {
+        info!("handling RegisterSigner");
+
+        self.respond(
+            "register_signer",
+            usecases::register_signer(
+                &self.keypunk_service,
+                &self.protocols,
+                &self.db,
+                self.accounts_repo.as_ref(),
+                self.signer_state_repo.as_ref(),
+                &self.keystore,
+                paths,
+            )
+            .await,
+            |accounts_count| PaypunkdResponse::SignerRegistered { accounts_count },
+        )
+    }
+
+    async fn verify_signer_session(&self) -> PaypunkdResponse {
+        info!("handling VerifySignerSession");
+        self.respond(
+            "verify_signer_session",
+            usecases::verify_signer_session(
+                &self.keypunk_service,
+                &self.db,
+                self.signer_state_repo.as_ref(),
+                &self.keystore,
+            )
+            .await,
+            |()| PaypunkdResponse::SignerSessionVerified,
         )
     }
 }
@@ -772,20 +815,12 @@ impl Handler<IpcMessage> for Paypunkd {
             PaypunkdRequest::HasSeed => self.has_seed().await,
             PaypunkdRequest::GetSupportedProtocols => self.get_supported_protocols(),
             PaypunkdRequest::Unlock {
-                encrypted_db_password,
-                ephemeral_public_key,
                 encrypted_keypunkd_password,
                 keypunkd_client_pk,
                 paths,
             } => {
-                self.unlock(
-                    encrypted_db_password,
-                    ephemeral_public_key,
-                    encrypted_keypunkd_password,
-                    keypunkd_client_pk,
-                    paths,
-                )
-                .await
+                self.unlock(encrypted_keypunkd_password, keypunkd_client_pk, paths)
+                    .await
             }
             PaypunkdRequest::GetSyncStatus { protocol } => self.get_sync_status(protocol).await,
             PaypunkdRequest::BulkDeriveAccounts {
@@ -859,6 +894,8 @@ impl Handler<IpcMessage> for Paypunkd {
             PaypunkdRequest::GetTransactionStatus { protocol, txid } => {
                 self.get_transaction_status(protocol, txid).await
             }
+            PaypunkdRequest::RegisterSigner { paths } => self.register_signer(paths).await,
+            PaypunkdRequest::VerifySignerSession => self.verify_signer_session().await,
         };
 
         let encoded =

@@ -1,19 +1,18 @@
+use blake2::Digest;
+use keypunkd::crypto::Keypair;
 use keypunkd::services::KeypunkService;
-use paypunk_types::{Account, Balance, HistoryEntry, Intent, Page, ProtocolId, SyncStatus};
+use paypunk_types::{
+    Account, Balance, HistoryEntry, Intent, KeypunkdResponse, Page, ProtocolId, SyncStatus,
+};
 use rand::Rng;
-use tracing::info;
+use tracing::{info, warn};
 
-use crate::database::{AccountsRepository, AddressBookRepository, Database};
+use crate::database::{AccountsRepository, AddressBookRepository, Database, SignerStateRepository};
 use crate::protocol_service::ProtocolService;
 
 /// Forward a GetEncryptionKey request to keypunkd and return its X25519 public key.
 pub async fn get_keypunk_encryption_key(service: &KeypunkService) -> Result<[u8; 32], String> {
     service.get_encryption_key().await
-}
-
-/// Forward a HasSeed request to keypunkd.
-pub async fn has_seed(service: &KeypunkService) -> Result<bool, String> {
-    service.has_seed().await
 }
 
 /// Verify a password by forwarding to keypunkd for seed decryption.
@@ -88,7 +87,7 @@ pub async fn submit_intent(
     protocols: &ProtocolService,
     intent: &Intent,
     derivation_path: &str,
-) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+) -> Result<KeypunkdResponse, String> {
     // Determine protocol from intent
     let protocol_id = match intent {
         Intent::Zcash(_) => ProtocolId::Zcash,
@@ -100,20 +99,15 @@ pub async fn submit_intent(
     let raw_artifact = protocol.build(intent).await?;
 
     // Forward to keypunkd for parsing and preview
-    let preview = keypunk_service
-        .preview_artifact(raw_artifact, protocol_id, derivation_path.to_string())
-        .await?;
-
-    match preview {
-        keypunkd::messages::KeypunkdResponse::ArtifactPreview {
+    let chain_id = protocol.chain_id();
+    keypunk_service
+        .preview_artifact(
             raw_artifact,
-            parsed_summary,
-            signature,
-            keypunkd_public_key,
-        } => Ok((raw_artifact, parsed_summary, signature, keypunkd_public_key)),
-        keypunkd::messages::KeypunkdResponse::Error { message } => Err(message),
-        _ => Err("unexpected response from keypunkd".to_string()),
-    }
+            protocol_id,
+            chain_id,
+            derivation_path.to_string(),
+        )
+        .await
 }
 
 /// Approve and sign an artifact.
@@ -316,6 +310,163 @@ pub async fn bulk_derive_accounts(
     }
 
     Ok(accounts)
+}
+
+/// Register an offline signer: send viewing key derivation request to the signer
+/// via the bridge, store the returned viewing keys and session key.
+pub async fn register_signer(
+    keypunk_service: &KeypunkService,
+    protocols: &ProtocolService,
+    db: &Database,
+    accounts_repo: &dyn AccountsRepository,
+    signer_repo: &dyn SignerStateRepository,
+    keystore: &Keypair,
+    paths: Vec<(ProtocolId, String)>,
+) -> Result<u32, String> {
+    info!("register_signer() with {} paths", paths.len());
+
+    let paypunkd_pk = keystore.public_key();
+    let challenge: [u8; 32] = rand::thread_rng().gen();
+
+    let response = keypunk_service
+        .register_viewing_keys(paths.clone(), challenge, paypunkd_pk)
+        .await?;
+
+    let (keys, session_public_key, signed_challenge) = match response {
+        KeypunkdResponse::ViewingKeysRegistered {
+            keys,
+            session_public_key,
+            signed_challenge,
+        } => (keys, session_public_key, signed_challenge),
+        KeypunkdResponse::Error { message } => return Err(message),
+        _ => return Err("unexpected response from signer".to_string()),
+    };
+
+    // Verify the signed challenge
+    let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&challenge);
+    let decrypted = keystore
+        .decrypt_bytes(&signed_challenge, &session_public_key)
+        .map_err(|e| format!("session verification failed: {e}"))?;
+    if decrypted.as_slice() != hash.as_slice() {
+        return Err("session verification failed: challenge mismatch".to_string());
+    }
+
+    // Store session public key
+    {
+        let conn = db.conn.as_ref().ok_or("database is locked")?;
+        let conn = conn.lock().map_err(|e| e.to_string())?;
+        signer_repo.save_session_key(&conn, &session_public_key)?;
+    }
+
+    // Store pre-derived keys and create accounts
+    let mut account_count = 0u32;
+    let mut indexes: std::collections::HashMap<ProtocolId, i32> = std::collections::HashMap::new();
+    let mut created_accounts: Vec<(ProtocolId, Account)> = Vec::new();
+
+    for (protocol, path, viewing_key) in &keys {
+        *indexes.entry(*protocol).or_insert(-1) += 1;
+        let account_index = *indexes.get(protocol).unwrap_or(&0) as u32;
+
+        {
+            let conn = db.conn.as_ref().ok_or("database is locked")?;
+            let conn = conn.lock().map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT OR REPLACE INTO pre_derived_keys (protocol, account_index, viewing_key) VALUES (?1, ?2, ?3)",
+                rusqlite::params![format!("{:?}", protocol), account_index, viewing_key],
+            ).map_err(|e| format!("failed to save pre-derived key: {e}"))?;
+        }
+
+        let proto = match protocols.get(*protocol) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let address = proto.derive_address_from_viewing_key(viewing_key, 0)?;
+
+        let id: String = (0..16)
+            .map(|_| {
+                let hex = rand::thread_rng().gen_range(0..16);
+                format!("{hex:x}")
+            })
+            .collect();
+
+        let account = Account {
+            id,
+            protocol: *protocol,
+            derivation_path: path.clone(),
+            name: proto.default_account_name(account_index),
+            address,
+            viewing_key: viewing_key.clone(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        };
+
+        {
+            let conn = db.conn.as_ref().ok_or("database is locked")?;
+            let conn = conn.lock().map_err(|e| e.to_string())?;
+            accounts_repo.save(&conn, &account)?;
+        }
+
+        created_accounts.push((*protocol, account));
+        account_count += 1;
+    }
+
+    // Sync accounts (requires .await, no DB lock held)
+    for (protocol, account) in &created_accounts {
+        if let Ok(proto) = protocols.get(*protocol) {
+            if let Err(e) = proto
+                .sync_account(&account.viewing_key, 0, &account.address)
+                .await
+            {
+                warn!(?protocol, account = %account.id, error = %e, "sync_account after register failed");
+            }
+        }
+    }
+
+    info!(count = account_count, "signer registered successfully");
+    db.mark_initialized()
+        .map_err(|e| format!("failed to write marker: {e}"))?;
+    Ok(account_count)
+}
+
+/// Verify an existing signer session by sending a challenge and checking the signed response.
+pub async fn verify_signer_session(
+    keypunk_service: &KeypunkService,
+    db: &Database,
+    signer_repo: &dyn SignerStateRepository,
+    keystore: &Keypair,
+) -> Result<(), String> {
+    info!("verify_signer_session()");
+
+    let session_pk = {
+        let conn = db.conn.as_ref().ok_or("database is locked")?;
+        let conn = conn.lock().map_err(|e| e.to_string())?;
+        signer_repo
+            .get_session_key(&conn)?
+            .ok_or_else(|| "no session key stored — register first".to_string())?
+    };
+
+    let challenge: [u8; 32] = rand::thread_rng().gen();
+
+    let response = keypunk_service.verify_signer_session(challenge).await?;
+
+    let signed_challenge = match response {
+        KeypunkdResponse::SessionVerified { signed_challenge } => signed_challenge,
+        KeypunkdResponse::Error { message } => return Err(message),
+        _ => return Err("unexpected response from signer".to_string()),
+    };
+
+    let hash = blake2::Blake2b::<blake2::digest::consts::U32>::digest(&challenge);
+    let decrypted = keystore
+        .decrypt_bytes(&signed_challenge, &session_pk)
+        .map_err(|e| format!("session verification failed: {e}"))?;
+    if decrypted.as_slice() != hash.as_slice() {
+        return Err("session verification failed: challenge mismatch".to_string());
+    }
+
+    info!("signer session verified");
+    Ok(())
 }
 
 /// List all accounts from the database.

@@ -8,7 +8,9 @@ mod ui;
 use crate::api::WalletApi;
 use api::real::RealWalletApi;
 use app::App;
+use screens::connect_signer::ConnectSignerScreen;
 use screens::greeting::GreetingScreen;
+use screens::home::HomeScreen;
 use screens::setup::SetupScreen;
 use screens::Screen;
 
@@ -33,21 +35,44 @@ enum AppEvent {
     Resize(u16, u16),
 }
 
-pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io::Result<()> {
-    let api: Box<dyn WalletApi> = connect_with_retry(socket_path, shutdown.as_ref()).await?;
+pub async fn run_tui(
+    socket_path: &str,
+    shutdown: Option<Arc<AtomicBool>>,
+    signer_mode: bool,
+) -> io::Result<()> {
+    let api: Box<dyn WalletApi> =
+        connect_with_retry(socket_path, shutdown.as_ref(), signer_mode).await?;
 
     let mut app = App::new(api);
+    println!("app has instantiated!");
 
+    println!("checking wallet exists...");
     let wallet_exists = app.api.check_wallet_exists().await;
+    println!("wallet exists = {}", wallet_exists);
+
     if wallet_exists {
-        let mut greeting = Box::new(GreetingScreen::new());
-        greeting.init(&*app.api).await;
-        app.push_screen(greeting);
+        if signer_mode {
+            // In signer mode the DB is plaintext — no password needed.
+            let mut home = Box::new(HomeScreen::new());
+            home.init(&*app.api).await;
+            app.push_screen(home);
+        } else {
+            println!("wallet exists...");
+            let mut greeting = Box::new(GreetingScreen::new());
+            greeting.init(&*app.api).await;
+            app.push_screen(greeting);
+        }
+    } else if signer_mode {
+        let mut connect = Box::new(ConnectSignerScreen::new());
+        connect.init(&*app.api).await;
+        app.push_screen(connect);
     } else {
+        println!("wallet does not exist...");
         let mut setup = Box::new(SetupScreen::new());
         setup.init(&*app.api).await;
         app.push_screen(setup);
     }
+    println!("taking hook...");
 
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -55,7 +80,9 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
         prev_hook(info);
     }));
 
+    println!("about to init ratatui...");
     let mut terminal = ratatui::init();
+    println!("ABOUT TO RUN TERMINAL CLEAR...");
     terminal.clear()?;
     crossterm::execute!(std::io::stdout(), EnableBracketedPaste)?;
 
@@ -128,6 +155,7 @@ pub async fn run_tui(socket_path: &str, shutdown: Option<Arc<AtomicBool>>) -> io
 async fn connect_with_retry(
     socket_path: &str,
     shutdown: Option<&Arc<AtomicBool>>,
+    signer_mode: bool,
 ) -> io::Result<Box<dyn WalletApi>> {
     let deadline = Duration::from_secs(30);
     let poll_interval = Duration::from_millis(500);
@@ -143,7 +171,7 @@ async fn connect_with_retry(
             }
         }
 
-        match RealWalletApi::connect(socket_path).await {
+        match RealWalletApi::connect(socket_path, signer_mode).await {
             Ok(real) => return Ok(Box::new(real)),
             Err(e) => {
                 if start.elapsed() >= deadline {

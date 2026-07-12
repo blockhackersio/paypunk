@@ -1,4 +1,4 @@
-use paypunk_types::ProtocolId;
+use paypunk_types::{ChainId, ProtocolId};
 
 use crate::messages::{KeypunkdRequest, KeypunkdResponse};
 use paypunk_ipc::IpcMessage;
@@ -71,11 +71,13 @@ impl KeypunkService {
         &self,
         raw_artifact: Vec<u8>,
         protocol: ProtocolId,
+        chain_id: ChainId,
         derivation_path: String,
     ) -> Result<KeypunkdResponse, String> {
         self.send(KeypunkdRequest::PreviewArtifact {
             raw_artifact,
             protocol,
+            chain_id,
             derivation_path,
         })
         .await
@@ -118,14 +120,6 @@ impl KeypunkService {
             .await?
         {
             KeypunkdResponse::ViewingKey { key } => Ok(key),
-            KeypunkdResponse::Error { message } => Err(message),
-            _ => Err("unexpected response variant".to_string()),
-        }
-    }
-
-    pub async fn has_seed(&self) -> Result<bool, String> {
-        match self.send(KeypunkdRequest::HasSeed).await? {
-            KeypunkdResponse::HasSeed { exists } => Ok(exists),
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }
@@ -185,5 +179,27 @@ impl KeypunkService {
             KeypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }
+    }
+
+    pub async fn register_viewing_keys(
+        &self,
+        paths: Vec<(ProtocolId, String)>,
+        challenge: [u8; 32],
+        paypunkd_public_key: [u8; 32],
+    ) -> Result<KeypunkdResponse, String> {
+        self.send(KeypunkdRequest::RegisterViewingKeys {
+            paths,
+            challenge,
+            paypunkd_public_key,
+        })
+        .await
+    }
+
+    pub async fn verify_signer_session(
+        &self,
+        challenge: [u8; 32],
+    ) -> Result<KeypunkdResponse, String> {
+        self.send(KeypunkdRequest::VerifySignerSession { challenge })
+            .await
     }
 }

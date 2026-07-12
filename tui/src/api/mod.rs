@@ -5,7 +5,7 @@ pub mod types;
 use async_trait::async_trait;
 use types::*;
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait WalletApi {
     async fn get_setup(&self) -> SetupData;
     async fn submit_setup_create(&self, input: SetupCreateInput) -> Result<(), ApiError>;
@@ -56,4 +56,6 @@ pub trait WalletApi {
 
     // History
     async fn get_history(&self, account_id: &str) -> HistoryData;
+
+    async fn poll_send_result(&self) -> Option<SendResult>;
 }

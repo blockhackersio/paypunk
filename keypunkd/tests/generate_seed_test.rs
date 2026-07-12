@@ -2,7 +2,7 @@ use keypunkd::crypto::Keypair;
 use keypunkd::messages::{KeypunkdRequest, KeypunkdResponse};
 use keypunkd::protocol::ProtocolService;
 use keypunkd::seed_store::InMemorySeedStore;
-use keypunkd::Keypunkd;
+use keypunkd::{Keypunk, Keypunkd};
 use paypunk_ipc::IpcMessage;
 use tactix::{Actor, Sender};
 
@@ -18,7 +18,7 @@ async fn test_get_public_key() {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
     let protocols = ProtocolService::new();
-    let addr = Keypunkd::new(keystore, store, protocols).start();
+    let addr = Keypunkd::new(Keypunk::new(keystore, store, protocols)).start();
 
     let sender = Keypair::new().public_key();
     let bytes = postcard::to_allocvec(&KeypunkdRequest::GetEncryptionKey).unwrap();
@@ -38,7 +38,7 @@ async fn test_generate_seed_no_filesystem() {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
     let protocols = ProtocolService::new();
-    let addr = Keypunkd::new(keystore, store, protocols).start();
+    let addr = Keypunkd::new(Keypunk::new(keystore, store, protocols)).start();
 
     // Client side
     let client = Keypair::new();
@@ -80,7 +80,7 @@ async fn test_generate_seed_empty_password() {
     let keystore = Keypair::new();
     let store = InMemorySeedStore::new();
     let protocols = ProtocolService::new();
-    let addr = Keypunkd::new(keystore, store, protocols).start();
+    let addr = Keypunkd::new(Keypunk::new(keystore, store, protocols)).start();
 
     let client = Keypair::new();
     let sender = client.public_key();

@@ -13,5 +13,5 @@ async fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let config = ConfigLoader::load_or_default();
     let socket_path = args.socket_path.unwrap_or(config.paypunkd_socket_path);
-    paypunk_tui::run_tui(&socket_path, None).await
+    paypunk_tui::run_tui(&socket_path, None, false).await
 }

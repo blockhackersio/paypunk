@@ -1,8 +1,11 @@
 pub mod address;
 pub mod protocol;
 pub mod rpc;
+pub mod signer;
 
+pub use protocol::EthereumProtocol;
 pub use rpc::{EthRpcClient, HttpRpcClient, TxReceipt, UnimplementedRpcClient};
+pub use signer::EthereumSignerProtocol;
 
 /// Return the standard Ethereum derivation path for a given account index.
 ///

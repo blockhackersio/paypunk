@@ -1,124 +1,164 @@
-# Step: Create the ping CLI crate
+# Step 4: Ethereum protocol split — EthereumSignerProtocol
 
-Create the `ping/` crate — a binary that connects to a Unix socket, performs the full IPC handshake, sends a `ping` IPC message, waits for a `pong` response, and prints the result.
+## Goal
 
-**This step is purely additive.** Only the root `Cargo.toml` (add workspace member) and the new `ping/` directory are touched.
+Split `EthereumProtocol` into two structs: `EthereumProtocol` (keeps `Protocol`
+trait impl, requires `T: EthRpcClient`) and `EthereumSignerProtocol` (new, gets
+`SignerProtocol` trait impl, no RPC client needed). This mirrors the Zcash split
+from Step 3.
 
-## Tasks
+## Files to change
 
-### 1. Add `"ping"` to workspace members in root `Cargo.toml`
-
-```toml
-members = [
-    ...
-    "ping",
-]
-```
-
-### 2. Create `ping/Cargo.toml`
-
-```toml
-[package]
-name = "paypunk-ping"
-version = "0.1.0"
-edition = "2021"
-
-[[bin]]
-name = "paypunk-ping"
-path = "src/main.rs"
-
-[dependencies]
-paypunk-ipc = { path = "../ipc" }
-tactix = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros"] }
-clap = { workspace = true, features = ["derive"] }
-```
-
-### 3. Create `ping/src/main.rs`
-
-A CLI binary that:
-1. Parses `--socket-path` argument (default `/tmp/keypunkd.sock`)
-2. Connects to the Unix socket via `IpcSender::connect()`
-3. Sends an `IpcMessage` with payload `b"ping"` via `addr.ask()`
-4. Matches the result:
-   - `Ok(bytes)` where `bytes == b"pong"` → prints `✅ Pong received` and exits 0
-   - `Ok(other)` → prints `❌ Unexpected response: <hex/string>` and exits 1
-   - `Err(e)` → prints `❌ Error: {e}` and exits 1
+### 1. `protocols/ethereum/src/signer.rs` — New file
 
 ```rust
-use clap::Parser;
-use paypunk_ipc::{IpcMessage, IpcSender};
+use async_trait::async_trait;
+use alloy_rlp::Decodable;
+use paypunk_types::{
+    ArtifactSummary, EthereumArtifactSummary, ProtocolId, SignerProtocol,
+};
+use crate::protocol::{TxEip1559, TxKind};
 
-#[derive(Parser)]
-#[command(name = "paypunk-ping")]
-struct Cli {
-    #[arg(long, default_value = "/tmp/keypunkd.sock")]
-    socket_path: String,
-}
+pub struct EthereumSignerProtocol;
 
-#[tokio::main]
-async fn main() {
-    let cli = Cli::parse();
-
-    println!("Connecting to {}...", cli.socket_path);
-
-    let addr = match IpcSender::connect(&cli.socket_path).await {
-        Ok(addr) => addr,
-        Err(e) => {
-            eprintln!("❌ Failed to connect: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    println!("Sending ping...");
-
-    let result = addr.ask(IpcMessage::new(b"ping".to_vec())).await;
-
-    match result {
-        Ok(bytes) => {
-            if bytes == b"pong" {
-                println!("✅ Pong received");
-            } else {
-                eprintln!(
-                    "❌ Unexpected response: {}",
-                    String::from_utf8_lossy(&bytes)
-                );
-                std::process::exit(1);
-            }
-        }
-        Err(e) => {
-            eprintln!("❌ Error: {e}");
-            std::process::exit(1);
-        }
+impl EthereumSignerProtocol {
+    pub fn new() -> Self {
+        Self
     }
 }
+
+#[async_trait]
+impl SignerProtocol for EthereumSignerProtocol {
+    fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
+        use bip32::secp256k1::elliptic_curve::SecretKey;
+        use k256::ecdsa::SigningKey;
+        let child_key = derive_secp256k1_child(seed, path)?;
+        let signing_key = SigningKey::from_slice(&child_key)
+            .map_err(|e| format!("invalid key: {e}"))?;
+        let verifying_key = signing_key.verifying_key();
+        Ok(verifying_key.to_sec1_bytes().to_vec())
+    }
+
+    fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String> {
+        let tx = TxEip1559::decode(&mut &*artifact)
+            .map_err(|e| format!("RLP decode failed: {e}"))?;
+
+        let to = match tx.to {
+            TxKind::Call(addr) => addr.to_string(),
+            TxKind::Create => "contract_creation".to_string(),
+        };
+
+        let amount = format!("{}", tx.value);
+        let fee = format!("{}", tx.max_fee_per_gas * tx.gas_limit as u128);
+
+        let summary = ArtifactSummary::Ethereum(EthereumArtifactSummary {
+            to,
+            amount,
+            fee,
+            nonce: tx.nonce,
+        });
+
+        postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
+    }
+
+    fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String> {
+        // Reuse the existing sign_transaction_inner logic from EthereumProtocol
+        // but without the self.client dependency
+        use alloy_rlp::Encodable;
+        use k256::ecdsa::{SigningKey, Signature};
+        use k256::SecretKey;
+
+        let mut tx = TxEip1559::decode(&mut &*artifact)
+            .map_err(|e| format!("RLP decode failed: {e}"))?;
+
+        let child_key = derive_secp256k1_child(seed, path)?;
+        let signing_key = SigningKey::from_slice(&child_key)
+            .map_err(|e| format!("invalid key: {e}"))?;
+
+        // Sign the transaction hash
+        let tx_hash = tx.signature_hash();
+        let (sig, recid) = signing_key
+            .sign_prehash_recoverable(&tx_hash)
+            .map_err(|e| format!("signing failed: {e}"))?;
+
+        tx.set_signature(sig, recid);
+
+        let mut signed = Vec::new();
+        tx.encode(&mut signed);
+        Ok(signed)
+    }
+}
+
+fn derive_secp256k1_child(seed: &[u8; 64], path: &str) -> Result<[u8; 32], String> {
+    // Same logic as EthereumProtocol::export_viewing key derivation
+    // ...
+}
 ```
+
+Note: The exact implementation should mirror the existing `EthereumProtocol`'s
+`SignerProtocol` impl methods. The `export_viewing`, `parse_artifact`, and `sign`
+methods should be copied from `protocols/ethereum/src/protocol.rs` lines 221-271,
+removing only the `self.client` dependency. The `sign_transaction_inner` and
+`derive_secp256k1_child` helpers should be moved here too.
+
+### 2. `protocols/ethereum/src/lib.rs`
+
+Add `pub mod signer;` and export `EthereumSignerProtocol`:
+
+```rust
+pub mod protocol;
+pub mod signer;
+
+pub use protocol::EthereumProtocol;
+pub use signer::EthereumSignerProtocol;
+```
+
+### 3. `protocols/ethereum/src/protocol.rs`
+
+Keep the `impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T>` block
+unchanged for now. Both `EthereumProtocol` and `EthereumSignerProtocol` will
+implement `SignerProtocol` at this stage. The `EthereumProtocol`'s impl will be
+removed in a later step (or can stay — it's harmless).
+
+### 4. `protocols/ethereum/Cargo.toml`
+
+Ensure `k256` and `bip32` are in dependencies (they should already be there for
+the existing Ethereum signer code). If `alloy-rlp` is used, ensure it's available.
 
 ## Acceptance criteria
 
-- [ ] `cargo build` succeeds from workspace root
-- [ ] `cargo build -p paypunk-ping` succeeds
-- [ ] `cargo run -p paypunk-ping -- --help` shows the `--socket-path` flag
-- [ ] Running `cargo run -p paypunk-ping` against an active bridge socket performs the IPC handshake, sends ping, and prints the result
+1. `cargo build --workspace` succeeds.
+2. `cargo test --workspace` passes.
+3. `cargo fmt --all` produces no changes.
+4. `EthereumSignerProtocol` exists as a struct implementing `SignerProtocol`.
+5. `EthereumSignerProtocol::new()` takes no arguments (no RPC client).
+6. Both `EthereumProtocol` and `EthereumSignerProtocol` implement `SignerProtocol`
+   (coexisting, like Zcash in Step 3).
 
 ## Context
 
-- The ping CLI uses `IpcSender::connect()` which performs the full IPC handshake (GetPublicKey → PublicKey, RegisterClient → Ack) and derives the HMAC key
-- It then sends an application frame (`MSG_APPLICATION`) containing payload `b"ping"` with a valid MAC
-- The response is expected to be `b"pong"` (the payload after stripping the `0x00` success status byte)
-- For the ping CLI to receive a pong, something must respond via the bridge's HTTP API:
-  1. A test agent reads the pending bytes from `GET /pending-bytes`
-  2. Feeds them to `PongHandler::handle()` from the `paypunk-pong` crate
-  3. POSTs the result to `/response`
-- The bridge writes the response bytes back to the Unix socket, and `IpcSender` decodes them
-- No existing crate code outside `ping/` is modified
+`EthereumSignerProtocol` is a non-generic struct with no fields. It doesn't need
+an RPC client because `SignerProtocol` methods are self-contained:
+- `parse_artifact` uses `alloy_rlp` to decode the raw EIP-1559 transaction bytes.
+- `sign` uses `k256` for local signing.
+- `export_viewing` derives a secp256k1 public key from the seed.
 
-## Implementation instructions for agent
+The `EthereumProtocol`'s `SignerProtocol` impl currently uses `self.client` only
+in the `chain()` method (which was removed in Step 2). The remaining methods
+(`export_viewing`, `parse_artifact`, `sign`) don't use `self.client` either, so the
+split is straightforward.
 
-1. Add `"ping"` to workspace members in root `Cargo.toml`
-2. Create `ping/Cargo.toml`
-3. Create `ping/src/main.rs`
-4. Run `cargo build` to verify it compiles
-5. Run `cargo fmt --all`
-6. Move this step file to `project/done/04_step.md`
-7. Commit with message: `feat: create ping CLI for IPC roundtrip testing`
+## Verification
+
+```bash
+cargo build --workspace
+cargo test --workspace
+cargo test -p paypunk-chains-ethereum
+cargo fmt --all
+```
+
+After verification, move this file to `./project/done/04_step.md` and commit with:
+
+```
+git add -A && git commit -m "ethereum: add EthereumSignerProtocol without RPC client dependency"
+```

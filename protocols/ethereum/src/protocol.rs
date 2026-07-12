@@ -5,7 +5,8 @@ use hex;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use paypunk_types::{
-    caip, ArtifactSummary, ChainId, EthereumIntent, Intent, Protocol, ProtocolId, SignerProtocol,
+    caip, ArtifactSummary, ChainId, EthereumArtifactSummary, EthereumIntent, Intent, Protocol,
+    ProtocolId, SignerProtocol,
 };
 use std::str::FromStr;
 
@@ -220,14 +221,6 @@ fn parse_amount(amount: &str) -> Result<U256, String> {
 
 #[async_trait]
 impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
-    async fn chain(&self) -> ChainId {
-        let chain_id = self.client.get_chain_id().await.unwrap_or(1);
-        ChainId {
-            namespace: "eip155".to_string(),
-            reference: chain_id.to_string(),
-        }
-    }
-
     fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
         let parsed = bip32::DerivationPath::from_str(path)
             .map_err(|e| format!("invalid derivation path: {e}"))?;
@@ -253,14 +246,12 @@ impl<T: EthRpcClient> SignerProtocol for EthereumProtocol<T> {
         let amount = format!("{}", tx.value);
         let fee = format!("{}", tx.max_fee_per_gas * tx.gas_limit as u128);
 
-        let summary = ArtifactSummary {
+        let summary = ArtifactSummary::Ethereum(EthereumArtifactSummary {
             to,
             amount,
             fee,
             nonce: tx.nonce,
-            memo: None,
-            protocol: ProtocolId::Ethereum,
-        };
+        });
 
         postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
     }
@@ -389,10 +380,10 @@ mod tests {
         mnemonic.to_seed("")
     }
 
-    #[tokio::test]
-    async fn test_chain_id() {
+    #[test]
+    fn test_chain_id() {
         let protocol = EthereumProtocol::new(MockRpcClient::new(0, 0));
-        let chain = protocol.chain().await;
+        let chain = protocol.chain_id();
         assert_eq!(chain.namespace, "eip155");
         assert_eq!(chain.reference, "1");
     }
@@ -414,7 +405,13 @@ mod tests {
         let unsigned = protocol.build(&intent).await.unwrap();
         let parsed = protocol.parse_artifact(&unsigned).unwrap();
         let summary: ArtifactSummary = postcard::from_bytes(&parsed).unwrap();
-        assert_eq!(summary.protocol, ProtocolId::Ethereum);
+        match &summary {
+            ArtifactSummary::Ethereum(eth) => {
+                assert_eq!(eth.to, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+                assert_eq!(eth.amount, "100000000000000");
+            }
+            _ => panic!("expected Ethereum summary"),
+        }
     }
 
     #[tokio::test]

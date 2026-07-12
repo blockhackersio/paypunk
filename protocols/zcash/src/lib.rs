@@ -1,19 +1,35 @@
 pub mod address;
-pub mod lsp_client;
+pub mod common;
+#[cfg(feature = "wallet")]
 pub mod protocol;
+pub mod signer;
+
+#[cfg(feature = "wallet")]
+pub mod lsp_client;
+#[cfg(feature = "wallet")]
 pub mod scan_actor;
+#[cfg(feature = "wallet")]
 pub mod wallet_actor;
 
-use std::path::Path;
-
-use tactix::{Actor, Recipient, Sender};
-use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 use zcash_protocol::consensus::Parameters;
 use zcash_protocol::consensus::{BlockHeight, Network, NetworkType, NetworkUpgrade};
 use zcash_protocol::local_consensus::LocalNetwork;
 
+#[cfg(feature = "wallet")]
+use std::path::Path;
+
+#[cfg(feature = "wallet")]
 pub use protocol::ZcashProtocol;
+pub use signer::ZcashSignerProtocol;
+
+#[cfg(feature = "wallet")]
+use tactix::{Actor, Recipient, Sender};
+#[cfg(feature = "wallet")]
+use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
+
+#[cfg(feature = "wallet")]
 pub use scan_actor::{Sync, SyncNewAccount};
+#[cfg(feature = "wallet")]
 pub use wallet_actor::{
     EstimateFee, GetBalance, GetBlockHeight, GetChainTip, GetHistory, GetStatus, GetTxStatus,
     ProposeAndBuild, RegisterAccount, ScanBlocks, ScanUpdate, StoreTransaction, WalletDbActor,
@@ -21,6 +37,7 @@ pub use wallet_actor::{
 
 /// Patch the orchard shard scan range views for regtest, where all upgrades activate
 /// at block 1 but the zcash_protocol crate's TestNetwork has NU5 at 1842420.
+#[cfg(feature = "wallet")]
 fn patch_orchard_views_for_regtest(db_path: &Path) -> Result<(), String> {
     let conn = rusqlite::Connection::open(db_path)
         .map_err(|e| format!("failed to open db for view patch: {e}"))?;
@@ -107,6 +124,7 @@ pub fn to_local_params(params: Network, network_type: NetworkType) -> LocalNetwo
 /// If the database file exists but is in a bad state (corrupted, readonly from a
 /// stale WAL, etc.), we delete it and start fresh. This is safe because the
 /// wallet DB only contains scanned chain data — keys live in keypunkd.
+#[cfg(feature = "wallet")]
 fn open_wallet_db(
     db_path: &Path,
     params: LocalNetwork,
@@ -170,6 +188,7 @@ fn open_wallet_db(
 }
 
 /// Result of creating a fully-initialized Zcash protocol stack.
+#[cfg(feature = "wallet")]
 pub struct ZcashStack {
     pub protocol: ZcashProtocol,
     /// Recipient for `Sync` messages (used by the background sync loop in paypunkd).
@@ -178,6 +197,7 @@ pub struct ZcashStack {
 
 /// Create a fully-initialized Zcash protocol with a running WalletDbActor
 /// and ScanActor.
+#[cfg(feature = "wallet")]
 pub async fn create_protocol(
     data_dir: &Path,
     lightwalletd_host: String,

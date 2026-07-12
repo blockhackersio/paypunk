@@ -113,6 +113,24 @@ impl Migration for SettingsMigration {
     }
 }
 
+pub struct SignerStateMigration;
+
+impl Migration for SignerStateMigration {
+    fn version(&self) -> u32 {
+        6
+    }
+
+    fn up(&self, conn: &Connection) -> Result<(), String> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS signer_state (
+                session_public_key BLOB NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );",
+        )
+        .map_err(|e| e.to_string())
+    }
+}
+
 pub struct AccountsMigration;
 
 impl Migration for AccountsMigration {

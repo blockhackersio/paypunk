@@ -1,7 +1,7 @@
 use argon2::Argon2;
 use bip39::{Language, Mnemonic};
 use keypunkd::crypto::Keypair;
-use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId};
+use paypunk_types::{Account, Balance, HistoryEntry, Intent, ProtocolId, SubmitIntentResult};
 use paypunkd::messages::AddressBookEntry;
 use zeroize::Zeroizing;
 
@@ -25,6 +25,34 @@ pub fn derivation_path(protocol: ProtocolId, account: u32) -> String {
         ProtocolId::Ethereum => paypunk_chains_ethereum::derivation_path(account),
     }
 }
+
+/// Build the default set of registration paths: 2 accounts per protocol.
+pub fn default_registration_paths(protocols: &[ProtocolId]) -> Vec<(ProtocolId, String)> {
+    let mut paths = Vec::new();
+    for &protocol in protocols {
+        for account in 0..2 {
+            paths.push((protocol, derivation_path(protocol, account)));
+        }
+    }
+    paths
+}
+
+/// Register an offline signer: send viewing key paths to paypunkd,
+/// which forwards to the bridge/signer. Returns the number of accounts derived.
+pub async fn register_signer(service: &paypunkd::services::PaypunkService) -> Result<u32, String> {
+    let protocols = service.get_supported_protocols().await?;
+    let paths = default_registration_paths(&protocols);
+
+    service.register_signer(paths).await
+}
+
+/// Verify an existing signer session (no password needed).
+pub async fn verify_signer_session(
+    service: &paypunkd::services::PaypunkService,
+) -> Result<(), String> {
+    service.verify_signer_session().await
+}
+
 pub async fn check_wallet_exists(
     service: &paypunkd::services::PaypunkService,
 ) -> Result<bool, String> {
@@ -39,32 +67,27 @@ pub fn generate_mnemonic() -> Zeroizing<String> {
     Zeroizing::new(mnemonic.to_string())
 }
 
-/// Unlock the wallet by decrypting the DB and deriving initial accounts.
+/// Unlock the wallet by deriving initial accounts.
 ///
 /// 1. Creates ephemeral keypair
 /// 2. Fetches keypunkd's public key from paypunkd
-/// 3. Fetches paypunkd's public encryption key
-/// 4. Queries paypunkd for supported protocols
-/// 5. Builds derivation paths for each supported protocol
-/// 6. Encrypts password to paypunkd's key (for DB unlock)
-/// 7. Encrypts password to keypunkd's key (for bulk derivation)
-/// 8. Sends Unlock to paypunkd with both encrypted payloads and paths
-/// 9. Returns accounts count from UnlockSuccess
+/// 3. Queries paypunkd for supported protocols
+/// 4. Builds derivation paths for each supported protocol
+/// 5. Encrypts password to keypunkd's key (for bulk derivation)
+/// 6. Sends Unlock to paypunkd with encrypted payload and paths
+/// 7. Returns accounts count from UnlockSuccess
 pub async fn unlock(
     service: &paypunkd::services::PaypunkService,
     password: Zeroizing<String>,
 ) -> Result<u32, String> {
     let client_keypair = Keypair::new();
     let keypunk_pk = service.get_keypunk_encryption_key().await?;
-    let paypunkd_pk = service.get_paypunkd_encryption_key().await?;
     let client_pk = client_keypair.public_key();
 
     let encrypted_keypunkd_password = client_keypair.encrypt(
         hash_for_domain(&password, b"keypunkd-seed-key"),
         &keypunk_pk,
     );
-    let encrypted_db_password =
-        client_keypair.encrypt(hash_for_domain(&password, b"paypunkd-db-key"), &paypunkd_pk);
 
     // Query supported protocols and build derivation paths for each (accounts 0..30)
     let protocols = service.get_supported_protocols().await?;
@@ -76,13 +99,7 @@ pub async fn unlock(
     }
 
     service
-        .unlock(
-            encrypted_db_password,
-            client_pk,
-            encrypted_keypunkd_password,
-            client_pk,
-            paths,
-        )
+        .unlock(encrypted_keypunkd_password, client_pk, paths)
         .await
 }
 
@@ -157,7 +174,7 @@ pub async fn submit_intent(
     service: &paypunkd::services::PaypunkService,
     intent: Intent,
     derivation_path: &str,
-) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+) -> Result<SubmitIntentResult, String> {
     match service
         .submit_intent(intent, derivation_path.to_string())
         .await?
@@ -167,12 +184,15 @@ pub async fn submit_intent(
             parsed_summary,
             keypunkd_signature,
             keypunkd_public_key,
-        } => Ok((
+        } => Ok(SubmitIntentResult::SignablePreview {
             raw_artifact,
             parsed_summary,
             keypunkd_signature,
             keypunkd_public_key,
-        )),
+        }),
+        paypunkd::messages::PaypunkdResponse::SignatureApproved { signed_artifact } => {
+            Ok(SubmitIntentResult::SignatureApproved { signed_artifact })
+        }
         paypunkd::messages::PaypunkdResponse::Error { message } => Err(message),
         _ => Err("unexpected response from paypunkd".to_string()),
     }
