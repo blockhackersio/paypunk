@@ -13,7 +13,7 @@ use crate::screens::send::SendScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
-use ratatui::layout::{Constraint, Layout, Margin};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Padding, Paragraph};
@@ -131,16 +131,17 @@ impl Screen for AssetsScreen {
             }),
         );
 
-        let addr_line = Paragraph::new(
-            Line::from(vec![theme.muted(format!(" {}", self.account.address))]).centered(),
-        )
-        .style(Style::new().bg(ui::BG));
+        let addr_line =
+            Paragraph::new(Line::from(vec![theme.muted(&self.account.address)]).centered())
+                .style(Style::new().bg(ui::BG));
         frame.render_widget(
             addr_line,
-            header.inner(Margin {
-                vertical: 3,
-                horizontal: 0,
-            }),
+            Rect {
+                x: header.x,
+                y: header.y + 3,
+                width: header.width,
+                height: 1,
+            },
         );
 
         if self.sync_status.is_syncing {
@@ -151,10 +152,12 @@ impl Screen for AssetsScreen {
             .style(Style::new().bg(ui::BG));
             frame.render_widget(
                 sync_line,
-                header.inner(Margin {
-                    vertical: 4,
-                    horizontal: 0,
-                }),
+                Rect {
+                    x: header.x,
+                    y: header.y + 4,
+                    width: header.width,
+                    height: 1,
+                },
             );
         }
 
@@ -183,16 +186,16 @@ impl Screen for AssetsScreen {
 
         let table_area = inner.inner(Margin {
             vertical: 0,
-            horizontal: 1,
+            horizontal: 2,
         });
         let header_style = Style::new().fg(ui::palette().muted);
-        let name_width = (table_area.width as usize).saturating_sub(11);
+        let name_width = (table_area.width as usize).saturating_sub(10);
         let header_line = Line::from(vec![
             ratatui::text::Span::styled(
                 format!(" {:width$} ", "Asset", width = name_width),
                 header_style,
             ),
-            ratatui::text::Span::styled(format!(" {:>7} ", "Balance"), header_style),
+            ratatui::text::Span::styled(format!(" {:>7}", "Balance"), header_style),
         ]);
         frame.render_widget(
             Paragraph::new(header_line).style(Style::new().bg(ui::BG)),
@@ -208,7 +211,7 @@ impl Screen for AssetsScreen {
                 format!(" {:-<width$} ", "", width = name_width),
                 sep_style,
             ),
-            ratatui::text::Span::styled(format!(" {:->7} ", ""), sep_style),
+            ratatui::text::Span::styled(format!(" {:->7}", ""), sep_style),
         ]);
         frame.render_widget(
             Paragraph::new(sep_line).style(Style::new().bg(ui::BG)),

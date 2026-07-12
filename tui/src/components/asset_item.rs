@@ -51,16 +51,16 @@ impl Component<AssetAction> for AssetItem {
         .split(area);
 
         let balance_str = &self.asset.holdings_amount;
-        let gap = (area.width as usize).saturating_sub(self.asset.name.len() + balance_str.len() + 3);
+        let gap = (area.width as usize).saturating_sub(self.asset.name.len() + balance_str.len() + 5);
         let line = Line::from(vec![
-            Span::styled(format!(" {}", self.asset.name), name_style),
+            Span::styled(format!("  {}", self.asset.name), name_style),
             Span::styled(" ".repeat(gap), Style::new()),
-            Span::styled(format!(" {}", balance_str), amount_style),
+            Span::styled(format!("  {} ", balance_str), amount_style),
         ]);
         frame.render_widget(Paragraph::new(line).style(Style::new().bg(row_bg)), rows[1]);
 
         let btn_labels = [" Send ", " Receive ", " History "];
-        let mut x_offset = 1u16;
+        let mut x_offset = 2u16;
         for (i, label) in btn_labels.iter().enumerate() {
             let w = label.len() as u16 + 2;
             let btn_rect = Rect {
@@ -75,7 +75,7 @@ impl Component<AssetAction> for AssetItem {
             let (bg, fg) = if is_btn_focused {
                 (ui::palette().primary, ui::SURFACE)
             } else if self.focused {
-                (ui::palette().muted, ui::palette().foreground)
+                (ui::SURFACE, ui::palette().foreground)
             } else {
                 (ui::BG, ui::palette().muted)
             };
