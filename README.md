@@ -1,11 +1,11 @@
 # Paypunk Wallet
 
+_This is experimental software and should not be used with real funds_
+
 [![CI](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml/badge.svg)](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![Status](https://img.shields.io/badge/status-alpha-yellow.svg)]()
-
-_This is experimental software and should not be used with real funds_
 
 Wallet infrastructure for privacy-preserving commerce on desktop and agentic workflows.
 
