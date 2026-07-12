@@ -1,0 +1,3 @@
+- in the tui make the Zcash tab show first and the Ethereum tab show second
+- on the assets page put the Send Receive and history button in the asset row. up and down will go beteween asset while left and right should select each button
+- where the current send receive and history buttons are there should only be a Back button which when selected will do the same functionality as pressing the esc key
