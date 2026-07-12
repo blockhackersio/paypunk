@@ -1,5 +1,6 @@
 pub mod assets;
 pub mod component_demo;
+pub mod connect_signer;
 pub mod greeting;
 pub mod help;
 pub mod history;

@@ -265,16 +265,12 @@ impl PaypunkService {
 
     pub async fn unlock(
         &self,
-        encrypted_db_password: Vec<u8>,
-        ephemeral_public_key: [u8; 32],
         encrypted_keypunkd_password: Vec<u8>,
         keypunkd_client_pk: [u8; 32],
         paths: Vec<(ProtocolId, String)>,
     ) -> Result<u32, String> {
         match self
             .send(PaypunkdRequest::Unlock {
-                encrypted_db_password,
-                ephemeral_public_key,
                 encrypted_keypunkd_password,
                 keypunkd_client_pk,
                 paths,
@@ -399,6 +395,30 @@ impl PaypunkService {
             .await?
         {
             PaypunkdResponse::PhraseRevealed { encrypted_mnemonic } => Ok(encrypted_mnemonic),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn register_signer(
+        &self,
+        paths: Vec<(ProtocolId, String)>,
+    ) -> Result<u32, String> {
+        match self
+            .send(PaypunkdRequest::RegisterSigner {
+                paths,
+            })
+            .await?
+        {
+            PaypunkdResponse::SignerRegistered { accounts_count } => Ok(accounts_count),
+            PaypunkdResponse::Error { message } => Err(message),
+            _ => Err("unexpected response variant".to_string()),
+        }
+    }
+
+    pub async fn verify_signer_session(&self) -> Result<(), String> {
+        match self.send(PaypunkdRequest::VerifySignerSession).await? {
+            PaypunkdResponse::SignerSessionVerified => Ok(()),
             PaypunkdResponse::Error { message } => Err(message),
             _ => Err("unexpected response variant".to_string()),
         }

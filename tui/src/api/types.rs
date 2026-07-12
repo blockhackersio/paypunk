@@ -125,6 +125,7 @@ pub struct SendReviewData {
     pub total_amount: String,
     pub chain_id: String,
     pub nonce: u64,
+    pub skip_review: bool,
 }
 
 #[derive(Debug, Clone)]

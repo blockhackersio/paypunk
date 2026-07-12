@@ -4,7 +4,19 @@ import react from "@vitejs/plugin-react";
 const host = process.env.VITE_HOST ?? "0.0.0.0";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "buffer-polyfill",
+      transform(code, id) {
+        if (id.includes("cbor-sync")) {
+          return code
+            .replace('typeof Buffer === "function"', "true")
+            .replace("typeof Buffer === 'function'", "true");
+        }
+      },
+    },
+  ],
   clearScreen: false,
   server: {
     host,
@@ -21,6 +33,12 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_DEBUG,
   },
   optimizeDeps: {
+    include: ["@ngraveio/bc-ur"],
     exclude: ["konsta/react"],
+  },
+  resolve: {
+    alias: {
+      buffer: "buffer/",
+    },
   },
 });

@@ -4,7 +4,9 @@ use clap::{Parser, Subcommand};
 use paypunk_api::Client;
 use paypunk_config::ConfigLoader;
 use paypunk_tui::run_tui;
-use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, ZcashIntent};
+use paypunk_types::{
+    ArtifactSummary, EthereumIntent, Intent, ProtocolId, SubmitIntentResult, ZcashIntent,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -82,6 +84,7 @@ fn load_pending_intent(data_dir: &str) -> Result<PendingIntent, String> {
 struct DaemonGuard {
     keypunkd: Option<Child>,
     paypunkd: Option<Child>,
+    bridge: Option<Child>,
 }
 
 impl DaemonGuard {
@@ -89,6 +92,16 @@ impl DaemonGuard {
         Self {
             keypunkd: None,
             paypunkd: None,
+            bridge: None,
+        }
+    }
+
+    fn add_child(&mut self, child: Child, kind: &str) {
+        match kind {
+            "keypunkd" => self.keypunkd = Some(child),
+            "paypunkd" => self.paypunkd = Some(child),
+            "bridge" => self.bridge = Some(child),
+            _ => {}
         }
     }
 }
@@ -99,6 +112,10 @@ impl Drop for DaemonGuard {
             let _ = child.kill();
             let _ = child.wait();
         }
+        if let Some(mut child) = self.bridge.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         if let Some(mut child) = self.paypunkd.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -106,11 +123,14 @@ impl Drop for DaemonGuard {
     }
 }
 
-/// Spawn keypunkd and paypunkd if the paypunkd socket doesn't already exist
-/// with a live daemon. Returns a guard that kills the daemons on drop.
+/// Spawn keypunkd/paypunkd (or bridge in signer mode) if the paypunkd socket
+/// doesn't already exist with a live daemon. Returns a guard that kills the
+/// daemons on drop.
 async fn ensure_daemons(
     paypunkd_socket: &str,
     keypunkd_socket: &str,
+    bridge_socket: &str,
+    signer_mode: bool,
 ) -> Result<DaemonGuard, Box<dyn std::error::Error>> {
     // If socket exists, try a quick connect to see if it's live
     if Path::new(paypunkd_socket).exists() {
@@ -122,6 +142,7 @@ async fn ensure_daemons(
                 // Stale socket — clean it and proceed to spawn
                 let _ = fs::remove_file(keypunkd_socket);
                 let _ = fs::remove_file(paypunkd_socket);
+                let _ = fs::remove_file(bridge_socket);
             }
         }
     }
@@ -133,35 +154,71 @@ async fn ensure_daemons(
     // Clean stale sockets before spawning
     let _ = fs::remove_file(keypunkd_socket);
     let _ = fs::remove_file(paypunkd_socket);
+    let _ = fs::remove_file(bridge_socket);
 
-    println!("Starting keypunkd...");
-    let mut keypunkd = Command::new(&exe)
-        .arg("keypunkd")
+    let mut guard = DaemonGuard::new();
+
+    if signer_mode {
+        println!("Starting bridge...");
+        let bridge = Command::new(&exe)
+            .arg("bridge")
+            .arg("--socket-path")
+            .arg(bridge_socket)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn bridge: {e}"))?;
+        guard.add_child(bridge, "bridge");
+
+        let bridge_wait =
+            tokio::time::timeout(Duration::from_secs(30), wait_for_sockets(&[bridge_socket])).await;
+        if bridge_wait.is_err() {
+            return Err("Timed out waiting for bridge socket".into());
+        }
+    } else {
+        println!("Starting keypunkd...");
+        let keypunkd = Command::new(&exe)
+            .arg("keypunkd")
+            .arg("--zcash-network")
+            .arg(&config.zcash_network)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
+        guard.add_child(keypunkd, "keypunkd");
+
+        let keypunkd_wait = tokio::time::timeout(
+            Duration::from_secs(30),
+            wait_for_sockets(&[keypunkd_socket]),
+        )
+        .await;
+        if keypunkd_wait.is_err() {
+            return Err("Timed out waiting for keypunkd socket".into());
+        }
+    }
+
+    let signer_socket = if signer_mode {
+        bridge_socket
+    } else {
+        keypunkd_socket
+    };
+
+    println!("Starting paypunkd...");
+    let mut paypunkd_cmd = Command::new(&exe);
+    paypunkd_cmd
+        .arg("paypunkd")
+        .arg("--keypunkd-socket")
+        .arg(signer_socket)
+        .arg("--lightwalletd-host")
+        .arg(&config.lightwalletd_host)
         .arg("--zcash-network")
         .arg(&config.zcash_network)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
-
-    let keypunkd_wait = tokio::time::timeout(
-        Duration::from_secs(30),
-        wait_for_sockets(&[keypunkd_socket]),
-    )
-    .await;
-    if keypunkd_wait.is_err() {
-        let _ = keypunkd.kill();
-        let _ = keypunkd.wait();
-        return Err("Timed out waiting for keypunkd socket".into());
-    }
-
-    println!("Starting paypunkd...");
-    let mut paypunkd = Command::new(&exe)
-        .arg("paypunkd")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    let paypunkd = paypunkd_cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
+    guard.add_child(paypunkd, "paypunkd");
 
     let paypunkd_wait = tokio::time::timeout(
         Duration::from_secs(30),
@@ -169,19 +226,12 @@ async fn ensure_daemons(
     )
     .await;
     if paypunkd_wait.is_err() {
-        let _ = keypunkd.kill();
-        let _ = paypunkd.kill();
-        let _ = keypunkd.wait();
-        let _ = paypunkd.wait();
         return Err("Timed out waiting for paypunkd socket".into());
     }
 
     println!("Daemons ready.");
 
-    Ok(DaemonGuard {
-        keypunkd: Some(keypunkd),
-        paypunkd: Some(paypunkd),
-    })
+    Ok(guard)
 }
 
 #[derive(Parser)]
@@ -192,6 +242,9 @@ async fn ensure_daemons(
 struct Cli {
     #[arg(short, long)]
     socket_path: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    signer: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -249,7 +302,11 @@ enum Commands {
         address: Option<String>,
     },
     /// Launch the terminal user interface
-    Tui,
+    Tui {
+        /// Run in offline signer mode
+        #[arg(long, default_value_t = false)]
+        signer: bool,
+    },
     /// Launch keypunkd (key daemon) as a child process
     Keypunkd {
         #[arg(short, long)]
@@ -319,61 +376,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         None => {
+            // paypunk without arguments autolaunches daemons
             let config = ConfigLoader::load_or_default();
-            let exe = std::env::current_exe()
-                .map_err(|e| format!("Failed to get current exe path: {e}"))?;
             let paypunkd_socket = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
             let keypunkd_socket = config.keypunkd_socket_path.clone();
+            let bridge_socket = config.bridge_socket_path.clone();
+            let signer_mode = cli.signer || config.offline_signer;
 
-            // Clean stale sockets before spawning daemons
-            for path in [&keypunkd_socket, &paypunkd_socket] {
-                let _ = fs::remove_file(path);
-            }
-
-            let mut keypunkd_child = Command::new(&exe)
-                .arg("keypunkd")
-                .arg("--zcash-network")
-                .arg(&config.zcash_network)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
-
-            let keypunkd_wait = tokio::time::timeout(
-                Duration::from_secs(30),
-                wait_for_sockets(&[&keypunkd_socket]),
+            let _guard = ensure_daemons(
+                &paypunkd_socket,
+                &keypunkd_socket,
+                &bridge_socket,
+                signer_mode,
             )
-            .await;
-            if keypunkd_wait.is_err() {
-                let _ = keypunkd_child.kill();
-                let _ = keypunkd_child.wait();
-                return Err("Timed out waiting for keypunkd socket".into());
-            }
-
-            let config = ConfigLoader::load_or_default();
-            let mut paypunkd_child = Command::new(&exe)
-                .arg("paypunkd")
-                .arg("--lightwalletd-host")
-                .arg(&config.lightwalletd_host)
-                .arg("--zcash-network")
-                .arg(&config.zcash_network)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
-
-            let paypunkd_wait = tokio::time::timeout(
-                Duration::from_secs(30),
-                wait_for_sockets(&[&paypunkd_socket]),
-            )
-            .await;
-            if paypunkd_wait.is_err() {
-                let _ = keypunkd_child.kill();
-                let _ = paypunkd_child.kill();
-                let _ = keypunkd_child.wait();
-                let _ = paypunkd_child.wait();
-                return Err("Timed out waiting for paypunkd socket".into());
-            }
+            .await?;
 
             let shutdown = Arc::new(AtomicBool::new(false));
             let shutdown_clone = shutdown.clone();
@@ -382,16 +398,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 shutdown_clone.store(true, Ordering::SeqCst);
             });
 
-            let tui_result = run_tui(&paypunkd_socket, Some(shutdown)).await;
-
-            let _ = keypunkd_child.kill();
-            let _ = paypunkd_child.kill();
-            let _ = keypunkd_child.wait();
-            let _ = paypunkd_child.wait();
-
-            tui_result.map_err(|e| e.into())
+            run_tui(&paypunkd_socket, Some(shutdown), signer_mode)
+                .await
+                .map_err(|e| e.into())
         }
-        Some(Commands::Tui) => run_tui(&socket_path, None).await.map_err(|e| e.into()),
+        Some(Commands::Tui { signer }) => {
+            // `paypunk tui` must NEVER start daemons this JUST runs the frontend
+            let config = ConfigLoader::load_or_default();
+            let signer_mode = signer || cli.signer || config.offline_signer;
+            run_tui(&socket_path, None, signer_mode)
+                .await
+                .map_err(|e| e.into())
+        }
         Some(Commands::Keypunkd {
             socket_path,
             data_dir,
@@ -504,8 +522,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .clone()
                 .unwrap_or(config.paypunkd_socket_path);
             let keypunkd_socket = config.keypunkd_socket_path;
+            let bridge_socket = config.bridge_socket_path.clone();
+            let signer_mode = cli.signer || config.offline_signer;
 
-            let _guard = ensure_daemons(&paypunkd_socket, &keypunkd_socket).await?;
+            let _guard = ensure_daemons(
+                &paypunkd_socket,
+                &keypunkd_socket,
+                &bridge_socket,
+                signer_mode,
+            )
+            .await?;
             let client = Client::connect(&paypunkd_socket).await?;
 
             match command {
@@ -677,7 +703,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let count = client.unlock(password).await?;
                     println!("Unlocked. {count} accounts derived.");
                 }
-                Commands::Tui => unreachable!(),
+                Commands::Tui { .. } => unreachable!(),
                 Commands::Bridge { .. } => unreachable!(),
                 Commands::Keypunkd { .. } => unreachable!(),
                 Commands::Paypunkd { .. } => unreachable!(),
@@ -708,7 +734,12 @@ async fn submit_intent_flow(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Submitting intent for preview...");
     match client.submit_intent(intent, derivation_path).await {
-        Ok((raw_artifact, parsed_summary, keypunkd_signature, keypunkd_public_key)) => {
+        Ok(SubmitIntentResult::SignablePreview {
+            raw_artifact,
+            parsed_summary,
+            keypunkd_signature,
+            keypunkd_public_key,
+        }) => {
             // Verify the signature: H(raw, parsed, path) should match
             let mut to_verify = Vec::new();
             to_verify.extend_from_slice(&raw_artifact);
@@ -720,13 +751,17 @@ async fn submit_intent_flow(
             println!("  Raw artifact: {} bytes", raw_artifact.len());
 
             if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
-                println!("  To: {}", summary.to);
-                println!("  Amount: {}", summary.amount);
-                println!("  Fee: {}", summary.fee);
-                if let Some(memo) = summary.memo {
-                    println!("  Memo: {memo}");
+                match &summary {
+                    ArtifactSummary::Zcash(zcash) => {
+                        println!("  Fee: {} zatoshis", zcash.fee);
+                    }
+                    ArtifactSummary::Ethereum(eth) => {
+                        println!("  To: {}", eth.to);
+                        println!("  Amount: {} wei", eth.amount);
+                        println!("  Fee: {} wei", eth.fee);
+                        println!("  Nonce: {}", eth.nonce);
+                    }
                 }
-                println!("  Protocol: {:?}", summary.protocol);
             } else {
                 println!("  Parsed summary: {} bytes (raw)", parsed_summary.len());
             }
@@ -748,6 +783,11 @@ async fn submit_intent_flow(
 
             println!();
             println!("To approve, run: paypunk approve-signature --password <your-password>");
+            Ok(())
+        }
+        Ok(SubmitIntentResult::SignatureApproved { signed_artifact }) => {
+            println!("Transaction signed by offline signer");
+            println!("Signed artifact: {} bytes", signed_artifact.len());
             Ok(())
         }
         Err(e) => Err(format!("Error: {e}").into()),

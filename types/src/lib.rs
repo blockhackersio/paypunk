@@ -54,14 +54,144 @@ pub enum EthereumIntent {
 
 // ── Artifact summary ─────────────────────────────────────────────────────────
 
+/// A single output entry in the artifact summary.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ArtifactSummary {
+pub struct OutputEntry {
+    pub address: String,
+    pub amount: String,
+}
+
+/// Zcash-specific artifact summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ZcashArtifactSummary {
+    pub outputs: Vec<OutputEntry>,
+    pub fee: String,
+}
+
+/// Ethereum-specific artifact summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EthereumArtifactSummary {
     pub to: String,
     pub amount: String,
     pub fee: String,
     pub nonce: u64,
-    pub memo: Option<String>,
-    pub protocol: ProtocolId,
+}
+
+/// Protocol-specific artifact summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ArtifactSummary {
+    Zcash(ZcashArtifactSummary),
+    Ethereum(EthereumArtifactSummary),
+}
+
+/// Result of submit_intent for the API/TUI layer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SubmitIntentResult {
+    /// Keypunkd mode: preview to display in TUI, then approve_signature.
+    SignablePreview {
+        raw_artifact: Vec<u8>,
+        parsed_summary: Vec<u8>,
+        keypunkd_signature: Vec<u8>,
+        keypunkd_public_key: [u8; 32],
+    },
+    /// Signer mode: signed artifact, skip preview and password.
+    SignatureApproved { signed_artifact: Vec<u8> },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum KeypunkdRequest {
+    GetEncryptionKey,
+    GenerateSeed {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    RestoreSeed {
+        encrypted_mnemonic: Vec<u8>,
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    PreviewArtifact {
+        raw_artifact: Vec<u8>,
+        protocol: ProtocolId,
+        chain_id: ChainId,
+        derivation_path: String,
+    },
+    AuthorizeArtifact {
+        encrypted_payload: Vec<u8>,
+        ephemeral_public_key: [u8; 32],
+        derivation_path: String,
+    },
+    ExportViewingKey {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        protocol: ProtocolId,
+        derivation_path: String,
+    },
+    VerifyPassword {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    BulkExportViewingKeys {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+        paths: Vec<(ProtocolId, String)>,
+    },
+    ExportMnemonic {
+        encrypted_password: Vec<u8>,
+        client_public_key: [u8; 32],
+    },
+    /// Request viewing key export from an offline signer.
+    /// No encrypted payload — the signer prompts the user for their password on-device.
+    RegisterViewingKeys {
+        paths: Vec<(ProtocolId, String)>,
+        challenge: [u8; 32],
+        paypunkd_public_key: [u8; 32],
+    },
+    /// Verify an existing signer session via a signed challenge (no password needed).
+    VerifySignerSession {
+        challenge: [u8; 32],
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum KeypunkdResponse {
+    EncryptionKey {
+        key: [u8; 32],
+    },
+    SeedGenerated {
+        encrypted_mnemonic: Vec<u8>,
+    },
+    SeedRestored,
+    ArtifactPreview {
+        raw_artifact: Vec<u8>,
+        parsed_summary: Vec<u8>,
+        signature: Vec<u8>,
+        keypunkd_public_key: [u8; 32],
+    },
+    ArtifactAuthorized {
+        signed_artifact: Vec<u8>,
+    },
+    ViewingKey {
+        key: Vec<u8>,
+    },
+    PasswordVerified,
+    ViewingKeys {
+        keys: Vec<(ProtocolId, String, Vec<u8>)>,
+    },
+    MnemonicExported {
+        encrypted_mnemonic: Vec<u8>,
+    },
+    ViewingKeysRegistered {
+        keys: Vec<(ProtocolId, String, Vec<u8>)>,
+        session_public_key: [u8; 32],
+        signed_challenge: Vec<u8>,
+    },
+    SessionVerified {
+        signed_challenge: Vec<u8>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // ── Protocol trait (paypunkd side) ───────────────────────────────────────────
@@ -192,7 +322,6 @@ pub trait Protocol: Send + Sync {
 /// artifacts for user preview, and sign artifacts.
 #[async_trait::async_trait]
 pub trait SignerProtocol: Send + Sync {
-    async fn chain(&self) -> ChainId;
     fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String>;
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String>;
     fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String>;

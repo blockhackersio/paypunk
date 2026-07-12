@@ -1,32 +1,54 @@
-import { useState, useEffect } from "react";
-import {
-  App as KonstaApp,
-  Page,
-} from "konsta/react";
+import { useEffect } from "react";
+import { NavProvider, useNav } from "./nav";
+import OnboardingPage from "./pages/OnboardingPage";
 import ScanPage from "./pages/ScanPage";
-import { invoke, Settings } from "./backend";
+import PreviewPage from "./pages/PreviewPage";
+import SigningPage from "./pages/SigningPage";
+import ResultPage from "./pages/ResultPage";
+import RegistrationPage from "./pages/RegistrationPage";
+import { invoke } from "./backend";
 
-export default function App() {
-  const [theme, setTheme] = useState<"ios" | "material">("material");
+function CurrentPage() {
+  const { page } = useNav();
+  switch (page) {
+    case "/":
+      return <OnboardingPage />;
+    case "/scan":
+      return <ScanPage />;
+    case "/preview":
+      return <PreviewPage />;
+    case "/signing":
+      return <SigningPage />;
+    case "/result":
+      return <ResultPage />;
+    case "/register":
+      return <RegistrationPage />;
+    default:
+      return <OnboardingPage />;
+  }
+}
+
+function AppInner() {
+  const { setServerKey } = useNav();
 
   useEffect(() => {
     (async () => {
       try {
-        const settings = await invoke<Settings>("get_settings");
-        setTheme(settings.theme_preference as "ios" | "material");
-      } catch {
-        // fallback
+        const key = await invoke<number[]>("get_encryption_key");
+        setServerKey(new Uint8Array(key));
+      } catch (e) {
+        console.error("Failed to fetch encryption key:", e);
       }
     })();
-  }, []);
+  }, [setServerKey]);
 
+  return <CurrentPage />;
+}
+
+export default function App() {
   return (
-    <KonstaApp theme={theme}>
-      <div className="flex flex-col min-h-screen">
-        <Page className="relative flex-1 overflow-auto">
-          <ScanPage />
-        </Page>
-      </div>
-    </KonstaApp>
+    <NavProvider>
+      <AppInner />
+    </NavProvider>
   );
 }

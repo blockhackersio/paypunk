@@ -59,17 +59,14 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut protocols = ProtocolService::new();
     protocols.register(
         ProtocolId::Zcash,
-        Box::new(paypunk_chains_zcash::protocol::ZcashProtocol::new(
+        Box::new(paypunk_chains_zcash::signer::ZcashSignerProtocol::new(
             to_local_params(params, network_type),
             network_type,
-            None,
-            None,
-            None,
         )),
     );
     protocols.register(
         ProtocolId::Ethereum,
-        Box::new(paypunk_chains_ethereum::protocol::EthereumProtocol::new(())),
+        Box::new(paypunk_chains_ethereum::signer::EthereumSignerProtocol::new()),
     );
     info!("registered protocols: Zcash, Ethereum");
 

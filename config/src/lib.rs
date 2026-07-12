@@ -17,6 +17,10 @@ pub struct PaypunkConfig {
     pub lightwalletd_host: String,
     #[serde(default = "default_zcash_network")]
     pub zcash_network: String,
+    #[serde(default = "default_bridge_socket_path")]
+    pub bridge_socket_path: String,
+    #[serde(default = "default_offline_signer")]
+    pub offline_signer: bool,
 }
 
 fn default_paypunkd_socket_path() -> String {
@@ -49,6 +53,14 @@ fn default_zcash_network() -> String {
     "regtest".to_string()
 }
 
+fn default_bridge_socket_path() -> String {
+    "/tmp/paypunk-bridge.sock".to_string()
+}
+
+fn default_offline_signer() -> bool {
+    false
+}
+
 impl Default for PaypunkConfig {
     fn default() -> Self {
         Self {
@@ -59,6 +71,8 @@ impl Default for PaypunkConfig {
             ethereum_rpc_url: default_ethereum_rpc_url(),
             lightwalletd_host: default_lightwalletd_host(),
             zcash_network: default_zcash_network(),
+            bridge_socket_path: default_bridge_socket_path(),
+            offline_signer: default_offline_signer(),
         }
     }
 }
@@ -125,6 +139,7 @@ impl ConfigLoader {
 # Socket paths
 paypunkd_socket_path = "/tmp/paypunkd.sock"
 keypunkd_socket_path = "/tmp/keypunkd.sock"
+bridge_socket_path = "/tmp/paypunk-bridge.sock"
 
 # Data and config directories
 data_dir = "~/.local/share/paypunk/"
@@ -138,6 +153,10 @@ lightwalletd_host = "http://127.0.0.1:9067"
 
 # Zcash network (regtest, testnet, or mainnet)
 zcash_network = "regtest"
+
+# Offline signer mode (default: false)
+# When true, spawns the QR bridge instead of keypunkd
+offline_signer = false
 "#;
 
         std::fs::write(&config_path, contents)
@@ -168,6 +187,12 @@ zcash_network = "regtest"
         if let Ok(v) = std::env::var("PAYPUNK_ZCASH_NETWORK") {
             config.zcash_network = v;
         }
+        if let Ok(v) = std::env::var("PAYPUNK_BRIDGE_SOCKET_PATH") {
+            config.bridge_socket_path = v;
+        }
+        if let Ok(v) = std::env::var("PAYPUNK_OFFLINE_SIGNER") {
+            config.offline_signer = v == "true" || v == "1";
+        }
     }
 }
 
@@ -194,6 +219,8 @@ mod tests {
         assert_eq!(config.paypunkd_socket_path, "/tmp/paypunkd.sock");
         assert_eq!(config.keypunkd_socket_path, "/tmp/keypunkd.sock");
         assert_eq!(config.ethereum_rpc_url, "http://127.0.0.1:8545");
+        assert_eq!(config.bridge_socket_path, "/tmp/paypunk-bridge.sock");
+        assert!(!config.offline_signer);
     }
 
     #[test]

@@ -146,7 +146,21 @@ impl Screen for SendScreen {
         );
     }
 
-    async fn tick(&mut self, _api: &mut dyn WalletApi) {}
+    async fn tick(&mut self, api: &mut dyn WalletApi) {
+        if let SendStep::Sending = self.step {
+            if self
+                .review_data
+                .as_ref()
+                .map(|d| d.skip_review)
+                .unwrap_or(false)
+            {
+                if let Some(result) = api.poll_send_result().await {
+                    self.result = Some(result);
+                    self.step = SendStep::Confirm;
+                }
+            }
+        }
+    }
 
     async fn init(&mut self, api: &dyn WalletApi) {
         self.send_data = api.send_state(&self.account_id).await;
@@ -301,7 +315,17 @@ impl Screen for SendScreen {
                                 })
                                 .await;
                             self.review_data = Some(review);
-                            self.step = SendStep::Review;
+                            if self
+                                .review_data
+                                .as_ref()
+                                .map(|d| d.skip_review)
+                                .unwrap_or(false)
+                            {
+                                self.step = SendStep::Sending;
+                                self.spinner_frame = 0;
+                            } else {
+                                self.step = SendStep::Review;
+                            }
                         }
                     }
                     _ => {
@@ -356,7 +380,19 @@ impl Screen for SendScreen {
                     self.password_field.handle_event(key);
                 }
             },
-            SendStep::Sending => {}
+            SendStep::Sending => {
+                if self
+                    .review_data
+                    .as_ref()
+                    .map(|d| d.skip_review)
+                    .unwrap_or(false)
+                {
+                    if let Some(result) = api.poll_send_result().await {
+                        self.result = Some(result);
+                        self.step = SendStep::Confirm;
+                    }
+                }
+            }
             SendStep::Confirm => match key.code {
                 KeyCode::Enter | KeyCode::Esc => {
                     return Nav::Pop;

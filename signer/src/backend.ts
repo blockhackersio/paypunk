@@ -28,6 +28,13 @@ export interface TimerTick {
   tick: number;
 }
 
+export interface ProcessResult {
+  mode: string;
+  raw_artifact_b64?: string;
+  preview_signature_b64?: string;
+  derivation_path?: string;
+}
+
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -60,6 +67,11 @@ let mockSettings: Settings = {
 let mockTimerRunning = false;
 const mockListeners: Record<string, Array<(payload: unknown) => void>> = {};
 
+let mockResponse: number[] | null = null;
+
+let mockServerKey: number[] | null = null;
+let mockHasSeed = false;
+
 async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Promise<T> {
   switch (cmd) {
     case "get_app_info":
@@ -88,23 +100,90 @@ async function mockInvoke<T>(cmd: string, _args?: Record<string, unknown>): Prom
       mockSettings = { ...mockSettings, ...(_args as Record<string, unknown>) as unknown as Partial<Settings> };
       return { ...mockSettings } as T;
 
-    case "process_scanned_qr": {
-      const content = _args?.content as string;
-      if (!content) {
-        throw new Error("no content provided");
+    case "get_encryption_key":
+      if (!mockServerKey) {
+        mockServerKey = Array.from({ length: 32 }, () => Math.floor(Math.random() * 256));
       }
-      // Simulate PongHandler: decode base64, check it looks like a ping frame
-      try {
-        const binary = atob(content);
-        if (binary.length < 5 || binary.charCodeAt(0) !== 0x04) {
-          throw new Error("expected MSG_APPLICATION frame");
-        }
-        // Return a mock QR SVG
-        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300"><rect width="300" height="300" fill="#fff"/><text x="150" y="140" text-anchor="middle" font-family="monospace" font-size="14" fill="#000">Mock QR</text><text x="150" y="160" text-anchor="middle" font-family="monospace" font-size="14" fill="#000">(browser mode)</text></svg>` as T;
-      } catch (e) {
-        throw new Error(`mock process error: ${e}`);
+      return mockServerKey as T;
+
+    case "generate_seed": {
+      const encPw = _args?.encrypted_password as number[];
+      if (!encPw || encPw.length === 0) {
+        throw new Error("encrypted_password required");
       }
+      const mnemonicBytes = new TextEncoder().encode(
+        "ribbon velvet ocean puzzle harvest guitar shadow ladder comfort raven spring anchor"
+      );
+      return Array.from(mnemonicBytes) as T;
     }
+
+    case "restore_seed":
+      mockHasSeed = true;
+      return null as T;
+
+    case "delete_seed":
+      mockHasSeed = false;
+      return null as T;
+
+    case "get_signer_status":
+      return "idle" as T;
+
+    case "process_scanned_qr": {
+      const payload = _args?.payload as number[];
+      if (!payload || payload.length === 0) {
+        throw new Error("no payload provided");
+      }
+      const bytes = new Uint8Array(payload);
+      const text = new TextDecoder().decode(bytes);
+      if (text === "ping") {
+        const response = new Uint8Array([0x00, ...new TextEncoder().encode("pong")]);
+        mockResponse = Array.from(response);
+        return { mode: "response" } as T;
+      }
+      mockResponse = Array.from(new Uint8Array([0x00, ...new TextEncoder().encode("mock-preview-response")]));
+      return {
+        mode: "preview",
+        raw_artifact_b64: btoa("mock-raw-artifact"),
+        preview_signature_b64: btoa("mock-preview-sig"),
+        derivation_path: "m/44'/133'/0'",
+      } as T;
+    }
+
+    case "approve_and_sign": {
+      const response = new Uint8Array([0x00, ...new TextEncoder().encode("mock-signed-artifact")]);
+      mockResponse = Array.from(response);
+      return mockResponse as T;
+    }
+
+    case "has_seed":
+      return mockHasSeed as T;
+
+    case "has_session_key":
+      return false as T;
+
+    case "complete_registration": {
+      const pw = _args?.password as string;
+      if (!pw) {
+        throw new Error("password required");
+      }
+      const response = new Uint8Array([0x00, ...new TextEncoder().encode("mock-registration-response")]);
+      mockResponse = Array.from(response);
+      return mockResponse as T;
+    }
+
+    case "get_response":
+      if (!mockResponse) {
+        throw new Error("no response available");
+      }
+      return mockResponse as T;
+
+    case "get_preview":
+      return {
+        Zcash: {
+          outputs: [{ address: "uregtest1mockaddr", amount: "100000" }],
+          fee: "10000",
+        },
+      } as T;
 
     default:
       throw new Error(`Unknown mock command: ${cmd}`);

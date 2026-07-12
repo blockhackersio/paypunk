@@ -4,6 +4,7 @@ use orchard::note::{ExtractedNoteCommitment, RandomSeed, Rho};
 use orchard::tree::MerkleHashOrchard;
 use orchard::value::NoteValue;
 use paypunk_chains_zcash::protocol::ZcashProtocol;
+use paypunk_chains_zcash::signer::ZcashSignerProtocol;
 use paypunk_chains_zcash::to_local_params;
 use paypunk_types::{Protocol, SignerProtocol};
 use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, prover::Prover};
@@ -118,7 +119,20 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         .finish();
     let proven_bytes = proven_pczt.serialize();
 
-    let protocol = ZcashProtocol::new(
+    let signer = ZcashSignerProtocol::new(
+        to_local_params(
+            zcash_protocol::consensus::Network::MainNetwork,
+            zcash_protocol::consensus::NetworkType::Main,
+        ),
+        zcash_protocol::consensus::NetworkType::Main,
+    );
+
+    // ── 5. Sign via ZcashSignerProtocol (SignerProtocol::sign) ───────────
+    let path = "m/44'/133'/0'";
+    let signed_bytes = signer.sign(&seed, path, &proven_bytes).expect("sign");
+
+    // ── 6. Finalize via ZcashProtocol (Protocol::finalize) ──────────────
+    let wallet_protocol = ZcashProtocol::new(
         to_local_params(
             zcash_protocol::consensus::Network::MainNetwork,
             zcash_protocol::consensus::NetworkType::Main,
@@ -128,13 +142,7 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         None,
         None,
     );
-
-    // ── 5. Sign via ZcashProtocol (SignerProtocol::sign) ────────────────
-    let path = "m/44'/133'/0'";
-    let signed_bytes = protocol.sign(&seed, path, &proven_bytes).expect("sign");
-
-    // ── 6. Finalize via ZcashProtocol (Protocol::finalize) ──────────────
-    let raw_tx = protocol.finalize(&signed_bytes).expect("finalize");
+    let raw_tx = wallet_protocol.finalize(&signed_bytes).expect("finalize");
 
     // ── 7. Verify ───────────────────────────────────────────────────────
     let tx = Transaction::read(&raw_tx[..], BranchId::Nu6).expect("parse extracted transaction");

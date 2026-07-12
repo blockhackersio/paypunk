@@ -1,7 +1,8 @@
 use paypunk_ipc::IpcMessage;
 use paypunk_ipc::IpcSender;
 use paypunk_types::{
-    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SyncStatus,
+    Account, Balance, HistoryEntry, Intent, ProtocolId, ProtocolMetadata, SubmitIntentResult,
+    SyncStatus,
 };
 use paypunkd::messages::AddressBookEntry;
 use paypunkd::services::PaypunkService;
@@ -77,7 +78,7 @@ impl Client {
         &self,
         intent: Intent,
         derivation_path: &str,
-    ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, [u8; 32]), String> {
+    ) -> Result<SubmitIntentResult, String> {
         crate::functions::submit_intent(&self.service, intent, derivation_path).await
     }
 
@@ -217,6 +218,21 @@ impl Client {
         password: Zeroizing<String>,
     ) -> Result<Zeroizing<String>, String> {
         crate::functions::reveal_phrase(&self.service, password).await
+    }
+
+    /// Register an offline signer: derive viewing keys for 5 accounts per protocol.
+    ///
+    /// Sends the registration request to paypunkd which forwards it to the bridge.
+    pub async fn register_signer(&self) -> Result<u32, String> {
+        crate::functions::register_signer(&self.service).await
+    }
+
+    /// Verify an existing signer session (no password needed).
+    ///
+    /// Sends a challenge to the signer via the bridge. The signer signs it
+    /// with its session key. If valid, the wallet unlocks.
+    pub async fn verify_signer_session(&self) -> Result<(), String> {
+        crate::functions::verify_signer_session(&self.service).await
     }
 
     /// Add an entry to the address book.

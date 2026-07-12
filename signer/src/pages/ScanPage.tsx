@@ -1,21 +1,45 @@
-import { useState } from "react";
-import { Page, Navbar, Button, Block, BlockTitle, Popup, Preloader } from "konsta/react";
+import { useState, useRef, useEffect } from "react";
+import { useNav } from "../nav";
+import { Page, Navbar, Block, BlockTitle, Button, Preloader } from "konsta/react";
 import { invoke, isTauri } from "../backend";
+import { scanBytes } from "../qr-scan";
+
+interface ProcessResult {
+  mode: string;
+  raw_artifact_b64?: string;
+  preview_signature_b64?: string;
+  derivation_path?: string;
+}
 
 export default function ScanPage() {
+  const { navigate, setScanResult } = useNav();
   const [scanning, setScanning] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [qrSvg, setQrSvg] = useState<string | null>(null);
-  const [popupOpened, setPopupOpened] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [cameraActive, setCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const progressRef = useRef<HTMLParagraphElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // Stop camera on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
 
   const handleScan = async () => {
     setError(null);
     setScanning(true);
-    try {
-      let content: string;
+    setProgress(0);
 
+    try {
       if (isTauri()) {
-        const { scan, Format, requestPermissions, checkPermissions, openAppSettings } = await import("@tauri-apps/plugin-barcode-scanner");
+        const { checkPermissions, requestPermissions, openAppSettings } = await import("@tauri-apps/plugin-barcode-scanner");
 
         let perm = await checkPermissions();
         if (perm !== "granted") {
@@ -23,96 +47,110 @@ export default function ScanPage() {
         }
         if (perm !== "granted") {
           setError("Camera permission denied. Please grant camera access in settings.");
-          try {
-            await openAppSettings();
-          } catch {
-            // openAppSettings may not be available on all platforms
-          }
+          try { await openAppSettings(); } catch { /* ignore */ }
           setScanning(false);
           return;
         }
-
-        const scanned = await scan({ windowed: false, formats: [Format.QRCode] });
-        content = scanned.content;
-      } else {
-        // Browser mock: simulate scanning
-        content = prompt("Browser mock: paste base64 QR content (or leave empty for demo data)") || "";
-        if (!content) {
-          // Provide a valid demo ping frame encoded as base64 for testing
-          const frame = new Uint8Array([0x04, ...new TextEncoder().encode("ping"), ...new Uint8Array(32)]);
-          content = btoa(String.fromCharCode(...frame));
-        }
       }
 
-      const result = await invoke<string>("process_scanned_qr", { content });
-      setQrSvg(result);
-      setPopupOpened(true);
+      const videoEl = videoRef.current!;
+      setCameraActive(true);
+
+      // Yield to React so the video element becomes visible before getUserMedia
+      await new Promise(r => setTimeout(r, 50));
+
+      const payload = await scanBytes(videoEl, {
+        onProgress: (p) => {
+          setProgress(p);
+          if (progressRef.current) {
+            progressRef.current.textContent = `${Math.round(p * 100)}%`;
+          }
+        },
+      });
+
+      setCameraActive(false);
+
+      const result = await invoke<ProcessResult>("process_scanned_qr", { payload: Array.from(payload) });
+      if (result.mode === "response") {
+        navigate("/result");
+      } else if (result.mode === "register") {
+        navigate("/register");
+      } else {
+        // Store scan result data for PreviewPage
+        if (result.raw_artifact_b64 && result.preview_signature_b64 && result.derivation_path) {
+          setScanResult({
+            rawArtifact: Uint8Array.from(atob(result.raw_artifact_b64), c => c.charCodeAt(0)),
+            previewSignature: Uint8Array.from(atob(result.preview_signature_b64), c => c.charCodeAt(0)),
+            derivationPath: result.derivation_path,
+          });
+        }
+        navigate("/preview");
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("Scan failed:", msg);
       setError(msg);
+      setCameraActive(false);
     } finally {
       setScanning(false);
+      setProgress(0);
     }
   };
 
-  const handleClosePopup = () => {
-    setPopupOpened(false);
-    setQrSvg(null);
+  const handleDeleteWallet = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      await invoke<null>("delete_seed");
+      navigate("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
-    <>
-      <Navbar title="PayPunk Signer" />
-      <BlockTitle>Scan & Sign</BlockTitle>
+    <Page>
+      <Navbar title="Scan QR" />
+      <BlockTitle>Scan Transaction</BlockTitle>
       <Block strong className="text-center">
-        <p className="mb-4 text-gray-500">
-          Scan a QR code from the PayPunk Bridge to sign a transaction.
-        </p>
-        <Button
-          large
-          rounded
-          className="w-full"
-          onClick={handleScan}
-          disabled={scanning}
-        >
-          {scanning ? "Scanning..." : "Scan QR Code"}
-        </Button>
-        {scanning && (
-          <div className="flex justify-center mt-4">
-            <Preloader />
+        {/* Video element always in DOM, visibility controlled by CSS */}
+        <div className="relative w-full max-w-[400px] mx-auto mb-4 rounded-xl overflow-hidden bg-black" style={{ display: cameraActive ? "block" : "none" }}>
+          <video ref={videoRef} id="camera" autoPlay playsInline className="w-full h-auto" />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="bg-black/60 rounded-lg px-4 py-2 text-center">
+              <Preloader className="mb-2" />
+              <p ref={progressRef} className="text-white text-sm">
+                {Math.round(progress * 100)}%
+              </p>
+              <p className="text-gray-300 text-xs mt-1">Point at the bridge screen</p>
+            </div>
           </div>
-        )}
-      </Block>
+        </div>
 
-      {error && (
-        <Block strong className="text-center">
-          <p className="text-red-500">{error}</p>
-          <Button className="mt-2" onClick={() => setError(null)}>
-            Dismiss
+        <p className="mb-4 text-gray-500" style={{ display: cameraActive ? "none" : "block" }}>
+          Point your device at the bridge's animated QR code to scan a transaction request.
+        </p>
+
+        <Button large rounded className="w-full" onClick={handleScan} disabled={scanning}>
+          {scanning ? `Scanning... ${Math.round(progress * 100)}%` : "Scan QR Code"}
+        </Button>
+
+        <div className="flex justify-center mt-4" style={{ display: scanning && !cameraActive ? "flex" : "none" }}>
+          <Preloader />
+        </div>
+
+        <div className="mt-8">
+          <Button large rounded outline className="w-full" onClick={handleDeleteWallet} disabled={deleting}>
+            {deleting ? "Deleting..." : "Delete Wallet"}
           </Button>
-        </Block>
-      )}
-
-      <Popup opened={popupOpened}>
-        <Page>
-          <Navbar title="Signed Response" />
-          <Block strong className="text-center">
-            <p className="mb-4 text-gray-500">
-              Scan this QR code back at the bridge to complete the signing flow.
-            </p>
-            {qrSvg && (
-              <div
-                className="flex justify-center"
-                dangerouslySetInnerHTML={{ __html: qrSvg }}
-              />
-            )}
-            <Button className="mt-4" onClick={handleClosePopup}>
-              Close
-            </Button>
-          </Block>
-        </Page>
-      </Popup>
-    </>
+        </div>
+      </Block>
+      <Block strong className="text-center" style={{ display: error ? "block" : "none" }}>
+        <p className="text-red-500">{error}</p>
+        <Button className="mt-2" onClick={() => setError(null)}>Dismiss</Button>
+      </Block>
+    </Page>
   );
 }

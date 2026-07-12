@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 actix-web = { workspace = true }
+actix-ws = "0.3"
+futures-util = { workspace = true }
 qrcode = { workspace = true }
 base64 = { workspace = true }
 paypunk-ipc = { path = "../ipc" }
@@ -18,3 +20,5 @@ serde_json = "1"
 [dev-dependencies]
 tempfile = { workspace = true }
 reqwest = { workspace = true }
+futures-util = { workspace = true }
+tokio-tungstenite = "0.24"

@@ -1,22 +1,16 @@
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
 use paypunk_types::{
-    ArtifactSummary, BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol, ProtocolId,
-    SignerProtocol, SyncStatus, TxStatus, ZcashIntent,
+    BlockHeight, ChainId, HistoryEntry, Intent, Page, Protocol, ProtocolId, SyncStatus, TxStatus,
+    ZcashIntent,
 };
-use pczt::roles::{
-    prover::Prover, signer::Signer, spend_finalizer::SpendFinalizer,
-    tx_extractor::TransactionExtractor, verifier::Verifier,
-};
+use pczt::roles::{spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor};
 use tactix::{Addr, Recipient, Sender};
 use tokio;
-use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_protocol::local_consensus::LocalNetwork;
-use zip32::fingerprint::SeedFingerprint;
 
 use crate::scan_actor::SyncNewAccount;
 use crate::wallet_actor::{
@@ -34,8 +28,6 @@ pub struct ZcashProtocol {
 }
 
 impl ZcashProtocol {
-    pub const COIN_TYPE: u32 = 133;
-
     pub fn new(
         params: LocalNetwork,
         network_type: zcash_protocol::consensus::NetworkType,
@@ -59,154 +51,6 @@ impl ZcashProtocol {
 
     pub fn scan_recipient(&self) -> Option<Arc<Recipient<SyncNewAccount>>> {
         self.scan_recipient.clone()
-    }
-
-    /// Extract the account index from a BIP44-style derivation path.
-    /// Expects format like `m/44'/133'/{account}'` and returns `{account}`.
-    fn account_from_path(path: &str) -> Result<u32, String> {
-        let account_str = path
-            .rsplit('\'')
-            .nth(1)
-            .and_then(|s| s.split('/').last())
-            .ok_or_else(|| format!("invalid derivation path: {path}"))?;
-        account_str
-            .parse()
-            .map_err(|_| format!("invalid account index in path: {path}"))
-    }
-}
-
-#[async_trait]
-impl SignerProtocol for ZcashProtocol {
-    async fn chain(&self) -> ChainId {
-        match self.network_type {
-            zcash_protocol::consensus::NetworkType::Main => ChainId {
-                namespace: "zcash".to_string(),
-                reference: "mainnet".to_string(),
-            },
-            zcash_protocol::consensus::NetworkType::Test => ChainId {
-                namespace: "zcash".to_string(),
-                reference: "testnet".to_string(),
-            },
-            zcash_protocol::consensus::NetworkType::Regtest => ChainId {
-                namespace: "zcash".to_string(),
-                reference: "regtest".to_string(),
-            },
-        }
-    }
-
-    fn export_viewing(&self, seed: &[u8; 64], path: &str) -> Result<Vec<u8>, String> {
-        let account = Self::account_from_path(path)?;
-        let account_id = zip32::AccountId::try_from(account)
-            .map_err(|_| format!("invalid account: {account}"))?;
-        let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
-            .map_err(|e| format!("USK derivation failed: {e}"))?;
-        let fvk = usk.to_unified_full_viewing_key();
-        let orchard_fvk = fvk.orchard().ok_or_else(|| "no Orchard FVK".to_string())?;
-        Ok(orchard_fvk.to_bytes().to_vec())
-    }
-
-    fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String> {
-        let pczt = pczt::Pczt::parse(artifact).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
-
-        let (value_sum, negative) = pczt.orchard().value_sum();
-        let fee = if *negative { 0u64 } else { *value_sum };
-
-        // Extract information from the PCZT to build an ArtifactSummary
-        let to = "Zcash address (see PCZT)".to_string();
-        let amount = "0".to_string();
-        let memo = None;
-
-        let summary = ArtifactSummary {
-            to,
-            amount,
-            fee: fee.to_string(),
-            nonce: 0,
-            memo,
-            protocol: ProtocolId::Zcash,
-        };
-
-        postcard::to_allocvec(&summary).map_err(|e| format!("serialize summary failed: {e}"))
-    }
-
-    fn sign(&self, seed: &[u8; 64], path: &str, artifact: &[u8]) -> Result<Vec<u8>, String> {
-        let account = Self::account_from_path(path)?;
-        self.sign_transaction_inner(seed, account, artifact)
-    }
-}
-
-impl ZcashProtocol {
-    fn sign_transaction_inner(
-        &self,
-        seed: &[u8; 64],
-        account: u32,
-        transaction: &[u8],
-    ) -> Result<Vec<u8>, String> {
-        let pczt =
-            pczt::Pczt::parse(transaction).map_err(|e| format!("PCZT parse failed: {e:?}"))?;
-
-        let account_id = zip32::AccountId::try_from(account)
-            .map_err(|_| format!("invalid account: {account}"))?;
-        let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
-            .map_err(|e| format!("USK derivation failed: {e}"))?;
-
-        let seed_fp = SeedFingerprint::from_seed(seed)
-            .ok_or_else(|| "seed too short for fingerprint".to_string())?;
-        let coin_type = zip32::ChildIndex::hardened(Self::COIN_TYPE);
-        let mut keys: BTreeMap<zip32::AccountId, Vec<KeyRef>> = BTreeMap::new();
-
-        let pczt = Verifier::new(pczt)
-            .with_orchard::<std::convert::Infallible, _>(|bundle| {
-                for (index, action) in bundle.actions().iter().enumerate() {
-                    if let Some(account_idx) = action
-                        .spend()
-                        .zip32_derivation()
-                        .as_ref()
-                        .and_then(|d| d.extract_account_index(&seed_fp, coin_type))
-                    {
-                        keys.entry(account_idx)
-                            .or_default()
-                            .push(KeyRef::Orchard { index });
-                    }
-                }
-                Ok(())
-            })
-            .map_err(|e| format!("Verifier::with_orchard failed: {e:?}"))?
-            .finish();
-
-        // Generate Orchard proof before signing
-        let orchard_pk = orchard::circuit::ProvingKey::build();
-        let pczt = Prover::new(pczt)
-            .create_orchard_proof(&orchard_pk)
-            .map_err(|e| format!("Prover::create_orchard_proof failed: {e:?}"))?
-            .finish();
-
-        let ask = orchard::keys::SpendAuthorizingKey::from(usk.orchard());
-
-        if keys.is_empty() {
-            let num_actions = pczt.orchard().actions().len();
-            let mut signer = Signer::new(pczt).map_err(|e| format!("Signer::new failed: {e:?}"))?;
-            for i in 0..num_actions {
-                let _ = signer.sign_orchard(i, &ask);
-            }
-            let pczt = signer.finish();
-            return Ok(pczt.serialize());
-        }
-
-        let mut signer = Signer::new(pczt).map_err(|e| format!("Signer::new failed: {e:?}"))?;
-        for (_account_index, spends) in &keys {
-            for keyref in spends {
-                match keyref {
-                    KeyRef::Orchard { index } => {
-                        signer
-                            .sign_orchard(*index, &ask)
-                            .map_err(|e| format!("sign_orchard failed: {e:?}"))?;
-                    }
-                }
-            }
-        }
-
-        let pczt = signer.finish();
-        Ok(pczt.serialize())
     }
 }
 
@@ -542,8 +386,4 @@ impl Protocol for ZcashProtocol {
 
         Ok(())
     }
-}
-
-enum KeyRef {
-    Orchard { index: usize },
 }
