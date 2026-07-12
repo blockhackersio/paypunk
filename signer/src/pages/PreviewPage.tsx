@@ -30,12 +30,12 @@ function assembleAuthorizePayload(
   payload.set(rawArtifact, 4);
   view.setUint32(4 + rawArtifact.length, previewSignature.length, true);
   payload.set(previewSignature, 8 + rawArtifact.length);
-  payload.set(pwBytes, 12 + rawArtifact.length + previewSignature.length);
+  payload.set(pwBytes, 8 + rawArtifact.length + previewSignature.length);
   return payload;
 }
 
 export default function PreviewPage() {
-  const { navigate, serverKey } = useNav();
+  const { navigate, serverKey, scanResult } = useNav();
   const [preview, setPreview] = useState<ArtifactSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
@@ -64,14 +64,18 @@ export default function PreviewPage() {
       setError("Please enter your password");
       return;
     }
+    if (!scanResult) {
+      setError("No scan data available — please scan again");
+      return;
+    }
     setSigning(true);
     setError(null);
     try {
       const ephemeral = generateEphemeralKeypair();
 
       const payload = assembleAuthorizePayload(
-        new Uint8Array(0),
-        new Uint8Array(0),
+        scanResult.rawArtifact,
+        scanResult.previewSignature,
         password,
       );
 
@@ -80,7 +84,7 @@ export default function PreviewPage() {
       await invoke<number[]>("approve_and_sign", {
         encryptedPayload: Array.from(encryptedPayload),
         ephemeralPublicKey: Array.from(ephemeral.public),
-        derivationPath: "m/44'/133'/0'",
+        derivationPath: scanResult.derivationPath,
       });
 
       navigate("/result");

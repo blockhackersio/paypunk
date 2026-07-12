@@ -12,7 +12,7 @@ interface ProcessResult {
 }
 
 export default function ScanPage() {
-  const { navigate } = useNav();
+  const { navigate, setScanResult } = useNav();
   const [scanning, setScanning] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +76,14 @@ export default function ScanPage() {
       } else if (result.mode === "register") {
         navigate("/register");
       } else {
+        // Store scan result data for PreviewPage
+        if (result.raw_artifact_b64 && result.preview_signature_b64 && result.derivation_path) {
+          setScanResult({
+            rawArtifact: Uint8Array.from(atob(result.raw_artifact_b64), c => c.charCodeAt(0)),
+            previewSignature: Uint8Array.from(atob(result.preview_signature_b64), c => c.charCodeAt(0)),
+            derivationPath: result.derivation_path,
+          });
+        }
         navigate("/preview");
       }
     } catch (e) {

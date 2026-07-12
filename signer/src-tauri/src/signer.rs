@@ -358,7 +358,8 @@ impl SignerState {
             derivation_path,
         };
 
-        let response = self.keypunk.handle_request(request, Some(ephemeral_public_key));
+        let client_pk = self.client_keypair.public_key();
+        let response = self.keypunk.handle_request(request, Some(client_pk));
 
         match response {
             KeypunkdResponse::ArtifactAuthorized { signed_artifact } => {
