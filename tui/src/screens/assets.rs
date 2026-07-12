@@ -4,7 +4,7 @@ use crate::app::Nav;
 use crate::components::asset_item::{AssetAction, AssetItem};
 use crate::components::button::{Button, ButtonSize};
 use crate::components::flex_box::FlexBox;
-use crate::components::list::List;
+use crate::components::list::{List, ListAction};
 use crate::components::Component;
 use crate::screens::help::HelpScreen;
 use crate::screens::history::HistoryScreen;
@@ -20,7 +20,7 @@ use ratatui::widgets::{Block, Padding, Paragraph};
 use ratatui::Frame;
 
 enum AssetsFocus {
-    Buttons(usize),
+    Back,
     Table,
 }
 
@@ -44,7 +44,7 @@ impl AssetsScreen {
             account,
             data: None,
             list: List::new(vec![]).row_height(2),
-            focus: AssetsFocus::Buttons(0),
+            focus: AssetsFocus::Back,
             protocol,
             sync_status: SyncStatus::default(),
         }
@@ -149,13 +149,9 @@ impl Screen for AssetsScreen {
             );
         }
 
-        let on_buttons = matches!(self.focus, AssetsFocus::Buttons(_));
-        let mut send_btn = Button::new(" \u{2191} Send ").size(ButtonSize::Sm);
-        send_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(0)));
-        let mut recv_btn = Button::new(" \u{2193} Receive ").size(ButtonSize::Sm);
-        recv_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(1)));
-        let mut hist_btn = Button::new(" \u{2191} History ").size(ButtonSize::Sm);
-        hist_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(2)));
+        let on_back = matches!(self.focus, AssetsFocus::Back);
+        let mut back_btn = Button::new(" \u{2190} Back ").size(ButtonSize::Sm);
+        back_btn.set_focused(on_back);
 
         let mut btn_bar = FlexBox::horizontal()
             .bg(ui::BG)
@@ -166,9 +162,7 @@ impl Screen for AssetsScreen {
                 right: 2,
             })
             .gap(2)
-            .child_with(Constraint::Length(10), send_btn)
-            .child_with(Constraint::Length(13), recv_btn)
-            .child_with(Constraint::Length(12), hist_btn);
+            .child_with(Constraint::Length(10), back_btn);
         btn_bar.render(frame, buttons);
 
         let block = theme.titled_block("");
@@ -227,7 +221,7 @@ impl Screen for AssetsScreen {
 
         let footer_text = theme.help_line([
             ("\u{2191}\u{2193}", "Navigate"),
-            ("\u{2190}/\u{2192}", "Buttons"),
+            ("\u{2190}/\u{2192}", "Select button"),
             ("Enter", "Select action"),
             ("r", "Refresh/Sync"),
             ("Esc", "Back to wallets"),
@@ -256,43 +250,20 @@ impl Screen for AssetsScreen {
         }
 
         match self.focus {
-            AssetsFocus::Buttons(ref mut sel) => match key.code {
-                KeyCode::Left | KeyCode::Right => {
-                    *sel = if *sel == 0 {
-                        1
-                    } else if *sel == 1 {
-                        2
-                    } else {
-                        0
-                    };
-                }
+            AssetsFocus::Back => match key.code {
                 KeyCode::Down => {
                     if self.data.as_ref().map_or(false, |d| !d.assets.is_empty()) {
                         self.focus = AssetsFocus::Table;
                         self.list.set_focused(true);
                     }
                 }
-                KeyCode::Enter => {
-                    return match *sel {
-                        0 => Nav::Push(Box::new(SendScreen::new(self.account.clone()))),
-                        1 => Nav::Push(Box::new(ReceiveScreen::new(self.account.clone()))),
-                        2 => Nav::Push(Box::new(HistoryScreen::new(
-                            self.account.account_id.clone(),
-                            self.account.name.clone(),
-                        ))),
-                        _ => Nav::None,
-                    };
-                }
-                KeyCode::Esc => return Nav::Pop,
-                KeyCode::Char('r') => {
-                    // Trigger sync — handled in tick
-                }
+                KeyCode::Enter | KeyCode::Esc => return Nav::Pop,
                 _ => {}
             },
             AssetsFocus::Table => match key.code {
                 KeyCode::Up => {
                     if self.list.selected().map_or(true, |i| i == 0) {
-                        self.focus = AssetsFocus::Buttons(0);
+                        self.focus = AssetsFocus::Back;
                         self.list.set_focused(false);
                     } else {
                         let _ = self.list.handle_event(key);
@@ -301,27 +272,33 @@ impl Screen for AssetsScreen {
                 KeyCode::Down => {
                     let _ = self.list.handle_event(key);
                 }
-                KeyCode::Left => {
-                    self.focus = AssetsFocus::Buttons(0);
-                    self.list.set_focused(false);
+                KeyCode::Left | KeyCode::Right => {
+                    let _ = self.list.handle_event(key);
                 }
-                KeyCode::Right => {
-                    self.focus = AssetsFocus::Buttons(2);
-                    self.list.set_focused(false);
-                }
-                KeyCode::Enter => {
-                    if let Some(idx) = self.list.selected() {
-                        if let Some(ref data) = self.data {
-                            if idx < data.assets.len() {
-                                return Nav::Push(Box::new(SendScreen::new(self.account.clone())));
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if let Some(action) = self.list.handle_event(key) {
+                        match action {
+                            ListAction::Item(_, AssetAction::Send) => {
+                                return Nav::Push(Box::new(SendScreen::new(
+                                    self.account.clone(),
+                                )));
                             }
+                            ListAction::Item(_, AssetAction::Receive) => {
+                                return Nav::Push(Box::new(ReceiveScreen::new(
+                                    self.account.clone(),
+                                )));
+                            }
+                            ListAction::Item(_, AssetAction::History) => {
+                                return Nav::Push(Box::new(HistoryScreen::new(
+                                    self.account.account_id.clone(),
+                                    self.account.name.clone(),
+                                )));
+                            }
+                            _ => {}
                         }
                     }
                 }
                 KeyCode::Esc => return Nav::Pop,
-                KeyCode::Char('r') => {
-                    // Trigger sync — handled in tick
-                }
                 _ => {}
             },
         }

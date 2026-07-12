@@ -2,7 +2,7 @@ use crate::api::types::AssetRow;
 use crate::components::Component;
 use crate::ui;
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -10,11 +10,14 @@ use ratatui::Frame;
 
 pub enum AssetAction {
     Send,
+    Receive,
+    History,
 }
 
 pub struct AssetItem {
     asset: AssetRow,
     focused: bool,
+    button_focus: usize,
 }
 
 impl AssetItem {
@@ -22,6 +25,7 @@ impl AssetItem {
         Self {
             asset,
             focused: false,
+            button_focus: 0,
         }
     }
 }
@@ -51,6 +55,44 @@ impl Component<AssetAction> for AssetItem {
             Span::styled(format!(" {:>14} ", ""), Style::new()),
         ]);
         frame.render_widget(Paragraph::new(line).style(Style::new().bg(row_bg)), area);
+
+        let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
+        let btn_area = rows[1];
+
+        let btn_labels = [" Send ", " Receive ", " History "];
+        let total_btn_width: u16 = btn_labels.iter().map(|l| l.len() as u16 + 2).sum::<u16>() + 4;
+        let btn_start = if total_btn_width < btn_area.width {
+            btn_area.width.saturating_sub(total_btn_width)
+        } else {
+            0
+        };
+
+        let mut x_offset = btn_start;
+        for (i, label) in btn_labels.iter().enumerate() {
+            let w = label.len() as u16 + 2;
+            let btn_rect = Rect {
+                x: btn_area.x + x_offset,
+                y: btn_area.y,
+                width: w,
+                height: 1,
+            };
+            x_offset += w + 2;
+
+            let is_btn_focused = self.focused && i == self.button_focus;
+            let (bg, fg) = if is_btn_focused {
+                (ui::palette().primary, ui::SURFACE)
+            } else if self.focused {
+                (ui::palette().muted, ui::palette().foreground)
+            } else {
+                (ui::BG, ui::palette().muted)
+            };
+            let btn_style = Style::new().bg(bg).fg(fg);
+            let btn_line = Line::from(vec![Span::styled(format!(" {} ", label), btn_style)]);
+            frame.render_widget(
+                Paragraph::new(btn_line).style(btn_style),
+                btn_rect,
+            );
+        }
     }
 
     fn handle_event(&mut self, key: KeyEvent) -> Option<AssetAction> {
@@ -58,7 +100,25 @@ impl Component<AssetAction> for AssetItem {
             return None;
         }
         match key.code {
-            KeyCode::Enter => Some(AssetAction::Send),
+            KeyCode::Left => {
+                self.button_focus = if self.button_focus == 0 {
+                    2
+                } else {
+                    self.button_focus - 1
+                };
+                None
+            }
+            KeyCode::Right => {
+                self.button_focus = (self.button_focus + 1) % 3;
+                None
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                Some(match self.button_focus {
+                    0 => AssetAction::Send,
+                    1 => AssetAction::Receive,
+                    _ => AssetAction::History,
+                })
+            }
             _ => None,
         }
     }

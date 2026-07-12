@@ -89,7 +89,15 @@ impl<A> Component<ListAction<A>> for List<A> {
                 }
                 None
             }
-            KeyCode::Enter => Some(ListAction::Selected(self.focus)),
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(component) = self.components.get_mut(self.focus) {
+                    component
+                        .handle_event(key)
+                        .map(|action| ListAction::Item(self.focus, action))
+                } else {
+                    None
+                }
+            }
             _ => {
                 if let Some(component) = self.components.get_mut(self.focus) {
                     component
