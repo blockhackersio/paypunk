@@ -19,7 +19,7 @@ Imagine a wallet where:
 - Your keys never touch an internet-connected device — **air-gapped signing via QR codes** is a first-class flow, not an afterthought
 - **Agents** can transact on your behalf via a scriptable CLI and IPC API, with human approval for sensitive operations
 - **Swapping** between ZEC and ETH happens in-wallet, routed through decentralized protocols, without surrendering custody
-- New privacy protocols — **Aleo, Aztec, Railgun** — plug in by implementing two traits, not by forking the wallet
+- New privacy protocols — **Aleo, Aztec, Railgun** — plug in by implementing a couple of traits, not by forking the wallet
 - The same backend powers a **terminal UI, a desktop app, a mobile app, and an agent SDK** — because the architecture is frontend-agnostic from day one
 
 The architecture is built. The trait system works. Zcash and Ethereum are proven. The foundation is solid. What's missing is the work to harden it, polish it, and extend it to the protocols that matter.
