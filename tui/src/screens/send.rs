@@ -75,6 +75,7 @@ pub struct SendScreen {
     account_name: String,
     account_address: String,
     chain_id: String,
+    protocol: String,
     step: SendStep,
     to_picker: DropdownPicker<AddressBookEntryItem, ()>,
     amount_field: TextField,
@@ -95,6 +96,7 @@ impl SendScreen {
             account_name: account.name,
             account_address: account.address,
             chain_id: account.chain_id,
+            protocol: account.protocol,
             step: SendStep::Form,
             to_picker: DropdownPicker::new("To", "Enter address or search contacts...", Vec::new()),
             amount_field: TextField::new(TextFieldConfig {
@@ -141,6 +143,7 @@ impl Screen for SendScreen {
         self.to_picker.set_items(
             book.entries
                 .into_iter()
+                .filter(|e| e.protocol == self.protocol)
                 .map(AddressBookEntryItem::new)
                 .collect(),
         );
@@ -168,6 +171,7 @@ impl Screen for SendScreen {
         self.to_picker.set_items(
             book.entries
                 .into_iter()
+                .filter(|e| e.protocol == self.protocol)
                 .map(AddressBookEntryItem::new)
                 .collect(),
         );
