@@ -149,6 +149,14 @@ fn open_wallet_db(
         zcash_client_sqlite::wallet::init::init_wallet_db(&mut db, None)
             .map_err(|e| format!("{e}"))?;
 
+        // Enable WAL mode so concurrent readers (e.g. GetHistory, GetTxStatus)
+        // don't block the scan actor's writes.
+        let wal_conn = rusqlite::Connection::open(db_path)
+            .map_err(|e| format!("failed to open db for WAL mode: {e}"))?;
+        wal_conn
+            .execute_batch("PRAGMA journal_mode=WAL;")
+            .map_err(|e| format!("failed to enable WAL mode: {e}"))?;
+
         if network_type == NetworkType::Regtest {
             patch_orchard_views_for_regtest(db_path)?;
         }
@@ -176,6 +184,11 @@ fn open_wallet_db(
                 .map_err(|e| format!("failed to open zcash wallet db: {e}"))?;
                 zcash_client_sqlite::wallet::init::init_wallet_db(&mut db, None)
                     .map_err(|e| format!("failed to initialize zcash wallet db: {e}"))?;
+                let wal_conn = rusqlite::Connection::open(db_path)
+                    .map_err(|e| format!("failed to open db for WAL mode: {e}"))?;
+                wal_conn
+                    .execute_batch("PRAGMA journal_mode=WAL;")
+                    .map_err(|e| format!("failed to enable WAL mode: {e}"))?;
                 if network_type == NetworkType::Regtest {
                     patch_orchard_views_for_regtest(db_path)?;
                 }

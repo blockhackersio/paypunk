@@ -754,13 +754,99 @@ impl WalletApi for RealWalletApi {
         }
     }
 
-    async fn get_history(&self, _account_id: &str) -> HistoryData {
-        // For now, return empty history. The IPC GetHistory plumbing is in place
-        // but needs a protocol-level account lookup to dispatch correctly.
-        HistoryData {
-            rows: vec![],
-            next_cursor: None,
-            has_more: false,
+    async fn get_history(&self, account_id: &str) -> HistoryData {
+        info!("get_history called for account_id={}", account_id);
+        match self.client.get_account(account_id.to_string()).await {
+            Ok(Some(account)) => {
+                info!(
+                    "get_history: found account protocol={:?} derivation_path={}",
+                    account.protocol, account.derivation_path
+                );
+                let protocol = account.protocol;
+                let decimals = self.protocol_decimals(&protocol).await;
+                let ticker = self.protocol_ticker(&protocol).await;
+
+                let account_index: u32 = account
+                    .derivation_path
+                    .rsplit('\'')
+                    .nth(1)
+                    .and_then(|s| s.split('/').last())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+
+                info!(
+                    "get_history: calling IPC with protocol={:?} account_index={}",
+                    protocol, account_index
+                );
+
+                match self
+                    .client
+                    .get_history(protocol, account_index, None, 50)
+                    .await
+                {
+                    Ok(entries) => {
+                        info!("get_history: IPC returned {} entries", entries.len());
+                        let rows: Vec<HistoryRow> = entries
+                            .into_iter()
+                            .map(|e| {
+                                let direction = match e.direction {
+                                    paypunk_types::TxDirection::Incoming => "Received".into(),
+                                    paypunk_types::TxDirection::Outgoing => "Sent".into(),
+                                    paypunk_types::TxDirection::SelfTransfer => "Self".into(),
+                                };
+                                let status = match e.status {
+                                    paypunk_types::TxStatus::Pending => "Pending".into(),
+                                    paypunk_types::TxStatus::Confirmed { .. } => "Confirmed".into(),
+                                    paypunk_types::TxStatus::Failed { reason } => {
+                                        format!("Failed: {reason}")
+                                    }
+                                    paypunk_types::TxStatus::NotFound => "Not found".into(),
+                                };
+                                let divisor = 10u128.pow(decimals as u32) as f64;
+                                let amount_val = e.amount.0 as f64 / divisor;
+                                let amount = format!("{:.8} {ticker}", amount_val);
+                                HistoryRow {
+                                    hash: e.hash,
+                                    direction,
+                                    counterparty: e.counterparty.0,
+                                    amount,
+                                    status,
+                                    timestamp: e.timestamp,
+                                }
+                            })
+                            .collect();
+                        HistoryData {
+                            rows,
+                            next_cursor: None,
+                            has_more: false,
+                        }
+                    }
+                    Err(e) => {
+                        info!("get_history: IPC error: {}", e);
+                        HistoryData {
+                            rows: vec![],
+                            next_cursor: None,
+                            has_more: false,
+                        }
+                    }
+                }
+            }
+            Ok(None) => {
+                info!("get_history: account not found for id={}", account_id);
+                HistoryData {
+                    rows: vec![],
+                    next_cursor: None,
+                    has_more: false,
+                }
+            }
+            Err(e) => {
+                info!("get_history: get_account error: {}", e);
+                HistoryData {
+                    rows: vec![],
+                    next_cursor: None,
+                    has_more: false,
+                }
+            }
         }
     }
 }

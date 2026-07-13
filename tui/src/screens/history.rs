@@ -11,6 +11,44 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
+fn format_unix_utc(ts: u64) -> String {
+    let days = (ts / 86400) as i64;
+    let secs_of_day = (ts % 86400) as i64;
+    let hour = secs_of_day / 3600;
+    let min = (secs_of_day % 3600) / 60;
+    let (y, m, d) = days_to_ymd(days);
+    format!("{y:04}-{m:02}-{d:02} {hour:02}:{min:02}")
+}
+
+fn days_to_ymd(days_since_epoch: i64) -> (i64, u32, u32) {
+    let mut days = days_since_epoch;
+    let mut year: i64 = 1970;
+    loop {
+        let leap = is_leap(year);
+        let yd = if leap { 366 } else { 365 };
+        if days < yd {
+            break;
+        }
+        days -= yd;
+        year += 1;
+    }
+    let leap = is_leap(year);
+    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 0u32;
+    for (i, &md) in mdays.iter().enumerate() {
+        if days < md as i64 {
+            month = i as u32 + 1;
+            break;
+        }
+        days -= md as i64;
+    }
+    (year, month, days as u32 + 1)
+}
+
+fn is_leap(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+
 /// A single entry in the transaction history.
 #[derive(Debug, Clone)]
 struct HistoryRow {
@@ -52,11 +90,7 @@ impl Screen for HistoryScreen {
             .map(|r: ApiHistoryRow| {
                 let date = r
                     .timestamp
-                    .map(|ts| {
-                        let secs = ts as i64;
-                        // Simple formatting: show relative or absolute
-                        format!("{}", secs)
-                    })
+                    .map(|ts| format_unix_utc(ts))
                     .unwrap_or_else(|| "—".to_string());
                 HistoryRow {
                     date,

@@ -187,6 +187,11 @@ impl WalletDbActor {
             .map_err(|e| format!("failed to recreate wallet db: {e}"))?;
             zcash_client_sqlite::wallet::init::init_wallet_db(&mut new_db, None)
                 .map_err(|e| format!("failed to init wallet db: {e}"))?;
+            let wal_conn = rusqlite::Connection::open(&self.db_path)
+                .map_err(|e| format!("failed to open db for WAL mode: {e}"))?;
+            wal_conn
+                .execute_batch("PRAGMA journal_mode=WAL;")
+                .map_err(|e| format!("failed to enable WAL mode: {e}"))?;
             self.db = new_db;
         }
         Ok(())
@@ -611,58 +616,76 @@ impl Handler<GetBalance> for WalletDbActor {
 impl Handler<GetHistory> for WalletDbActor {
     async fn handle(
         &mut self,
-        _msg: GetHistory,
+        msg: GetHistory,
         _ctx: &Ctx<Self>,
     ) -> Result<Page<HistoryEntry>, String> {
         let reader = rusqlite::Connection::open(&self.db_path)
             .map_err(|e| format!("failed to open wallet db for reading: {e}"))?;
 
+        let account_db_id: i64 = reader
+            .query_row(
+                "SELECT id FROM accounts ORDER BY id LIMIT 1 OFFSET ?",
+                rusqlite::params![msg.account as i64],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("failed to look up account: {e}"))?;
+
         let mut stmt = reader
             .prepare(
-                "SELECT t.txid, t.block, t.expiry_height,
-                    COALESCE(s.total_sent, 0) AS total_sent,
-                    COALESCE(r.total_received, 0) AS total_received
+                "SELECT t.txid, t.block, b.time,
+                    (SELECT COALESCE(SUM(value), 0) FROM sent_notes
+                     WHERE transaction_id = t.id_tx AND from_account_id = :acct
+                       AND (to_account_id IS NULL OR to_account_id != :acct)) AS sent_away,
+                    (SELECT COALESCE(SUM(value), 0) FROM sent_notes
+                     WHERE transaction_id = t.id_tx AND from_account_id = :acct
+                       AND to_account_id = :acct) AS sent_self,
+                    (SELECT COALESCE(SUM(value), 0) FROM sapling_received_notes
+                     WHERE transaction_id = t.id_tx AND account_id = :acct)
+                    + (SELECT COALESCE(SUM(value), 0) FROM orchard_received_notes
+                     WHERE transaction_id = t.id_tx AND account_id = :acct) AS received
                  FROM transactions t
-                 LEFT JOIN (
-                     SELECT tx, SUM(value) AS total_sent
-                     FROM sent_notes GROUP BY tx
-                 ) s ON s.tx = t.id_tx
-                 LEFT JOIN (
-                     SELECT tx, SUM(value) AS total_received
-                     FROM received_notes GROUP BY tx
-                 ) r ON r.tx = t.id_tx
-                 ORDER BY t.id_tx DESC",
+                 LEFT JOIN blocks b ON t.block = b.height
+                 WHERE t.id_tx IN (
+                     SELECT transaction_id FROM sent_notes WHERE from_account_id = :acct
+                     UNION
+                     SELECT transaction_id FROM sapling_received_notes WHERE account_id = :acct
+                     UNION
+                     SELECT transaction_id FROM orchard_received_notes WHERE account_id = :acct
+                 )
+                 ORDER BY t.id_tx DESC
+                 LIMIT :limit",
             )
             .map_err(|e| format!("prepare failed: {e}"))?;
 
         let tx_rows = stmt
-            .query_map([], |row| {
-                let txid_blob: Vec<u8> = row.get(0)?;
-                let block: Option<i64> = row.get(1)?;
-                let _expiry: Option<i64> = row.get(2)?;
-                let total_sent: i64 = row.get(3)?;
-                let total_received: i64 = row.get(4)?;
-                Ok((txid_blob, block, total_sent, total_received))
-            })
+            .query_map(
+                rusqlite::named_params! {
+                    ":acct": account_db_id,
+                    ":limit": msg.limit as i64,
+                },
+                |row| {
+                    let txid_blob: Vec<u8> = row.get(0)?;
+                    let block: Option<i64> = row.get(1)?;
+                    let block_time: Option<i64> = row.get(2)?;
+                    let sent_away: i64 = row.get(3)?;
+                    let sent_self: i64 = row.get(4)?;
+                    let received: i64 = row.get(5)?;
+                    Ok((txid_blob, block, block_time, sent_away, sent_self, received))
+                },
+            )
             .map_err(|e| format!("query failed: {e}"))?;
 
         let mut entries: Vec<HistoryEntry> = Vec::new();
         for row in tx_rows {
-            let (txid_blob, block, total_sent, total_received) =
+            let (txid_blob, block, block_time, sent_away, sent_self, received) =
                 row.map_err(|e| format!("row error: {e}"))?;
 
-            let direction = if total_sent > 0 && total_received == 0 {
-                TxDirection::Outgoing
-            } else if total_received > 0 && total_sent == 0 {
-                TxDirection::Incoming
+            let (direction, amount) = if sent_away > 0 {
+                (TxDirection::Outgoing, Amount(sent_away as u128))
+            } else if sent_self > 0 {
+                (TxDirection::SelfTransfer, Amount(sent_self as u128))
             } else {
-                TxDirection::SelfTransfer
-            };
-
-            let amount = if direction == TxDirection::Outgoing {
-                Amount(total_sent as u128)
-            } else {
-                Amount(total_received as u128)
+                (TxDirection::Incoming, Amount(received as u128))
             };
 
             let status = match block {
@@ -673,7 +696,7 @@ impl Handler<GetHistory> for WalletDbActor {
             };
 
             let hash = hex::encode(&txid_blob);
-            let timestamp = block.map(|h| h as u64);
+            let timestamp = block_time.map(|t| t as u64);
 
             entries.push(HistoryEntry {
                 hash,
