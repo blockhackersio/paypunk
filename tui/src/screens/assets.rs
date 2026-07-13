@@ -4,7 +4,7 @@ use crate::app::Nav;
 use crate::components::asset_item::{AssetAction, AssetItem};
 use crate::components::button::{Button, ButtonSize};
 use crate::components::flex_box::FlexBox;
-use crate::components::list::List;
+use crate::components::list::{List, ListAction};
 use crate::components::Component;
 use crate::screens::help::HelpScreen;
 use crate::screens::history::HistoryScreen;
@@ -13,14 +13,14 @@ use crate::screens::send::SendScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
-use ratatui::layout::{Constraint, Layout, Margin};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Padding, Paragraph};
 use ratatui::Frame;
 
 enum AssetsFocus {
-    Buttons(usize),
+    Back,
     Table,
 }
 
@@ -43,8 +43,8 @@ impl AssetsScreen {
         Self {
             account,
             data: None,
-            list: List::new(vec![]).row_height(2),
-            focus: AssetsFocus::Buttons(0),
+            list: List::new(vec![]).row_height(5),
+            focus: AssetsFocus::Back,
             protocol,
             sync_status: SyncStatus::default(),
         }
@@ -64,7 +64,7 @@ impl Screen for AssetsScreen {
             .iter()
             .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
             .collect();
-        self.list = List::new(items).row_height(2);
+        self.list = List::new(items).row_height(5);
         self.data = Some(data);
     }
 
@@ -76,7 +76,7 @@ impl Screen for AssetsScreen {
             .iter()
             .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
             .collect();
-        self.list = List::new(items).row_height(2);
+        self.list = List::new(items).row_height(5);
         self.data = Some(data);
     }
 
@@ -90,7 +90,7 @@ impl Screen for AssetsScreen {
                 .iter()
                 .map(|a| Box::new(AssetItem::new(a.clone())) as Box<dyn Component<AssetAction>>)
                 .collect();
-            self.list = List::new(items).row_height(2);
+            self.list = List::new(items).row_height(5);
             self.data = Some(data);
         }
     }
@@ -99,7 +99,7 @@ impl Screen for AssetsScreen {
         let theme = ui::theme();
         let area = frame.area();
         let chunks = Layout::vertical([
-            Constraint::Length(4),
+            Constraint::Length(5),
             Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Length(3),
@@ -120,8 +120,8 @@ impl Screen for AssetsScreen {
         };
         let subtitle = Paragraph::new(
             Line::from(format!(
-                "{} — {} ({}) — {}",
-                self.account.name, chain_label, self.account.chain_id, self.account.address
+                "{} — {} ({})",
+                self.account.name, chain_label, self.account.chain_id
             ))
             .centered(),
         )
@@ -134,6 +134,19 @@ impl Screen for AssetsScreen {
             }),
         );
 
+        let addr_line =
+            Paragraph::new(Line::from(vec![theme.muted(&self.account.address)]).centered())
+                .style(Style::new().bg(ui::BG));
+        frame.render_widget(
+            addr_line,
+            Rect {
+                x: header.x,
+                y: header.y + 3,
+                width: header.width,
+                height: 1,
+            },
+        );
+
         if self.sync_status.is_syncing {
             let sync_line = Paragraph::new(Line::from(vec![theme.warning(format!(
                 " Syncing: {} / {} blocks ",
@@ -142,20 +155,18 @@ impl Screen for AssetsScreen {
             .style(Style::new().bg(ui::BG));
             frame.render_widget(
                 sync_line,
-                header.inner(Margin {
-                    vertical: 3,
-                    horizontal: 0,
-                }),
+                Rect {
+                    x: header.x,
+                    y: header.y + 4,
+                    width: header.width,
+                    height: 1,
+                },
             );
         }
 
-        let on_buttons = matches!(self.focus, AssetsFocus::Buttons(_));
-        let mut send_btn = Button::new(" \u{2191} Send ").size(ButtonSize::Sm);
-        send_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(0)));
-        let mut recv_btn = Button::new(" \u{2193} Receive ").size(ButtonSize::Sm);
-        recv_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(1)));
-        let mut hist_btn = Button::new(" \u{2191} History ").size(ButtonSize::Sm);
-        hist_btn.set_focused(on_buttons && matches!(self.focus, AssetsFocus::Buttons(2)));
+        let on_back = matches!(self.focus, AssetsFocus::Back);
+        let mut back_btn = Button::new(" \u{2190} Back ").size(ButtonSize::Sm);
+        back_btn.set_focused(on_back);
 
         let mut btn_bar = FlexBox::horizontal()
             .bg(ui::BG)
@@ -166,9 +177,7 @@ impl Screen for AssetsScreen {
                 right: 2,
             })
             .gap(2)
-            .child_with(Constraint::Length(10), send_btn)
-            .child_with(Constraint::Length(13), recv_btn)
-            .child_with(Constraint::Length(12), hist_btn);
+            .child_with(Constraint::Length(10), back_btn);
         btn_bar.render(frame, buttons);
 
         let block = theme.titled_block("");
@@ -180,17 +189,16 @@ impl Screen for AssetsScreen {
 
         let table_area = inner.inner(Margin {
             vertical: 0,
-            horizontal: 1,
+            horizontal: 2,
         });
         let header_style = Style::new().fg(ui::palette().muted);
-        let name_width = (table_area.width as usize).saturating_sub(32);
+        let name_width = (table_area.width as usize).saturating_sub(10);
         let header_line = Line::from(vec![
             ratatui::text::Span::styled(
                 format!(" {:width$} ", "Asset", width = name_width),
                 header_style,
             ),
-            ratatui::text::Span::styled(format!(" {:>14} ", "Balance"), header_style),
-            ratatui::text::Span::styled(format!(" {:>14} ", " "), header_style),
+            ratatui::text::Span::styled(format!(" {:>7}", "Balance"), header_style),
         ]);
         frame.render_widget(
             Paragraph::new(header_line).style(Style::new().bg(ui::BG)),
@@ -206,8 +214,7 @@ impl Screen for AssetsScreen {
                 format!(" {:-<width$} ", "", width = name_width),
                 sep_style,
             ),
-            ratatui::text::Span::styled(format!(" {:->14} ", ""), sep_style),
-            ratatui::text::Span::styled(format!(" {:->14} ", ""), sep_style),
+            ratatui::text::Span::styled(format!(" {:->7}", ""), sep_style),
         ]);
         frame.render_widget(
             Paragraph::new(sep_line).style(Style::new().bg(ui::BG)),
@@ -227,7 +234,7 @@ impl Screen for AssetsScreen {
 
         let footer_text = theme.help_line([
             ("\u{2191}\u{2193}", "Navigate"),
-            ("\u{2190}/\u{2192}", "Buttons"),
+            ("\u{2190}/\u{2192}", "Select button"),
             ("Enter", "Select action"),
             ("r", "Refresh/Sync"),
             ("Esc", "Back to wallets"),
@@ -256,43 +263,20 @@ impl Screen for AssetsScreen {
         }
 
         match self.focus {
-            AssetsFocus::Buttons(ref mut sel) => match key.code {
-                KeyCode::Left | KeyCode::Right => {
-                    *sel = if *sel == 0 {
-                        1
-                    } else if *sel == 1 {
-                        2
-                    } else {
-                        0
-                    };
-                }
+            AssetsFocus::Back => match key.code {
                 KeyCode::Down => {
                     if self.data.as_ref().map_or(false, |d| !d.assets.is_empty()) {
                         self.focus = AssetsFocus::Table;
                         self.list.set_focused(true);
                     }
                 }
-                KeyCode::Enter => {
-                    return match *sel {
-                        0 => Nav::Push(Box::new(SendScreen::new(self.account.clone()))),
-                        1 => Nav::Push(Box::new(ReceiveScreen::new(self.account.clone()))),
-                        2 => Nav::Push(Box::new(HistoryScreen::new(
-                            self.account.account_id.clone(),
-                            self.account.name.clone(),
-                        ))),
-                        _ => Nav::None,
-                    };
-                }
-                KeyCode::Esc => return Nav::Pop,
-                KeyCode::Char('r') => {
-                    // Trigger sync — handled in tick
-                }
+                KeyCode::Enter | KeyCode::Esc => return Nav::Pop,
                 _ => {}
             },
             AssetsFocus::Table => match key.code {
                 KeyCode::Up => {
                     if self.list.selected().map_or(true, |i| i == 0) {
-                        self.focus = AssetsFocus::Buttons(0);
+                        self.focus = AssetsFocus::Back;
                         self.list.set_focused(false);
                     } else {
                         let _ = self.list.handle_event(key);
@@ -301,27 +285,31 @@ impl Screen for AssetsScreen {
                 KeyCode::Down => {
                     let _ = self.list.handle_event(key);
                 }
-                KeyCode::Left => {
-                    self.focus = AssetsFocus::Buttons(0);
-                    self.list.set_focused(false);
+                KeyCode::Left | KeyCode::Right => {
+                    let _ = self.list.handle_event(key);
                 }
-                KeyCode::Right => {
-                    self.focus = AssetsFocus::Buttons(2);
-                    self.list.set_focused(false);
-                }
-                KeyCode::Enter => {
-                    if let Some(idx) = self.list.selected() {
-                        if let Some(ref data) = self.data {
-                            if idx < data.assets.len() {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if let Some(action) = self.list.handle_event(key) {
+                        match action {
+                            ListAction::Item(_, AssetAction::Send) => {
                                 return Nav::Push(Box::new(SendScreen::new(self.account.clone())));
                             }
+                            ListAction::Item(_, AssetAction::Receive) => {
+                                return Nav::Push(Box::new(ReceiveScreen::new(
+                                    self.account.clone(),
+                                )));
+                            }
+                            ListAction::Item(_, AssetAction::History) => {
+                                return Nav::Push(Box::new(HistoryScreen::new(
+                                    self.account.account_id.clone(),
+                                    self.account.name.clone(),
+                                )));
+                            }
+                            _ => {}
                         }
                     }
                 }
                 KeyCode::Esc => return Nav::Pop,
-                KeyCode::Char('r') => {
-                    // Trigger sync — handled in tick
-                }
                 _ => {}
             },
         }

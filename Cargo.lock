@@ -4130,6 +4130,7 @@ dependencies = [
  "paypunk-config",
  "paypunk-types",
  "postcard",
+ "qrcode",
  "ratatui",
  "ratatui-bubbletea-components",
  "ratatui-bubbletea-theme",

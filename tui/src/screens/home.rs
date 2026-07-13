@@ -31,12 +31,12 @@ impl HomeScreen {
         }
     }
 
-    const TAB_LABELS: &'static [&'static str] = &["Ethereum", "Zcash"];
+    const TAB_LABELS: &'static [&'static str] = &["Zcash", "Ethereum"];
 
     fn protocol_for_tab(tab: usize) -> &'static str {
         match tab {
-            0 => "Ethereum",
-            1 => "Zcash",
+            0 => "Zcash",
+            1 => "Ethereum",
             _ => "",
         }
     }
@@ -197,7 +197,8 @@ impl Screen for HomeScreen {
                 }
             }
             KeyCode::Char('a') => {
-                let _ = if self.active_tab == 1 {
+                let protocol = Self::protocol_for_tab(self.active_tab);
+                let _ = if protocol == "Zcash" {
                     api.add_zcash_account(0).await
                 } else {
                     api.add_account().await

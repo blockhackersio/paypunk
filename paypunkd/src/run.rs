@@ -1,4 +1,5 @@
 use crate::database::Database;
+use crate::paypunk::Paypunk;
 use crate::paypunkd::Paypunkd;
 use crate::protocol_service::ProtocolService;
 use keypunkd::crypto::Keypair;
@@ -65,7 +66,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("failed to open database: {e}"))?;
     info!("database opened");
 
-    let paypunkd = Paypunkd::new(recipient, protocols, db, keystore).start();
+    let paypunk = Paypunk::new(recipient, protocols, db, keystore);
+    let paypunkd = Paypunkd::new(paypunk).start();
 
     // Background sync loop — sends to ScanActor so scanning doesn't block
     // the WalletDbActor from handling other requests.

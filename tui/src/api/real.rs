@@ -305,11 +305,15 @@ impl WalletApi for RealWalletApi {
         match self.client.get_account(account_id.to_string()).await {
             Ok(Some(account)) => {
                 let chain = self.protocol_chain(&account.protocol).await;
+                let qr_payload = match account.protocol {
+                    ProtocolId::Zcash => format!("zcash:{}", account.address),
+                    _ => format!("ethereum:{}", account.address),
+                };
                 ReceiveData {
                     address: account.address.clone(),
                     chain_id: chain,
                     address_format: "hex".to_string(),
-                    qr_payload: account.address,
+                    qr_payload,
                     account_id: account_id.to_string(),
                 }
             }

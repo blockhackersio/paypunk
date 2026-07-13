@@ -114,6 +114,14 @@ impl Component<Nav> for AssetListDemo {
                 self.message = "Send action triggered!".into();
                 None
             }
+            Some(ListAction::Item(_, AssetAction::Receive)) => {
+                self.message = "Receive action triggered!".into();
+                None
+            }
+            Some(ListAction::Item(_, AssetAction::History)) => {
+                self.message = "History action triggered!".into();
+                None
+            }
             None => None,
         }
     }

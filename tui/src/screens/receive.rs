@@ -5,6 +5,7 @@ use crate::screens::help::HelpScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
+use qrcode::QrCode;
 use ratatui::layout::{Constraint, Layout, Margin};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
@@ -113,58 +114,31 @@ impl Screen for ReceiveScreen {
                     theme.span(&data.address_format),
                 ]));
                 lines.push(Line::from(""));
-
-                let qr_short = if data.qr_payload.len() > 60 {
-                    format!("{}...", &data.qr_payload[..60])
-                } else {
-                    data.qr_payload.clone()
-                };
-                lines.push(Line::from(vec![theme.muted("QR Payload:")]));
-                lines.push(Line::from(vec![theme.span(format!("  {}", qr_short))]));
-                lines.push(Line::from(""));
                 if let Some(ref feedback) = self.copied_feedback {
                     lines.push(Line::from(vec![theme.success(feedback)]));
                     lines.push(Line::from(""));
                 }
                 lines.push(Line::from(""));
 
-                let chain_name = if data.chain_id.contains("eip155") {
-                    "ETH"
-                } else {
-                    "ZEC"
-                };
-                lines.push(Line::from(vec![Span::styled(
-                    " ╔══ QR CODE ══╗",
-                    Style::new().fg(ui::palette().muted),
-                )]));
-                lines.push(Line::from(vec![Span::styled(
-                    " ║              ║",
-                    Style::new().fg(ui::palette().muted),
-                )]));
-                lines.push(Line::from(vec![Span::styled(
-                    format!(" ║   {} ADDR   ║", chain_name),
-                    Style::new().fg(ui::palette().primary),
-                )]));
-                lines.push(Line::from(vec![Span::styled(
-                    " ║  ██▄██ ▄██▄  ║",
-                    Style::new().fg(ui::palette().foreground),
-                )]));
-                lines.push(Line::from(vec![Span::styled(
-                    " ║  ████ █████  ║",
-                    Style::new().fg(ui::palette().foreground),
-                )]));
-                lines.push(Line::from(vec![Span::styled(
-                    " ║  ▄▀▀█ █▄▄█  ║",
-                    Style::new().fg(ui::palette().foreground),
-                )]));
-                lines.push(Line::from(vec![Span::styled(
-                    " ║              ║",
-                    Style::new().fg(ui::palette().muted),
-                )]));
-                lines.push(Line::from(vec![Span::styled(
-                    " ╚══════════════╝",
-                    Style::new().fg(ui::palette().muted),
-                )]));
+                let fg = ui::palette().foreground;
+                match QrCode::new(data.qr_payload.as_bytes()) {
+                    Ok(code) => {
+                        let qr_str = code
+                            .render::<qrcode::render::unicode::Dense1x2>()
+                            .dark_color(qrcode::render::unicode::Dense1x2::Dark)
+                            .light_color(qrcode::render::unicode::Dense1x2::Light)
+                            .build();
+                        for line in qr_str.lines() {
+                            lines.push(Line::from(vec![Span::styled(
+                                format!("  {}", line),
+                                Style::new().fg(fg),
+                            )]));
+                        }
+                    }
+                    Err(_) => {
+                        lines.push(Line::from(vec![theme.error("  QR generation failed")]));
+                    }
+                }
 
                 let para = Paragraph::new(Text::from(lines)).style(Style::new().bg(ui::BG));
                 frame.render_widget(para, inner2);
