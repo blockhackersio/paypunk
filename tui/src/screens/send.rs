@@ -143,7 +143,7 @@ impl Screen for SendScreen {
         self.to_picker.set_items(
             book.entries
                 .into_iter()
-                .filter(|e| e.protocol == self.protocol)
+                .filter(|e| e.protocol == self.protocol && e.address != self.account_address)
                 .map(AddressBookEntryItem::new)
                 .collect(),
         );
@@ -171,7 +171,7 @@ impl Screen for SendScreen {
         self.to_picker.set_items(
             book.entries
                 .into_iter()
-                .filter(|e| e.protocol == self.protocol)
+                .filter(|e| e.protocol == self.protocol && e.address != self.account_address)
                 .map(AddressBookEntryItem::new)
                 .collect(),
         );
