@@ -7,7 +7,16 @@ _This is experimental software and should not be used with real funds_
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![Status](https://img.shields.io/badge/status-alpha-yellow.svg)]()
 
-Flexible wallet infrastructure for privacy-preserving commerce.
+Paypunk began as an entry for the Zcash Hackathon — an opportunity to build the privacy wallet I'd been wanting to make for years. But the goal was never just a wallet. It's an **extensible framework for building privacy-preserving crypto wallets**, designed so that adding new chains (Monero, Bitcoin, and beyond) is a lighter lift than starting from scratch.
+
+Two architectural decisions drive everything else:
+
+- **Signing/wallet separation** — Keys live in a separate process (`keypunkd`) or on an entirely air-gapped device (the mobile signer app). The wallet daemon never holds key material. This makes offline signing, hardware wallets, and multi-signature flows natural extensions rather than bolted-on features.
+- **Multi-token by design** — Chain-specific logic is isolated behind `Protocol` and `SignerProtocol` traits. Zcash and Ethereum are the first two implementations; adding a new chain means implementing those traits, not rearchitecting the wallet.
+
+The IPC layer (Unix sockets + tactix actors) means frontends can be built in any technology — the current TUI is a throwaway first draft. The same backend serves a CLI for scripting, a TUI for interactive use, a web bridge for QR-based signing, and future desktop/mobile apps.
+
+Think of this not as "a Zcash wallet with a TUI and an offline signer" but as a **scriptable, privacy-first wallet framework** ready to extend to whatever protocols matter next.
 
 ## Architecture
 
@@ -176,3 +185,52 @@ paypunk  # creates the config file on first run if it doesn't exist
 ```
 
 See [`config/src/lib.rs`](config/src/lib.rs) for all available fields and env var overrides.
+
+### Offline signer
+
+Paypunk supports air-gapped signing via two mechanisms: a **QR bridge** (desktop-to-mobile) and a **Tauri mobile app**.
+
+#### QR bridge (desktop)
+
+In offline signer mode, paypunk spawns a WebSocket/HTTP bridge instead of keypunkd. The bridge relays signing requests to a browser (or the mobile signer app) via QR codes, keeping key material on the air-gapped device.
+
+```bash
+# Run the TUI in signer mode — spawns bridge + paypunkd, then launches TUI
+paypunk --signer
+
+# Or via env var / config
+PAYPUNK_OFFLINE_SIGNER=true paypunk
+
+# Or set it in config.toml:
+# offline_signer = true
+```
+
+To run the bridge manually (e.g. on a separate machine):
+
+```bash
+# Start the bridge on a custom port and socket
+paypunk bridge --port 12345 --socket-path /tmp/keypunkd.sock
+
+# Then start paypunkd pointing at the bridge socket
+paypunk paypunkd --keypunkd-socket /tmp/keypunkd.sock
+
+# Then launch the TUI
+paypunk tui --signer
+```
+
+The bridge serves an HTML page at `http://0.0.0.0:12345/` and a WebSocket endpoint at `ws://0.0.0.0:12345/ws`. Open the page in a browser on the signing device to scan/display QR codes.
+
+#### Mobile signer app (Tauri v2)
+
+The `signer/` directory contains a Tauri v2 mobile app for Android that handles QR-based signing on a phone. It wraps the same `Keypunk` signing logic as keypunkd but runs entirely on-device — keys never leave the phone.
+
+See [`signer/README.md`](signer/README.md) for build and installation instructions.
+
+**Signing flow:**
+
+1. Wallet (desktop) constructs a transaction and encodes it as QR codes
+2. User scans the QR with the signer app (or the bridge web page)
+3. Signer app previews the transaction (recipient, amount, fee)
+4. User approves — signer signs with the on-device seed
+5. Signed artifact is displayed as QR codes
+6. User scans the result back into the wallet, which broadcasts it
