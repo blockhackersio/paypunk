@@ -31,7 +31,7 @@ docker compose up
 docker compose up -d
 
 # Configure paypunk to use it
-export PAYPUNK_RPC_URL=http://127.0.0.1:8545
+export PAYPUNK_ETHEREUM_RPC_URL=http://127.0.0.1:8545
 
 # Run paypunk
 paypunk

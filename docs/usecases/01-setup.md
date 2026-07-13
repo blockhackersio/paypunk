@@ -45,11 +45,9 @@ sequenceDiagram
     keypunkd-->>paypunkd: SeedRestored
 
     API->>Client: unlock(password)
-    Client->>paypunkd: IpcMessage(Unlock { encrypted_db_password, encrypted_keypunkd_password, paths, ... })
-    paypunkd->>paypunkd: decrypt db password via X25519
-    paypunkd->>paypunkd: decrypt paypunkd.db.enc → paypunkd.db (Argon2id + AES-256-GCM)
-    paypunkd->>SQLite: open connection, run migrations (accounts + pre_derived_keys tables)
-    paypunkd->>keypunkd: bulk_export_viewing_keys(encrypted_password, paths)
+    Client->>paypunkd: IpcMessage(Unlock { encrypted_keypunkd_password, keypunkd_client_pk, paths })
+    paypunkd->>paypunkd: ensure database file exists, run migrations
+    paypunkd->>keypunkd: bulk_export_viewing_keys(encrypted_password, keypunkd_client_pk, paths)
     keypunkd->>keypunkd: decrypt seed, derive viewing keys for 30 paths per protocol
     keypunkd-->>paypunkd: viewing keys per (protocol, path)
     paypunkd->>SQLite: INSERT OR REPLACE INTO pre_derived_keys (protocol, account_index, viewing_key) — for each key
@@ -99,8 +97,7 @@ sequenceDiagram
 
     API->>Client: unlock(password)
     Client->>paypunkd: IpcMessage(Unlock { ... })
-    paypunkd->>paypunkd: decrypt DB password, decrypt paypunkd.db.enc
-    paypunkd->>SQLite: open connection, run migrations
+    paypunkd->>SQLite: ensure file exists, run migrations
     paypunkd->>keypunkd: bulk_export_viewing_keys
     keypunkd->>keypunkd: derive viewing keys
     keypunkd-->>paypunkd: keys

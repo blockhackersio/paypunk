@@ -19,8 +19,7 @@ sequenceDiagram
     TUI->>API: get_lock()
     API->>Client: get_lock_state()
     Client->>paypunkd: IpcMessage(GetLockState)
-    paypunkd->>keypunkd: HasSeed (to check password_set)
-    keypunkd-->>paypunkd: exists
+    paypunkd->>paypunkd: check .wallet_initialized marker (HasSeed)
     paypunkd-->>Client: LockState { password_set, failed_attempts }
     Client-->>API: (password_set, failed_attempts)
     API-->>TUI: LockData { auth_methods: { password_set }, failed_attempts }

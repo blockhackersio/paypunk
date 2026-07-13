@@ -3,7 +3,7 @@
 | # | Usecase | File | Description | Persistence |
 |---|---------|------|-------------|-------------|
 | 1 | [SetupScreen](01-setup.md) | `tui/src/screens/setup.rs:32` | Wallet creation/import wizard (7 sub-steps) | Writes `seed.enc` (keypunkd), writes `pre_derived_keys` + `accounts` tables (paypunkd) |
-| 2 | [GreetingScreen](02-greeting.md) | `tui/src/screens/greeting.rs:16` | Initial unlock prompt for existing wallet | Reads `seed.enc` + `paypunkd.db.enc`, writes `pre_derived_keys` + `accounts` tables |
+| 2 | [GreetingScreen](02-greeting.md) | `tui/src/screens/greeting.rs:16` | Initial unlock prompt for existing wallet | Reads `seed.enc` (keypunkd), writes `pre_derived_keys` + `accounts` tables (paypunkd) |
 | 3 | [LockScreen](03-lock.md) | `tui/src/screens/lock.rs:17` | Re-authentication after auto-lock | None — no-op implementation |
 | 4 | [HomeScreen](04-home.md) | `tui/src/screens/home.rs:19` | Account list and main navigation | Reads `accounts` table, writes `accounts` on add |
 | 5 | [AssetsScreen](05-assets.md) | `tui/src/screens/assets.rs:27` | Asset balance view with Send/Receive/History buttons | Reads `accounts` table; balance from chain RPC |
@@ -21,14 +21,15 @@
 - **Access:** Atomic write via `seed.enc.tmp` + rename; read via `std::fs::read`
 
 ### paypunkd — SQLite Database
-- **File (at rest):** `{data_dir}/paypunkd.db.enc`
-- **File (decrypted):** `{data_dir}/paypunkd.db` (plaintext while unlocked)
-- **Encryption:** Argon2id + AES-256-GCM (separate from seed encryption)
+- **File:** `{data_dir}/paypunkd.db` (plaintext — encryption at rest is planned but not yet implemented)
 - **Tables:**
-  - `accounts` — `id TEXT PK, protocol TEXT, derivation_path TEXT, name TEXT, address TEXT, viewing_key BLOB, created_at INTEGER`
-  - `pre_derived_keys` — `protocol TEXT, account_index INTEGER, viewing_key BLOB, created_at INTEGER` (composite PK)
-  - `_migrations` — migration tracking
-- **Lock/unlock:** DB is encrypted at rest; decrypted to temp file on unlock; re-encrypted on close
+  - `accounts` — `id TEXT PK, protocol TEXT, derivation_path TEXT, name TEXT, address TEXT, viewing_key BLOB, created_at INTEGER, birthday_height INTEGER`
+  - `pre_derived_keys` — `protocol TEXT, account_index INTEGER, viewing_key BLOB, created_at INTEGER DEFAULT (strftime('%s','now')), PRIMARY KEY (protocol, account_index)`
+  - `address_book` — `id INTEGER PK AUTOINCREMENT, name TEXT, address TEXT UNIQUE, protocol TEXT, created_at INTEGER`
+  - `settings` — `key TEXT PK, value TEXT`
+  - `signer_state` — `session_public_key BLOB, created_at INTEGER DEFAULT (strftime('%s','now'))`
+  - `_migrations` — `version INTEGER PK, applied_at TEXT DEFAULT (datetime('now'))`
+- **Lock/unlock:** `is_locked()` always returns `false` — no DB encryption currently implemented. A `.wallet_initialized` marker file tracks wallet existence.
 
 ### Address Book
 - **Persisted** in paypunkd SQLite `address_book` table via `AddAddressBookEntry`/`GetAddressBook` IPC messages

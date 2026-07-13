@@ -18,10 +18,7 @@ were considered:
    keypair in memory. Every IPC message is authenticated using the shared
    secret derived from the two processes' keys.
 
-We already have X25519 key exchange infrastructure in keypunkd (`KeyStore`,
-`CryptoSession`, `derive_aes_key`) used for sealing the password during
-`GenerateSeed`. This same infrastructure can be extended for per-message
-authentication.
+We already have X25519 key exchange infrastructure in keypunkd (`Keypair` in `crypto.rs`, `derive_aes_key`) used for sealing the password during `GenerateSeed`. This same infrastructure can be extended for per-message authentication.
 
 ## Decision
 
@@ -37,16 +34,17 @@ accepted.
 
 ### Protocol
 
-1. **keypunkd** generates an X25519 keypair at startup (`KeyStore`, already
-   implemented). Exposes its public key via `GetPublicKey`.
+1. **keypunkd** generates an X25519 keypair at startup (`Keypair` in `crypto.rs`).
+   Exposes its public key via the `GetEncryptionKey` application message and via
+   the IPC handshake (`MSG_GET_PUBLIC_KEY` wire byte).
 
 2. **paypunkd** generates its own X25519 keypair at startup (new — analogous to
-   `KeyStore` but for the app daemon).
+   keypunkd's `Keypair` but for the app daemon).
 
 3. **Connection handshake**:
    - paypunkd connects to keypunkd's Unix socket.
-   - paypunkd calls `GetPublicKey` to learn keypunkd's public key.
-   - paypunkd sends `RegisterClient { public_key: [u8; 32] }` with its own
+   - paypunkd sends `MSG_GET_PUBLIC_KEY` to learn keypunkd's public key.
+   - paypunkd sends `MSG_REGISTER_CLIENT { public_key: [u8; 32] }` with its own
      public key.
    - keypunkd stores paypunkd's public key for this connection and derives a
      shared secret: `X25519(keypunkd_sk, paypunkd_pk)`.
@@ -54,14 +52,15 @@ accepted.
 
 4. **Per-message authentication**:
    - Every subsequent message from paypunkd includes an authentication tag:
-     `message_payload || Blake2b(hmac_key, message_payload)` where `hmac_key` is
+     `message_payload || Blake2b(hmac_key || message_payload)` where `hmac_key` is
      derived from the shared secret via `Blake2b(shared_secret || "paypunk-ipc-hmac")`.
+     (The MAC is a Blake2b keyed-hash construction, not standard HMAC.)
    - keypunkd verifies the tag before processing the message. If verification
      fails, the connection is dropped.
 
 5. **Existing password sealing remains unchanged**: The `GenerateSeed` flow
-   still uses ephemeral `CryptoSession` keys + X25519 + AES-GCM to encrypt the
-   password and mnemonic. The per-message HMAC is an additional layer on every
+   still uses ephemeral `Keypair` keys + X25519 + AES-GCM to encrypt the
+   password and mnemonic. The per-message MAC is an additional layer on every
    message, not a replacement for the encryption of sensitive payloads.
 
 ## Consequences
@@ -79,16 +78,18 @@ accepted.
   The public keys are exchanged over the connection — no files, no env vars.
 - **Keypairs are ephemeral**: A new keypair is generated on each daemon restart.
   No persistence needed.
-- **Referential transparency preserved**: The ipc crate remains a pure transport
-  layer. Authentication is handled by the dispatcher at the application level.
+- **Referential transparency preserved**: The ipc crate handles both transport
+  and authentication (handshake + MAC verification). The application dispatcher
+  receives already-authenticated messages, so callers can treat local and remote
+  actors uniformly via `Recipient<IpcMessage>`.
 
 ### Negative
 
-- **Handshake latency**: The `GetPublicKey` + `RegisterClient` exchange adds a
+- **Handshake latency**: The `MSG_GET_PUBLIC_KEY` + `MSG_REGISTER_CLIENT` exchange adds a
   round trip at connection startup.
 - **Per-connection registration**: Each new connection must re-register. If
   paypunkd reconnects, it generates a new keypair and re-registers.
-- **HMAC overhead**: Small CPU cost per message for tag computation and
+- **MAC overhead**: Small CPU cost per message for tag computation and
    verification. Negligible for a wallet application.
 - **No key persistence**: If an attacker gains temporary access to paypunkd's
    memory, they can extract the current keypair. Mitigated by: (a) the keypair

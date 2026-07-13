@@ -2,13 +2,13 @@
 
 ## Problem Statement
 
-Businesses and individuals want to accept and pay with Zcash (private cryptocurrency) but the current focus is on mobile applications and terminal based tooling is mainly linked to running a full node, requires expertise in blockchain infrastructure, and offers poor integration for desktop applications and agentic workflows. There needs to be a simple, secure, non-custodial wallet that works for both human users and autonomous agents, enabling privacy-preserving commerce that is a delight to use without requiring deep Zcash protocol knowledge.
+Businesses and individuals want to accept and pay with privacy-preserving cryptocurrencies (Zcash) and other digital assets (Ethereum), but the current focus is on mobile applications and terminal based tooling is mainly linked to running a full node, requires expertise in blockchain infrastructure, and offers poor integration for desktop applications and agentic workflows. There needs to be a simple, secure, non-custodial wallet that works for both human users and autonomous agents, enabling privacy-preserving commerce that is a delight to use without requiring deep protocol knowledge.
 
 ## Solution
 
-Build Paypunk Wallet — a Zcash wallet tool with layered interfaces, targeting Orchard shielded pool (with Sapling and transparent planned for later):
+Build Paypunk Wallet — a multi-chain wallet tool with layered interfaces, targeting Zcash Orchard shielded pool and Ethereum (with Sapling and transparent planned for later):
 
-1. **api** — Chain-agnostic Rust library providing high-level wallet operations. Accepts an asset type to dispatch to the appropriate chain backend. Hides IPC, actor, and chain-specific details from consumers.
+1. **api** — Chain-agnostic Rust library providing high-level wallet operations. Dispatches to the appropriate chain backend by `ProtocolId`. Hides IPC, actor, and chain-specific details from consumers.
 2. **CLI** — Command-line interface using api for scripting and automation. Integrates the TUI as a library for interactive use.
 3. **TUI** — Terminal-based user interface (ratatui) for interactive human use. Ships alongside the CLI as a reusable library crate.
 
@@ -46,30 +46,30 @@ Individual privacy-conscious users, including developers and agent operators run
 
 ### Architecture
 
-- **Three-process model** — `keypunkd` (key daemon), `paypunkd` (app daemon), `paypunk` (CLI/TUI). Process separation from v1 enforces the security boundary — neither the CLI nor the application daemon ever hold key material.
-- **Key isolation** — The KeyActor (in keypunkd) must never expose raw private keys. It accepts sign/prove requests and returns only results (signatures, protocol proofs). The password is required on each `AuthorizeArtifact` and `ExportViewingKey` call — there is no long-lived unlocked session. keypunkd is designed to run as a separate system user (deployment concern, not enforced by the code).
-- **IPC** — A tactix actor wrapping Unix domain sockets with postcard serialization. The message types are the IPC contract — the same protocol regardless of whether actors are in-process or cross-process. Includes X25519-based per-message authentication (see ADR-001).
+- **Three-process model** — `keypunkd` (key daemon), `paypunkd` (app daemon), `paypunk` (CLI/TUI). Both daemons are library crates launched via the `paypunk` CLI binary. Process separation from v1 enforces the security boundary — neither the CLI nor the application daemon ever hold key material.
+- **Key isolation** — The `Keypunkd` actor (in keypunkd) must never expose raw private keys. It accepts sign/prove requests and returns only results (signatures, protocol proofs). The password is required on each `AuthorizeArtifact` and `ExportViewingKey` call — there is no long-lived unlocked session. keypunkd is designed to run as a separate system user (deployment concern, not enforced by the code).
+- **IPC** — A tactix actor wrapping Unix domain sockets. The ipc crate carries opaque byte payloads with X25519-based per-message authentication (see ADR-001). Postcard serialization is performed by the callers (paypunkd, keypunkd, api), not by the ipc crate itself.
 - **Structured logging** — `tracing` crate with env-filter support. Info-level for operations, debug for scan details, warn/error for failures.
 
 ### Crate Layout
 
-- **`types`** (library) — Chain-agnostic domain types (`Address`, `Amount`, `Balance`, `Transfer`, etc.). No chain-specific logic.
-- **`api`** (library) — Chain-agnostic public API. Accepts asset type to dispatch to the correct chain backend. Hides IPC/tactix details. CLI and TUI depend on this.
-- **`paypunkd`** (binary) — App daemon. Hosts WalletActor, usecases, service orchestration, chain backend injection.
-- **`keypunkd`** (binary) — Key daemon. Hosts KeyActor. Seed generation, signing, proving. Runs as separate system user.
-- **`ipc`** (library) — Tactix actor sender for interprocess communication. Used by api, paypunkd, and keypunkd.
+- **`types`** (library) — Chain-agnostic domain types (`Address`, `Amount`, `Balance`, `Transfer`, `Intent`, `Protocol`/`SignerProtocol` traits, etc.). No chain-specific logic.
+- **`api`** (library) — Chain-agnostic public API. Dispatches to the correct chain backend by `ProtocolId`. Hides IPC/tactix details. CLI and TUI depend on this.
+- **`paypunkd`** (library, launched via CLI) — App daemon. Hosts `Paypunkd` actor, usecases, service orchestration, chain backend injection.
+- **`keypunkd`** (library, launched via CLI) — Key daemon. Hosts `Keypunkd` actor. Seed generation, signing, proving. Designed to run as separate system user.
+- **`ipc`** (library) — Tactix actor sender for interprocess communication. Carries opaque byte payloads with X25519 per-message auth. Used by api, paypunkd, and keypunkd.
 - **`protocols/{zcash,ethereum}`** — Chain-specific implementations. Each implements the `Protocol` and `SignerProtocol` traits from `paypunk-types`.
-- **`tui`** — Ratatui screens and widgets. Reusable by future Tauri desktop app.
-- **`cli`** (binary) — Links `api` and (future) `tui`. Runs in CLI mode (single command) or TUI mode (interactive session).
+- **`tui`** — Ratatui screens and widgets. Library crate consumed by CLI, also builds as standalone binary. Reusable by future Tauri desktop app.
+- **`cli`** (binary) — Links `api` and `tui`. Runs in CLI mode (single command) or TUI mode (interactive session). Also launches daemons via subcommands.
 
 ### Passphrase Input
 
-- Support interactive CLI prompt and environment variable for non-interactive/scripted/agent usage.
+- Currently supports `--password` CLI flag only. Interactive prompt, environment variable, and secrets file support are planned but not yet implemented.
 
 ### Configuration
 
 - Data directory (default `~/.local/share/paypunk/`)
-- LSP endpoint list (with defaults)
+- LSP endpoint / lightwalletd host (with defaults per network)
 - Secrets file path (for agent mode) — planned, not yet implemented
 
 ## Out of Scope

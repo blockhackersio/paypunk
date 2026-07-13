@@ -1,6 +1,8 @@
 # PayPunk Signer
 
-A **Tauri v2** mobile application — the PayPunk Signer, built with React + Konsta UI on NixOS using `devenv`.
+A **Tauri v2** mobile application — an offline air-gapped cryptographic signer, built with React on NixOS using `devenv`.
+
+The signer is a thin wrapper around `Keypunk<FilesystemSeedStore>` (from the `keypunkd` workspace crate). It receives postcard-serialized `KeypunkdRequest` payloads scanned from QR codes, previews the transaction to the user, then signs on approval. Passwords are encrypted in the frontend (TypeScript) via X25519 + Blake2b + AES-256-GCM before reaching Rust; Rust handlers never see plaintext passwords.
 
 ## Quick Start
 
@@ -28,59 +30,72 @@ cargo tauri android dev
 ```
 ├── devenv.nix              # Nix dev environment (Rust, Node, JDK, Android SDK/NDK)
 ├── devenv.yaml             # Nix inputs
-├── package.json            # Frontend deps (React, Konsta UI, Vite, Tailwind)
+├── package.json            # Frontend deps (React, Vite, Tailwind, @noble/curves, @ngraveio/bc-ur)
 ├── vite.config.ts          # Vite config (binds to 0.0.0.0)
 ├── index.html              # Entry HTML
 ├── src/
 │   ├── main.tsx            # React entry point
-│   ├── App.tsx             # Root app with tab navigation + theme toggle
+│   ├── App.tsx             # Root app with page routing (6 pages)
+│   ├── nav.tsx             # Navigation context (page state, scan result)
 │   ├── backend.ts          # Tauri IPC abstraction with mock fallback
+│   ├── crypto.ts           # Frontend crypto (X25519 + Blake2b + AES-256-GCM)
+│   ├── qr-display.ts       # QR display via bc-ur fountain codes (8 fps)
+│   ├── qr-scan.ts          # QR scanning via camera + jsQR
+│   ├── qr-transport.ts     # bc-ur encoder/decoder wrappers
 │   ├── index.css           # Tailwind imports
 │   └── pages/
-│       ├── InputsPage.tsx  # Buttons, toggles, ranges, inputs, greet command
-│       ├── ListsPage.tsx   # Rust-sourced list, chips, cards
-│       ├── OverlaysPage.tsx# Popup, sheet, dialog, actions
-│       ├── FeedbackPage.tsx# Timer event, preloader, progress, badges, FAB
-│       └── SettingsPage.tsx# App info, theme switch, persisted settings
+│       ├── OnboardingPage.tsx   # Seed generation / restore
+│       ├── ScanPage.tsx         # Camera QR scanner
+│       ├── PreviewPage.tsx      # Transaction preview before signing
+│       ├── SigningPage.tsx      # Signing in progress
+│       ├── ResultPage.tsx       # Signed result + QR display
+│       └── RegistrationPage.tsx # Viewing key registration flow
 ├── src-tauri/
-│   ├── Cargo.toml          # Rust deps (tauri, tauri-plugin-store, serde)
-│   ├── tauri.conf.json     # Tauri app config
+│   ├── Cargo.toml          # Rust deps (tauri, tauri-plugin-store, tauri-plugin-barcode-scanner, keypunkd)
+│   ├── tauri.conf.json     # Tauri app config (PayPunk Signer, com.paypunk.signer)
 │   ├── capabilities/
-│   │   └── default.json    # Permissions (core + store)
+│   │   └── default.json    # Permissions (core:default)
 │   └── src/
 │       ├── main.rs         # Entry point
-│       └── lib.rs          # Commands, state, timer event emitter
+│       ├── lib.rs          # Tauri commands, AppState, run()
+│       └── signer.rs       # SignerState, core signing logic (wraps Keypunk)
 └── .github/workflows/
     └── release-android.yml # CI: build signed APK on tag push
 ```
 
 ## Features
 
-### Konsta Kitchen Sink (5 tabs)
-| Tab | Components |
-|-----|-----------|
-| **Inputs** | Button (all variants), Toggle, Range, Segmented, Stepper, Checkbox, Radio, Link, Searchbar, Greet IPC |
-| **Lists** | Rust-sourced List, ListItem, Chip, Badge, Card |
-| **Overlays** | Popup, Sheet, Dialog, Actions |
-| **Feedback** | Timer event counter, Preloader, Progressbar, Badges, Notification, Fab |
-| **Settings** | App info (from Rust), iOS/Material theme switch, persisted settings round-trip |
+### Signing Flow
+1. **Onboarding** — generate a new BIP-39 seed or restore from mnemonic. Password is set by the user and encrypted in the frontend before reaching Rust.
+2. **Scan** — camera scans QR codes containing postcard-serialized `KeypunkdRequest` payloads (using bc-ur fountain codes for chunked transfer).
+3. **Preview** — the parsed transaction is displayed to the user for review (outputs, fee, recipient).
+4. **Sign** — on user approval, the artifact is signed with the decrypted seed.
+5. **Result** — the signed artifact is displayed as QR codes for the originating wallet to scan back.
 
-### Rust → UI Data Flow
-1. **`get_app_info()`** — returns app metadata (name, version, target triple, build profile)
-2. **`greet(name)`** — takes a string, returns a greeting
-3. **`get_list_items()`** — returns `Vec<ListItem>` to populate a Konsta `List`
-4. **`timer-tick` event** — Rust emits a ticking counter every second, displayed live
-5. **`get_settings` / `save_settings`** — persisted settings round-trip via `tauri-plugin-store`
+### Additional Features
+- **Viewing key registration** — handles `RegisterViewingKeys` requests with a challenge/response flow.
+- **Session verification** — `VerifySignerSession` signs a challenge with the session keypair.
+- **Multi-protocol** — registers both `ZcashSignerProtocol` (TestNetwork/Regtest) and `EthereumSignerProtocol`.
+- **Ping/pong test** — built-in connectivity test path.
 
-### Persisted State Round-Trip
-The **Settings tab** demonstrates:
-- UI controls (colour picker, text input) → `save_settings` command → Rust writes to disk via `tauri-plugin-store`
-- On relaunch, `get_settings` reads from disk and restores values
-- Launch count increments on each start
-- On-disk path (Android): `{app_data_dir}/settings.json`
+### Rust Commands (Tauri IPC)
+| Command | Purpose |
+|---------|---------|
+| `get_encryption_key` | Returns the signer's X25519 public key |
+| `generate_seed` | Generates a new encrypted seed |
+| `restore_seed` | Restores seed from mnemonic |
+| `get_signer_status` | Returns current `SignerStatus` |
+| `process_scanned_qr` | Handles scanned QR payload (ping/pong, preview, or registration) |
+| `approve_and_sign` | Signs the previewed artifact |
+| `delete_seed` | Deletes the stored seed |
+| `has_seed` | Checks if a seed exists |
+| `has_session_key` | Checks if a session key exists |
+| `complete_registration` | Completes viewing key registration |
+| `get_preview` | Returns the current preview data |
+| `get_response` | Returns the last response bytes |
 
 ### Browser Fallback
-When running in a plain browser (`pnpm dev`), `backend.ts` detects the absence of the Tauri runtime and returns mock data. All features work with obvious mock indicators (`source: mock`).
+When running in a plain browser (`pnpm dev`), `backend.ts` detects the absence of the Tauri runtime and returns mock data. All features work with mock indicators.
 
 ## Running on Android
 

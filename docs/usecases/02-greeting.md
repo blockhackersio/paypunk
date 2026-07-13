@@ -6,7 +6,7 @@ Shown when `check_wallet_exists()` returns `true` (existing wallet found). Promp
 
 ## Persistence involved:
 - **keypunkd** reads `seed.enc` from disk and decrypts with password to derive viewing keys
-- **paypunkd** reads `paypunkd.db.enc` from disk, decrypts it, opens SQLite connection, runs migrations
+- **paypunkd** opens `paypunkd.db` (plaintext SQLite), runs migrations
 - **paypunkd** writes pre-derived viewing keys to `pre_derived_keys` table
 - **paypunkd** writes first account to `accounts` table
 
@@ -19,14 +19,12 @@ sequenceDiagram
     participant paypunkd as paypunkd (IPC)
     participant keypunkd as keypunkd (IPC)
     participant SeedFile as seed.enc (disk)
-    participant SQLite as paypunkd.db.enc (disk)
+    participant SQLite as paypunkd.db (disk)
 
     lib->>API: check_wallet_exists()
     API->>Client: check_wallet_exists()
     Client->>paypunkd: IpcMessage(HasSeed)
-    paypunkd->>keypunkd: forward HasSeed
-    keypunkd->>SeedFile: read() — check if seed.enc exists
-    keypunkd-->>paypunkd: HasSeed { exists: true }
+    paypunkd->>paypunkd: check .wallet_initialized marker file
     paypunkd-->>Client: HasSeed { exists: true }
     Client-->>API: true
     API-->>lib: true
@@ -45,22 +43,15 @@ sequenceDiagram
     paypunkd-->>Client: keypunkd public key
     Client->>paypunkd: IpcMessage(GetPaypunkdEncryptionKey)
     paypunkd-->>Client: paypunkd public key
-    Note over Client: Argon2id-hashes password for two domains:
+    Note over Client: Argon2id-hashes password for domain:
     Note over Client: "keypunkd-seed-key" → encrypted to keypunkd's key
-    Note over Client: "paypunkd-db-key" → encrypted to paypunkd's key
     Client->>paypunkd: IpcMessage(GetSupportedProtocols)
     paypunkd-->>Client: [ProtocolId::Ethereum, ProtocolId::Zcash, ...]
     Note over Client: Builds derivation paths: 30 per protocol (0..29)
 
-    Client->>paypunkd: IpcMessage(Unlock { encrypted_db_password, encrypted_keypunkd_password, ephemeral_pk, keypunkd_client_pk, paths })
+    Client->>paypunkd: IpcMessage(Unlock { encrypted_keypunkd_password, keypunkd_client_pk, paths })
 
-    paypunkd->>paypunkd: decrypt db password via X25519 keystore
-    paypunkd->>SQLite: read paypunkd.db.enc from disk
-    paypunkd->>paypunkd: decrypt_db(encrypted_blob, db_password) — Argon2id + AES-256-GCM
-    paypunkd->>paypunkd: write plaintext to paypunkd.db.tmp, rename to paypunkd.db
-    paypunkd->>SQLite: open SQLite connection on paypunkd.db
-    paypunkd->>SQLite: run pending migrations (accounts table, pre_derived_keys table)
-
+    paypunkd->>SQLite: ensure paypunkd.db exists, run pending migrations
     paypunkd->>SQLite: SELECT * FROM accounts
     Note over paypunkd: No accounts found (first unlock)
 
