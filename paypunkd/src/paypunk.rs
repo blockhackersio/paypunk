@@ -4,7 +4,9 @@ use keypunkd::crypto::Keypair;
 use paypunk_types::{KeypunkdResponse, ProtocolId};
 use tracing::{debug, info, warn};
 
-use crate::database::repository::{SqliteAccountsRepository, SqliteAddressBookRepository, SqliteSignerStateRepository};
+use crate::database::repository::{
+    SqliteAccountsRepository, SqliteAddressBookRepository, SqliteSignerStateRepository,
+};
 use crate::database::{AccountsRepository, AddressBookRepository, Database, SignerStateRepository};
 use crate::messages::{PaypunkdRequest, PaypunkdResponse};
 use crate::protocol_service::ProtocolService;
@@ -725,12 +727,18 @@ impl Paypunk {
             PaypunkdRequest::GenerateSeed {
                 encrypted_password,
                 client_public_key,
-            } => self.generate_seed(encrypted_password, client_public_key).await,
+            } => {
+                self.generate_seed(encrypted_password, client_public_key)
+                    .await
+            }
             PaypunkdRequest::RestoreSeed {
                 encrypted_mnemonic,
                 encrypted_password,
                 client_public_key,
-            } => self.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key).await,
+            } => {
+                self.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key)
+                    .await
+            }
             PaypunkdRequest::SubmitIntent {
                 intent,
                 derivation_path,
@@ -739,15 +747,29 @@ impl Paypunk {
                 encrypted_payload,
                 ephemeral_public_key,
                 derivation_path,
-            } => self.approve_signature(encrypted_payload, ephemeral_public_key, derivation_path).await,
-            PaypunkdRequest::GetBalance { address, asset } => self.get_balance(address, asset).await,
+            } => {
+                self.approve_signature(encrypted_payload, ephemeral_public_key, derivation_path)
+                    .await
+            }
+            PaypunkdRequest::GetBalance { address, asset } => {
+                self.get_balance(address, asset).await
+            }
             PaypunkdRequest::DeriveAddress {
                 encrypted_password,
                 client_public_key,
                 protocol,
                 derivation_path,
                 index,
-            } => self.derive_address(encrypted_password, client_public_key, protocol, derivation_path, index).await,
+            } => {
+                self.derive_address(
+                    encrypted_password,
+                    client_public_key,
+                    protocol,
+                    derivation_path,
+                    index,
+                )
+                .await
+            }
             PaypunkdRequest::BroadcastTransaction { protocol, raw_tx } => {
                 self.broadcast_transaction(protocol, raw_tx).await
             }
@@ -757,7 +779,16 @@ impl Paypunk {
                 account_index,
                 name,
                 birthday_height,
-            } => self.create_account(protocol, derivation_path, account_index, name, birthday_height).await,
+            } => {
+                self.create_account(
+                    protocol,
+                    derivation_path,
+                    account_index,
+                    name,
+                    birthday_height,
+                )
+                .await
+            }
             PaypunkdRequest::ListAccounts => self.list_accounts().await,
             PaypunkdRequest::GetAccount { id } => self.get_account(id).await,
             PaypunkdRequest::GetPaypunkdEncryptionKey => self.get_paypunkd_encryption_key(),
@@ -767,13 +798,19 @@ impl Paypunk {
                 encrypted_keypunkd_password,
                 keypunkd_client_pk,
                 paths,
-            } => self.unlock(encrypted_keypunkd_password, keypunkd_client_pk, paths).await,
+            } => {
+                self.unlock(encrypted_keypunkd_password, keypunkd_client_pk, paths)
+                    .await
+            }
             PaypunkdRequest::GetSyncStatus { protocol } => self.get_sync_status(protocol).await,
             PaypunkdRequest::BulkDeriveAccounts {
                 encrypted_password,
                 client_public_key,
                 paths,
-            } => self.bulk_derive_accounts(encrypted_password, client_public_key, paths).await,
+            } => {
+                self.bulk_derive_accounts(encrypted_password, client_public_key, paths)
+                    .await
+            }
             PaypunkdRequest::GetHistory {
                 protocol,
                 account_id,
@@ -784,7 +821,10 @@ impl Paypunk {
             PaypunkdRequest::VerifyPassword {
                 encrypted_password,
                 client_public_key,
-            } => self.verify_password(encrypted_password, client_public_key).await,
+            } => {
+                self.verify_password(encrypted_password, client_public_key)
+                    .await
+            }
             PaypunkdRequest::GetAddressBook => self.get_address_book(),
             PaypunkdRequest::AddAddressBookEntry {
                 name,
@@ -799,7 +839,10 @@ impl Paypunk {
             PaypunkdRequest::RevealPhrase {
                 encrypted_password,
                 client_public_key,
-            } => self.reveal_phrase(encrypted_password, client_public_key).await,
+            } => {
+                self.reveal_phrase(encrypted_password, client_public_key)
+                    .await
+            }
             PaypunkdRequest::CreateTransfer {
                 protocol,
                 account,
@@ -807,18 +850,27 @@ impl Paypunk {
                 amount,
                 memo,
                 lightwalletd_host,
-            } => self.create_transfer(protocol, account, to, amount, memo, lightwalletd_host).await,
+            } => {
+                self.create_transfer(protocol, account, to, amount, memo, lightwalletd_host)
+                    .await
+            }
             PaypunkdRequest::EstimateFee {
                 protocol,
                 to,
                 amount,
                 memo,
                 lightwalletd_host,
-            } => self.estimate_fee(protocol, to, amount, memo, lightwalletd_host).await,
+            } => {
+                self.estimate_fee(protocol, to, amount, memo, lightwalletd_host)
+                    .await
+            }
             PaypunkdRequest::GetCurrentBlockHeight {
                 protocol,
                 lightwalletd_host,
-            } => self.get_current_block_height(protocol, lightwalletd_host).await,
+            } => {
+                self.get_current_block_height(protocol, lightwalletd_host)
+                    .await
+            }
             PaypunkdRequest::GetTransactionStatus { protocol, txid } => {
                 self.get_transaction_status(protocol, txid).await
             }

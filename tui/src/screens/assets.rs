@@ -119,8 +119,11 @@ impl Screen for AssetsScreen {
             "Zcash"
         };
         let subtitle = Paragraph::new(
-            Line::from(format!("{} — {} ({})", self.account.name, chain_label, self.account.chain_id))
-                .centered(),
+            Line::from(format!(
+                "{} — {} ({})",
+                self.account.name, chain_label, self.account.chain_id
+            ))
+            .centered(),
         )
         .style(theme.text);
         frame.render_widget(
@@ -289,9 +292,7 @@ impl Screen for AssetsScreen {
                     if let Some(action) = self.list.handle_event(key) {
                         match action {
                             ListAction::Item(_, AssetAction::Send) => {
-                                return Nav::Push(Box::new(SendScreen::new(
-                                    self.account.clone(),
-                                )));
+                                return Nav::Push(Box::new(SendScreen::new(self.account.clone())));
                             }
                             ListAction::Item(_, AssetAction::Receive) => {
                                 return Nav::Push(Box::new(ReceiveScreen::new(

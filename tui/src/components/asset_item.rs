@@ -51,7 +51,8 @@ impl Component<AssetAction> for AssetItem {
         .split(area);
 
         let balance_str = &self.asset.holdings_amount;
-        let gap = (area.width as usize).saturating_sub(self.asset.name.len() + balance_str.len() + 5);
+        let gap =
+            (area.width as usize).saturating_sub(self.asset.name.len() + balance_str.len() + 5);
         let line = Line::from(vec![
             Span::styled(format!("  {}", self.asset.name), name_style),
             Span::styled(" ".repeat(gap), Style::new()),
@@ -81,10 +82,7 @@ impl Component<AssetAction> for AssetItem {
             };
             let btn_style = Style::new().bg(bg).fg(fg);
             let btn_line = Line::from(vec![Span::styled(format!(" {} ", label), btn_style)]);
-            frame.render_widget(
-                Paragraph::new(btn_line).style(btn_style),
-                btn_rect,
-            );
+            frame.render_widget(Paragraph::new(btn_line).style(btn_style), btn_rect);
         }
     }
 
@@ -105,13 +103,11 @@ impl Component<AssetAction> for AssetItem {
                 self.button_focus = (self.button_focus + 1) % 3;
                 None
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                Some(match self.button_focus {
-                    0 => AssetAction::Send,
-                    1 => AssetAction::Receive,
-                    _ => AssetAction::History,
-                })
-            }
+            KeyCode::Enter | KeyCode::Char(' ') => Some(match self.button_focus {
+                0 => AssetAction::Send,
+                1 => AssetAction::Receive,
+                _ => AssetAction::History,
+            }),
             _ => None,
         }
     }
