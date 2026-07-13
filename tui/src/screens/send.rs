@@ -151,16 +151,9 @@ impl Screen for SendScreen {
 
     async fn tick(&mut self, api: &mut dyn WalletApi) {
         if let SendStep::Sending = self.step {
-            if self
-                .review_data
-                .as_ref()
-                .map(|d| d.skip_review)
-                .unwrap_or(false)
-            {
-                if let Some(result) = api.poll_send_result().await {
-                    self.result = Some(result);
-                    self.step = SendStep::Confirm;
-                }
+            if let Some(result) = api.poll_send_result().await {
+                self.result = Some(result);
+                self.step = SendStep::Confirm;
             }
         }
     }
@@ -354,8 +347,6 @@ impl Screen for SendScreen {
             }
             SendStep::Review => match key.code {
                 KeyCode::Enter => {
-                    self.step = SendStep::Sending;
-                    self.spinner_frame = 0;
                     if let Some(ref review) = self.review_data {
                         let password = self.password_field.value().to_string();
                         let result = api
@@ -373,8 +364,13 @@ impl Screen for SendScreen {
                                 signed_tx: String::new(),
                             })
                             .await;
-                        self.result = Some(result);
-                        self.step = SendStep::Confirm;
+                        if result.status == "pending" {
+                            self.step = SendStep::Sending;
+                            self.spinner_frame = 0;
+                        } else {
+                            self.result = Some(result);
+                            self.step = SendStep::Confirm;
+                        }
                     }
                 }
                 KeyCode::Esc => {
@@ -385,16 +381,9 @@ impl Screen for SendScreen {
                 }
             },
             SendStep::Sending => {
-                if self
-                    .review_data
-                    .as_ref()
-                    .map(|d| d.skip_review)
-                    .unwrap_or(false)
-                {
-                    if let Some(result) = api.poll_send_result().await {
-                        self.result = Some(result);
-                        self.step = SendStep::Confirm;
-                    }
+                if let Some(result) = api.poll_send_result().await {
+                    self.result = Some(result);
+                    self.step = SendStep::Confirm;
                 }
             }
             SendStep::Confirm => match key.code {

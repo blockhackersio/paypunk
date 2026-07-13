@@ -2,8 +2,8 @@ use super::types::*;
 use super::WalletApi;
 use async_trait::async_trait;
 use std::collections::HashMap;
-
 use std::sync::Mutex;
+use tokio::sync::oneshot;
 
 struct MockData {
     accounts: Vec<AccountInfo>,
@@ -22,6 +22,7 @@ pub struct MockWalletApi {
     send_cache: Mutex<HashMap<String, SendData>>,
     receive_cache: Mutex<HashMap<String, ReceiveData>>,
     pending_account_id: Mutex<Option<String>>,
+    pending_send_result: Mutex<Option<oneshot::Receiver<Result<SendResult, String>>>>,
 }
 
 impl MockWalletApi {
@@ -70,6 +71,7 @@ impl MockWalletApi {
             send_cache: Mutex::new(HashMap::new()),
             receive_cache: Mutex::new(HashMap::new()),
             pending_account_id: Mutex::new(None),
+            pending_send_result: Mutex::new(None),
         }
     }
 
@@ -327,12 +329,23 @@ impl WalletApi for MockWalletApi {
         // Invalidate caches so next fetch returns fresh data
         self.send_cache.lock().unwrap().clear();
 
-        let tx_hash: String =
-            "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b".into();
+        let (tx, rx) = oneshot::channel();
+        *self.pending_send_result.lock().unwrap() = Some(rx);
+
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let tx_hash: String = "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b".into();
+            let _ = tx.send(Ok(SendResult {
+                tx_hash: tx_hash.clone(),
+                status: "broadcasted".into(),
+                block_explorer_url: format!("https://etherscan.io/tx/{}", tx_hash),
+            }));
+        });
+
         SendResult {
-            tx_hash: tx_hash.clone(),
-            status: "broadcasted".into(),
-            block_explorer_url: format!("https://etherscan.io/tx/{}", tx_hash),
+            tx_hash: String::new(),
+            status: "pending".into(),
+            block_explorer_url: String::new(),
         }
     }
 
@@ -507,6 +520,27 @@ impl WalletApi for MockWalletApi {
     }
 
     async fn poll_send_result(&self) -> Option<SendResult> {
+        let mut guard = self.pending_send_result.lock().unwrap();
+        if let Some(rx) = guard.as_mut() {
+            match rx.try_recv() {
+                Ok(Ok(result)) => {
+                    *guard = None;
+                    return Some(result);
+                }
+                Ok(Err(_e)) => {
+                    *guard = None;
+                    return Some(SendResult {
+                        tx_hash: String::new(),
+                        status: "failed".to_string(),
+                        block_explorer_url: String::new(),
+                    });
+                }
+                Err(oneshot::error::TryRecvError::Empty) => {}
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    *guard = None;
+                }
+            }
+        }
         None
     }
 }

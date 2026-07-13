@@ -539,46 +539,48 @@ impl WalletApi for RealWalletApi {
                 "Wallet".into(),
             )
             .await;
+
         match pending {
             Some(p) => {
+                let (tx, rx) = oneshot::channel();
+                *self.pending_send_result.lock().unwrap() = Some(rx);
+
+                let client = self.client.clone();
+                let raw_artifact = p.raw_artifact;
+                let keypunkd_signature = p.keypunkd_signature;
+                let derivation_path = p.derivation_path;
                 let protocol = p.protocol;
-                match self
-                    .client
-                    .approve_signature(
-                        &p.raw_artifact,
-                        &p.keypunkd_signature,
-                        Zeroizing::new(password),
-                        &p.derivation_path,
-                    )
-                    .await
-                {
-                    Ok(signed_artifact) => {
-                        match self
-                            .client
+
+                tokio::spawn(async move {
+                    let result = match client
+                        .approve_signature(
+                            &raw_artifact,
+                            &keypunkd_signature,
+                            Zeroizing::new(password),
+                            &derivation_path,
+                        )
+                        .await
+                    {
+                        Ok(signed_artifact) => match client
                             .broadcast_transaction(protocol, signed_artifact)
                             .await
                         {
-                            Ok(tx_hash) => {
-                                let block_explorer_url =
-                                    self.protocol_block_explorer_url(&protocol, &tx_hash).await;
-                                SendResult {
-                                    tx_hash: tx_hash.clone(),
-                                    status: "broadcasted".into(),
-                                    block_explorer_url,
-                                }
-                            }
-                            Err(e) => SendResult {
-                                tx_hash: String::new(),
-                                status: format!("broadcast failed: {e}"),
+                            Ok(tx_hash) => Ok(SendResult {
+                                tx_hash,
+                                status: "broadcasted".into(),
                                 block_explorer_url: String::new(),
-                            },
-                        }
-                    }
-                    Err(e) => SendResult {
-                        tx_hash: String::new(),
-                        status: format!("signing failed: {e}"),
-                        block_explorer_url: String::new(),
-                    },
+                            }),
+                            Err(e) => Err(format!("broadcast failed: {e}")),
+                        },
+                        Err(e) => Err(format!("signing failed: {e}")),
+                    };
+                    let _ = tx.send(result);
+                });
+
+                SendResult {
+                    tx_hash: String::new(),
+                    status: "pending".into(),
+                    block_explorer_url: String::new(),
                 }
             }
             None => SendResult {
