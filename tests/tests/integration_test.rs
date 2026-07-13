@@ -14,7 +14,7 @@ use paypunk_ipc::IpcMessage;
 use paypunk_types::{ArtifactSummary, EthereumIntent, Intent, ProtocolId, SubmitIntentResult};
 use paypunkd::database::Database;
 use paypunkd::protocol_service::ProtocolService;
-use paypunkd::Paypunkd;
+use paypunkd::{Paypunk, Paypunkd};
 use tactix::{Actor, Recipient, Sender};
 use zeroize::Zeroizing;
 
@@ -143,13 +143,13 @@ impl TestBuilder {
         let db = Database::open(db_dir.path()).unwrap();
         let paypunkd_keystore = Keypair::new();
 
-        let paypunkd_addr = Paypunkd::new(
+        let paypunk = Paypunk::new(
             keypunkd_recipient,
             paypunkd_protocols,
             db,
             paypunkd_keystore,
-        )
-        .start();
+        );
+        let paypunkd_addr = Paypunkd::new(paypunk).start();
         paypunkd_addr.recipient()
     }
 }
