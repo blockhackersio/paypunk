@@ -1,4 +1,4 @@
-# Paypunk Wallet Toolkit
+# Paypunk Project
 
 _This is experimental software and should not be used with real funds_
 
