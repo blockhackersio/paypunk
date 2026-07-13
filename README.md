@@ -2,6 +2,8 @@
 
 _This is experimental software and should not be used with real funds_
 
+> **Warning:** This project is a work in progress. The architecture is designed for extensibility, but only simple transfers (send/receive) are currently supported. Several features — DB encryption, interactive password prompts, environment-variable passphrase input — are planned but not yet implemented. Expect breaking changes.
+
 [![CI](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml/badge.svg)](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
@@ -234,3 +236,14 @@ See [`signer/README.md`](signer/README.md) for build and installation instructio
 4. User approves — signer signs with the on-device seed
 5. Signed artifact is displayed as QR codes
 6. User scans the result back into the wallet, which broadcasts it
+
+## Roadmap
+
+1. **DB encryption from signer password entropy** — encrypt `paypunkd.db` at rest using key material derived from the signer password, with separate compartmentalization from seed encryption
+2. **Tauri Desktop UI** — replace the throwaway TUI with a proper desktop application using the same IPC backend
+3. **Tauri Mobile UI** — full mobile wallet experience (the signer app is the first step; a full mobile wallet follows)
+4. **Transparent / Sapling addresses** — extend Zcash support beyond Orchard to include Sapling and transparent pools
+5. **Zcash / Ethereum hardening** — production-grade error handling, edge cases, replay protection, and test coverage for existing chains
+6. **Cross-chain asset swaps** — near-intent-level swaps between assets (e.g. ZEC ↔ ETH) using the `Intent` enum pattern
+7. **ZSAs** — Zcash Shielded Assets support
+8. **Further privacy token integrations** — Monero, Railgun, Aleo, Aztec tokens, and other privacy-preserving protocols
