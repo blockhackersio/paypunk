@@ -54,12 +54,14 @@ impl PaypunkService {
         encrypted_mnemonic: Vec<u8>,
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
+        birthday_height: Option<u64>,
     ) -> Result<(), String> {
         match self
             .send(PaypunkdRequest::RestoreSeed {
                 encrypted_mnemonic,
                 encrypted_password,
                 client_public_key,
+                birthday_height,
             })
             .await?
         {

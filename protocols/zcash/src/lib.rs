@@ -276,18 +276,20 @@ pub async fn create_protocol(
     .start();
     let scan_sync_recipient: Recipient<Sync> = scan_actor.clone().recipient();
     let scan_recipient: Recipient<SyncNewAccount> = scan_actor.clone().recipient();
+    let stack_sync_recipient: Recipient<Sync> = scan_actor.recipient();
 
     let protocol = ZcashProtocol::new(
         to_local_params(params, network_type),
         network_type,
         Some(wallet_actor),
         Some(scan_recipient),
+        Some(scan_sync_recipient),
         Some(lightwalletd_host),
     );
 
     Ok(ZcashStack {
         protocol,
-        sync_recipient: scan_sync_recipient,
+        sync_recipient: stack_sync_recipient,
     })
 }
 

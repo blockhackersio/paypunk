@@ -302,6 +302,12 @@ pub trait Protocol: Send + Sync {
         ))
     }
 
+    /// Return the protocol's configured lightwalletd/RPC host, if any.
+    /// Used for auto-birthday and incremental sync triggers.
+    fn lightwalletd_host(&self) -> Option<String> {
+        None
+    }
+
     /// Register a newly created account and sync it.
     ///
     /// Called after `create_account` so the protocol can import the viewing key
@@ -312,6 +318,14 @@ pub trait Protocol: Send + Sync {
         _birthday_height: u64,
         _address: &str,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Trigger an incremental sync from the last scanned block to the chain tip.
+    ///
+    /// Called on returning unlocks to catch up without re-scanning from the
+    /// birthday height. The background sync loop also calls this periodically.
+    async fn sync_incremental(&self) -> Result<(), String> {
         Ok(())
     }
 }
@@ -351,6 +365,7 @@ pub struct Account {
     pub address: String,
     pub viewing_key: Vec<u8>,
     pub created_at: u64,
+    pub birthday_height: Option<u64>,
 }
 
 // ── Data model ───────────────────────────────────────────────────────────────

@@ -141,6 +141,7 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         None,
         None,
         None,
+        None,
     );
     let raw_tx = wallet_protocol.finalize(&signed_bytes).expect("finalize");
 

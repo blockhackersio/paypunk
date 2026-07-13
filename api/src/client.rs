@@ -52,8 +52,9 @@ impl Client {
         &self,
         mnemonic: Zeroizing<String>,
         password: Zeroizing<String>,
+        birthday_height: Option<u64>,
     ) -> Result<(), String> {
-        crate::functions::restore_seed(&self.service, mnemonic, password).await
+        crate::functions::restore_seed(&self.service, mnemonic, password, birthday_height).await
     }
 
     /// Derive an address for the given protocol, account index, and diversifier index.

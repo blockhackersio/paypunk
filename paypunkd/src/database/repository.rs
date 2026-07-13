@@ -25,7 +25,7 @@ pub struct SqliteAccountsRepository;
 impl AccountsRepository for SqliteAccountsRepository {
     fn save(&self, conn: &Connection, account: &Account) -> Result<(), String> {
         conn.execute(
-            "INSERT INTO accounts (id, protocol, derivation_path, name, address, viewing_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO accounts (id, protocol, derivation_path, name, address, viewing_key, created_at, birthday_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             rusqlite::params![
                 account.id,
                 format!("{:?}", account.protocol),
@@ -34,6 +34,7 @@ impl AccountsRepository for SqliteAccountsRepository {
                 account.address,
                 account.viewing_key,
                 account.created_at,
+                account.birthday_height,
             ],
         )
         .map_err(|e| format!("failed to save account: {e}"))?;
@@ -43,7 +44,7 @@ impl AccountsRepository for SqliteAccountsRepository {
     fn find_all(&self, conn: &Connection) -> Result<Vec<Account>, String> {
         let mut stmt = conn
             .prepare(
-                "SELECT id, protocol, derivation_path, name, address, viewing_key, created_at FROM accounts",
+                "SELECT id, protocol, derivation_path, name, address, viewing_key, created_at, birthday_height FROM accounts",
             )
             .map_err(|e| format!("failed to prepare query: {e}"))?;
         let rows = stmt
@@ -57,6 +58,7 @@ impl AccountsRepository for SqliteAccountsRepository {
                     address: row.get(4)?,
                     viewing_key: row.get(5)?,
                     created_at: row.get(6)?,
+                    birthday_height: row.get(7)?,
                 })
             })
             .map_err(|e| format!("failed to query accounts: {e}"))?;
@@ -69,7 +71,7 @@ impl AccountsRepository for SqliteAccountsRepository {
 
     fn find_by_id(&self, conn: &Connection, id: &str) -> Result<Option<Account>, String> {
         let mut stmt = conn
-            .prepare("SELECT id, protocol, derivation_path, name, address, viewing_key, created_at FROM accounts WHERE id = ?1")
+            .prepare("SELECT id, protocol, derivation_path, name, address, viewing_key, created_at, birthday_height FROM accounts WHERE id = ?1")
             .map_err(|e| format!("failed to prepare query: {e}"))?;
         let mut rows = stmt
             .query_map(rusqlite::params![id], |row| {
@@ -82,6 +84,7 @@ impl AccountsRepository for SqliteAccountsRepository {
                     address: row.get(4)?,
                     viewing_key: row.get(5)?,
                     created_at: row.get(6)?,
+                    birthday_height: row.get(7)?,
                 })
             })
             .map_err(|e| format!("failed to query account: {e}"))?;
@@ -99,7 +102,7 @@ impl AccountsRepository for SqliteAccountsRepository {
     ) -> Result<Vec<Account>, String> {
         let protocol_str = format!("{protocol:?}");
         let mut stmt = conn
-            .prepare("SELECT id, protocol, derivation_path, name, address, viewing_key, created_at FROM accounts WHERE protocol = ?1")
+            .prepare("SELECT id, protocol, derivation_path, name, address, viewing_key, created_at, birthday_height FROM accounts WHERE protocol = ?1")
             .map_err(|e| format!("failed to prepare query: {e}"))?;
         let rows = stmt
             .query_map(rusqlite::params![protocol_str], |row| {
@@ -112,6 +115,7 @@ impl AccountsRepository for SqliteAccountsRepository {
                     address: row.get(4)?,
                     viewing_key: row.get(5)?,
                     created_at: row.get(6)?,
+                    birthday_height: row.get(7)?,
                 })
             })
             .map_err(|e| format!("failed to query accounts by protocol: {e}"))?;

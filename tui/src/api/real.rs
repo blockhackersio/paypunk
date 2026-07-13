@@ -143,7 +143,7 @@ impl WalletApi for RealWalletApi {
             .take()
             .ok_or_else(|| ApiError("no pending mnemonic — generate seed first".into()))?;
         self.client
-            .restore_seed(mnemonic, Zeroizing::new(input.password.clone()))
+            .restore_seed(mnemonic, Zeroizing::new(input.password.clone()), None)
             .await
             .map_err(|e| ApiError(e))?;
         self.client
@@ -158,6 +158,7 @@ impl WalletApi for RealWalletApi {
             .restore_seed(
                 Zeroizing::new(input.secret.clone()),
                 Zeroizing::new(input.password.clone()),
+                None,
             )
             .await
             .map_err(|e| ApiError(e))?;

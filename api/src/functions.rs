@@ -127,6 +127,7 @@ pub async fn restore_seed(
     service: &paypunkd::services::PaypunkService,
     mnemonic: Zeroizing<String>,
     password: Zeroizing<String>,
+    birthday_height: Option<u64>,
 ) -> Result<(), String> {
     let client_keypair = Keypair::new();
     let server_pk = service.get_keypunk_encryption_key().await?;
@@ -136,7 +137,12 @@ pub async fn restore_seed(
     let client_pk = client_keypair.public_key();
 
     service
-        .restore_seed(encrypted_mnemonic, encrypted_password, client_pk)
+        .restore_seed(
+            encrypted_mnemonic,
+            encrypted_password,
+            client_pk,
+            birthday_height,
+        )
         .await
 }
 

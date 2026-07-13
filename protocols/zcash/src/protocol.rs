@@ -12,7 +12,7 @@ use tactix::{Addr, Recipient, Sender};
 use tokio;
 use zcash_protocol::local_consensus::LocalNetwork;
 
-use crate::scan_actor::SyncNewAccount;
+use crate::scan_actor::{Sync, SyncNewAccount};
 use crate::wallet_actor::{
     EstimateFee, GetBalance, GetBlockHeight, GetHistory, GetStatus, GetTxStatus, ProposeAndBuild,
     RegisterAccount, StoreTransaction, WalletDbActor,
@@ -23,6 +23,7 @@ pub struct ZcashProtocol {
     network_type: zcash_protocol::consensus::NetworkType,
     wallet_addr: Option<Addr<WalletDbActor>>,
     scan_recipient: Option<Arc<Recipient<SyncNewAccount>>>,
+    sync_recipient: Option<Arc<Recipient<Sync>>>,
     pub lightwalletd_host: Option<String>,
     address_viewing_keys: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
@@ -33,6 +34,7 @@ impl ZcashProtocol {
         network_type: zcash_protocol::consensus::NetworkType,
         wallet_addr: Option<Addr<WalletDbActor>>,
         scan_recipient: Option<Recipient<SyncNewAccount>>,
+        sync_recipient: Option<Recipient<Sync>>,
         lightwalletd_host: Option<String>,
     ) -> Self {
         Self {
@@ -40,6 +42,7 @@ impl ZcashProtocol {
             network_type,
             wallet_addr,
             scan_recipient: scan_recipient.map(Arc::new),
+            sync_recipient: sync_recipient.map(Arc::new),
             lightwalletd_host,
             address_viewing_keys: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -244,6 +247,10 @@ impl Protocol for ZcashProtocol {
         format!("Zcash Account {account_index}")
     }
 
+    fn lightwalletd_host(&self) -> Option<String> {
+        self.lightwalletd_host.clone()
+    }
+
     // ── Key operations ──────────────────────────────────────────────────────
 
     fn derive_address_from_viewing_key(&self, vk: &[u8], index: u32) -> Result<String, String> {
@@ -384,6 +391,16 @@ impl Protocol for ZcashProtocol {
             });
         }
 
+        Ok(())
+    }
+
+    async fn sync_incremental(&self) -> Result<(), String> {
+        if let Some(sync) = &self.sync_recipient {
+            let sync = sync.clone();
+            tokio::spawn(async move {
+                let _ = sync.ask(Sync).await;
+            });
+        }
         Ok(())
     }
 }

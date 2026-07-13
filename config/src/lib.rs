@@ -45,7 +45,7 @@ fn default_ethereum_rpc_url() -> String {
     "http://127.0.0.1:8545".to_string()
 }
 
-fn default_lightwalletd_host() -> String {
+pub fn default_lightwalletd_host() -> String {
     "http://127.0.0.1:9067".to_string()
 }
 
@@ -59,6 +59,30 @@ fn default_bridge_socket_path() -> String {
 
 fn default_offline_signer() -> bool {
     false
+}
+
+/// Returns the default lightwalletd host for a given Zcash network.
+///
+/// - `mainnet` → `https://zec.rocks:443` (community-funded, load-balanced)
+/// - `testnet` → `https://testnet.zec.rocks:443`
+/// - `regtest` (or anything else) → `http://127.0.0.1:9067` (local)
+pub fn network_lightwalletd_default(network: &str) -> String {
+    match network.to_lowercase().as_str() {
+        "mainnet" => "https://zec.rocks:443".to_string(),
+        "testnet" => "https://testnet.zec.rocks:443".to_string(),
+        _ => "http://127.0.0.1:9067".to_string(),
+    }
+}
+
+/// Returns a network-specific data directory path by appending the network
+/// name to the base data directory.
+///
+/// e.g. `~/.local/share/paypunk/` + `mainnet` → `~/.local/share/paypunk/mainnet/`
+pub fn network_data_dir(base_data_dir: &str, network: &str) -> String {
+    std::path::Path::new(base_data_dir)
+        .join(network)
+        .to_string_lossy()
+        .to_string()
 }
 
 impl Default for PaypunkConfig {
@@ -142,17 +166,22 @@ keypunkd_socket_path = "/tmp/keypunkd.sock"
 bridge_socket_path = "/tmp/paypunk-bridge.sock"
 
 # Data and config directories
+# The network name is appended to data_dir, e.g. data_dir/mainnet/
 data_dir = "~/.local/share/paypunk/"
 config_dir = "~/.config/paypunk/"
 
 # RPC URL for Ethereum-compatible chains
 ethereum_rpc_url = "http://127.0.0.1:8545"
 
-# Zcash lightwalletd host (default: http://127.0.0.1:9067)
-lightwalletd_host = "http://127.0.0.1:9067"
-
 # Zcash network (regtest, testnet, or mainnet)
+# Each network uses its own database and default lightwalletd server:
+#   regtest  -> http://127.0.0.1:9067       (local)
+#   mainnet  -> https://zec.rocks:443       (community)
+#   testnet  -> https://testnet.zec.rocks:443
 zcash_network = "regtest"
+
+# Lightwalletd host (optional — overrides the network default above)
+# lightwalletd_host = "http://127.0.0.1:9067"
 
 # Offline signer mode (default: false)
 # When true, spawns the QR bridge instead of keypunkd
@@ -300,5 +329,37 @@ ethereum_rpc_url = "http://127.0.0.1:8545"
         let toml_str = toml::to_string(&config).unwrap();
         let parsed: PaypunkConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(config, parsed);
+    }
+
+    #[test]
+    fn network_lightwalletd_defaults() {
+        assert_eq!(
+            network_lightwalletd_default("mainnet"),
+            "https://zec.rocks:443"
+        );
+        assert_eq!(
+            network_lightwalletd_default("testnet"),
+            "https://testnet.zec.rocks:443"
+        );
+        assert_eq!(
+            network_lightwalletd_default("regtest"),
+            "http://127.0.0.1:9067"
+        );
+        assert_eq!(
+            network_lightwalletd_default("MAINNET"),
+            "https://zec.rocks:443"
+        );
+    }
+
+    #[test]
+    fn network_data_dir_path() {
+        assert_eq!(
+            network_data_dir("/data/paypunk", "mainnet"),
+            "/data/paypunk/mainnet"
+        );
+        assert_eq!(
+            network_data_dir("/data/paypunk/", "regtest"),
+            "/data/paypunk/regtest"
+        );
     }
 }
