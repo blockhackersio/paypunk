@@ -10,8 +10,8 @@ use crate::ui;
 use async_trait::async_trait;
 use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
-use ratatui::style::Style;
-use ratatui::text::{Line, Text};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
@@ -37,16 +37,23 @@ impl Searchable for AddressBookEntryItem {
 
 impl Component<()> for AddressBookEntryItem {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let style = if self.focused {
-            Style::new().fg(ui::palette().foreground).bold()
+        let text = if self.focused {
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    format!(" {} ", self.entry.name),
+                    Style::new().fg(Color::Black).bold(),
+                ),
+                Span::styled(
+                    &self.entry.address,
+                    Style::new().fg(Color::Black),
+                ),
+            ]))
         } else {
-            Style::new().fg(ui::palette().foreground)
+            Paragraph::new(Line::from(vec![
+                ui::theme().accent(format!(" {} ", self.entry.name)),
+                ui::theme().muted(&self.entry.address),
+            ]))
         };
-        let text = Paragraph::new(Line::from(vec![
-            ui::theme().accent(format!(" {} ", self.entry.name)),
-            ui::theme().muted(&self.entry.address),
-        ]))
-        .style(style);
         frame.render_widget(text, area);
     }
 
