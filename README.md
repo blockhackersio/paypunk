@@ -16,7 +16,7 @@ Two architectural decisions drive everything else:
 - **Signing/wallet separation** — Keys live in a separate process (`keypunkd`) or on an entirely air-gapped device (the mobile signer app). The wallet daemon never holds key material. This makes offline signing, hardware wallets, and multi-signature flows natural extensions rather than bolted-on features.
 - **Multi-token by design** — Chain-specific logic is isolated behind `Protocol` and `SignerProtocol` traits. Zcash and Ethereum are the first two implementations; adding a new chain means implementing those traits, not rearchitecting the wallet.
 
-The IPC layer (Unix sockets + tactix actors) means frontends can be built in any technology — the current TUI is a throwaway first draft. The same backend serves a CLI for scripting, a TUI for interactive use, a web bridge for QR-based signing, and future desktop/mobile apps.
+The IPC layer (Unix sockets + tactix actors) means frontends can be built in any technology — the current TUI is a throwaway first draft. The same backend serves a CLI for scripting, a TUI for interactive use, a web bridge for QR-based signing, and future desktop/mobile apps. The transport is designed to be swappable — the `UnixSocketTransport` encapsulates all I/O behind a framed read/write interface, so a TCP or TLS transport could be added for remote/web deployment without changing the actor code. Sensitive payloads (passwords, mnemonics) are end-to-end encrypted at the application layer using X25519 + AES-256-GCM before being sent over IPC, and every message is authenticated with a per-message Blake2b MAC derived from an X25519 key exchange.
 
 Think of this not as "a Zcash wallet with a TUI and an offline signer" but as a **scriptable, privacy-first wallet framework** ready to extend to whatever protocols matter next.
 
@@ -29,7 +29,7 @@ Layered, multi-process design:
 - **`api`** — Chain-agnostic library. Dispatches to the appropriate chain backend by `ProtocolId` (Zcash, Ethereum). Hides IPC and actor details from consumers.
 - **`paypunkd`** — App daemon (library crate, launched via `paypunk paypunkd`). Hosts the `Paypunkd` actor, usecases, service orchestration, chain backend injection.
 - **`keypunkd`** — Key daemon (library crate, launched via `paypunk keypunkd`). Hosts the `Keypunkd` actor. Seed generation, signing, proving. Designed to run as a separate system user (deployment concern, not enforced by code).
-- **`ipc`** — Tactix actor sender for interprocess communication over Unix sockets. Carries opaque byte payloads; serialization (postcard) is done by callers.
+- **`ipc`** — Tactix actor sender for interprocess communication. Transport-agnostic framing (currently Unix sockets; TCP/TLS swappable). Per-message X25519 + Blake2b MAC authentication. Sensitive payloads encrypted at the application layer (X25519 + AES-256-GCM). Carries opaque byte payloads; serialization (postcard) is done by callers.
 - **`protocols/{zcash,ethereum}`** — Chain-specific implementations of the `Protocol` and `SignerProtocol` traits from `paypunk-types`.
 - **`cli`** — Command-line interface binary (`paypunk`). Uses `api` for scripting and automation. Also launches daemons and the TUI.
 - **`tui`** — Terminal-based interactive UI (ratatui). Library crate consumed by the CLI, also builds as a standalone binary.
