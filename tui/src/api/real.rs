@@ -465,12 +465,25 @@ impl WalletApi for RealWalletApi {
                 if let Ok(summary) = postcard::from_bytes::<ArtifactSummary>(&parsed_summary) {
                     match &summary {
                         ArtifactSummary::Zcash(zcash) => {
-                            let total = zcash.fee.parse::<u128>().unwrap_or(0);
+                            let recipient_amount = zcash
+                                .outputs
+                                .iter()
+                                .find(|o| o.address == input.to_address)
+                                .map(|o| o.amount.clone())
+                                .unwrap_or_else(|| {
+                                    zcash
+                                        .outputs
+                                        .first()
+                                        .map(|o| o.amount.clone())
+                                        .unwrap_or_else(|| "0".to_string())
+                                });
+                            let amount_u = recipient_amount.parse::<u128>().unwrap_or(0);
+                            let fee_u = zcash.fee.parse::<u128>().unwrap_or(0);
                             SendReviewData {
-                                to_address: "Zcash transfer".to_string(),
-                                amount: "0".to_string(),
+                                to_address: input.to_address.clone(),
+                                amount: recipient_amount,
                                 fee_estimate: zcash.fee.clone(),
-                                total_amount: total.to_string(),
+                                total_amount: (amount_u + fee_u).to_string(),
                                 chain_id: input.chain_id,
                                 nonce: 0,
                                 skip_review: false,
