@@ -40,15 +40,139 @@ Three processes with a strict security boundary:
 - Seed encrypted at rest with Argon2id-derived key (AES-256-GCM)
 - Wallet state database is currently plaintext (`paypunkd.db`); encryption at rest is planned
 
+## Installation
+
+### From GitHub
+
+```bash
+cargo install --git https://github.com/blockhackersio/paypunk
+```
+
+### From source
+
+```bash
+git clone https://github.com/blockhackersio/paypunk.git
+cd paypunk
+cargo install --path cli
+```
+
+The `paypunk` binary is installed to `~/.cargo/bin/paypunk`.
+
 ## Getting started
 
 The `paypunk` binary auto-launches both daemons and the TUI when run with no subcommand. Individual subcommands are also available:
 
 ```bash
-cargo run --                   # auto-launch keypunkd + paypunkd + TUI
-cargo run -- keypunkd          # launch key daemon only
-cargo run -- paypunkd          # launch app daemon only
-cargo run -- tui               # launch TUI only (daemons must be running)
-cargo run -- generate-seed -p <password>   # CLI: generate a new wallet
-cargo run -- get-balance --protocol zcash  # CLI: check balance
+paypunk                                # auto-launch keypunkd + paypunkd + TUI
+paypunk keypunkd                       # launch key daemon only
+paypunk paypunkd                       # launch app daemon only
+paypunk tui                            # launch TUI only (daemons must be running)
+paypunk generate-seed -p <password>    # CLI: generate a new wallet
+paypunk get-balance --protocol zcash   # CLI: check balance
 ```
+
+### Running the TUI
+
+The simplest way — auto-launches both daemons and opens the TUI:
+
+```bash
+paypunk
+```
+
+To run the TUI against already-running daemons (e.g. daemons started separately or on another machine):
+
+```bash
+paypunk tui
+```
+
+The TUI can also connect to an offline signer instead of a local keypunkd:
+
+```bash
+paypunk tui --signer
+```
+
+Keybindings within the TUI:
+
+| Key | Action |
+|-----|--------|
+| `?` | Help overlay (context-sensitive) |
+| `Enter` | Select / confirm |
+| `Esc` | Back / cancel |
+| `q` | Quit |
+| `s` | Send |
+| `o` | Receive |
+| `a` | Add account |
+| `r` | Refresh |
+| `c` | Copy to clipboard |
+
+### Networks
+
+Paypunk supports Zcash `regtest`, `testnet`, and `mainnet`. The network is selected via the `--zcash-network` flag or the `PAYPUNK_ZCASH_NETWORK` env var. Each network uses its own data directory and default lightwalletd endpoint:
+
+| Network | Lightwalletd default | Data directory |
+|---------|---------------------|-----------------|
+| `regtest` | `http://127.0.0.1:9067` (local) | `~/.local/share/paypunk/regtest/` |
+| `testnet` | `https://testnet.zec.rocks:443` | `~/.local/share/paypunk/testnet/` |
+| `mainnet` | `https://zec.rocks:443` | `~/.local/share/paypunk/mainnet/` |
+
+#### Regtest (local development)
+
+Requires a local `zcashd` + `lightwalletd` running on port 9067. See [`support/zcash/README.md`](support/zcash/README.md) for a Docker-based regtest setup.
+
+```bash
+# Start the regtest stack
+cd support/zcash && make up
+
+# Run paypunk against regtest (default)
+paypunk --zcash-network regtest
+
+# Or via env var
+PAYPUNK_ZCASH_NETWORK=regtest paypunk
+```
+
+To fund your wallet in regtest, mine blocks and shield coinbase to your wallet's address:
+
+```bash
+cd support/zcash
+make fund UA=<your-orchard-ua>
+```
+
+#### Mainnet
+
+Connects to a public lightwalletd endpoint by default. Use a custom endpoint for better privacy or reliability:
+
+```bash
+# Using the default public endpoint (https://zec.rocks:443)
+paypunk --zcash-network mainnet
+
+# Using a custom lightwalletd
+paypunk --zcash-network mainnet --lightwalletd-host https://my-lwd.example.com:443
+
+# Or via env vars
+PAYPUNK_ZCASH_NETWORK=mainnet PAYPUNK_LIGHTWALLETD_HOST=https://my-lwd.example.com:443 paypunk
+```
+
+#### Ethereum
+
+Ethereum uses an RPC URL (JSON-RPC over HTTP). The default points to a local node (`http://127.0.0.1:8545`); override it for mainnet or testnet:
+
+```bash
+# Local anvil/hardhat node (see support/ethereum/README.md)
+paypunk --ethereum-rpc-url http://127.0.0.1:8545
+
+# Mainnet (via your own node or provider)
+PAYPUNK_ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/<key> paypunk
+
+# Sepolia testnet
+PAYPUNK_ETHEREUM_RPC_URL=https://sepolia.infura.io/v3/<key> paypunk
+```
+
+#### Configuration file
+
+All defaults can be overridden in `~/.config/paypunk/config.toml`. Generate a template with:
+
+```bash
+paypunk  # creates the config file on first run if it doesn't exist
+```
+
+See [`config/src/lib.rs`](config/src/lib.rs) for all available fields and env var overrides.
