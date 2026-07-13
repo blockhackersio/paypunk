@@ -161,7 +161,7 @@ pub async fn create_account(
     derivation_path: String,
     account_index: u32,
     name: String,
-    _birthday_height: Option<u64>,
+    birthday_height: Option<u64>,
 ) -> Result<Account, String> {
     let conn = db.conn.as_ref().ok_or("database is locked")?;
     let conn = conn.lock().map_err(|e| e.to_string())?;
@@ -215,6 +215,7 @@ pub async fn create_account(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs(),
+        birthday_height,
     };
 
     repo.save(&conn, &account)?;
@@ -301,6 +302,7 @@ pub async fn bulk_derive_accounts(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            birthday_height: None,
         };
 
         let conn = db.conn.as_ref().ok_or("database is locked")?;
@@ -400,6 +402,7 @@ pub async fn register_signer(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            birthday_height: None,
         };
 
         {
@@ -413,10 +416,29 @@ pub async fn register_signer(
     }
 
     // Sync accounts (requires .await, no DB lock held)
+    // Auto-fetch birthday for each protocol that supports it.
+    use std::collections::HashMap as StdHashMap;
+    let mut birthday_cache: StdHashMap<ProtocolId, u64> = StdHashMap::new();
     for (protocol, account) in &created_accounts {
         if let Ok(proto) = protocols.get(*protocol) {
+            let bday = if let Some(&h) = birthday_cache.get(protocol) {
+                h
+            } else {
+                let h = match protocols.get_lightwalletd_host(*protocol) {
+                    Some(host) => proto
+                        .get_current_block_height(host)
+                        .await
+                        .ok()
+                        .map(|bh| bh.0),
+                    None => None,
+                };
+                if let Some(height) = h {
+                    birthday_cache.insert(*protocol, height);
+                }
+                h.unwrap_or(0)
+            };
             if let Err(e) = proto
-                .sync_account(&account.viewing_key, 0, &account.address)
+                .sync_account(&account.viewing_key, bday, &account.address)
                 .await
             {
                 warn!(?protocol, account = %account.id, error = %e, "sync_account after register failed");

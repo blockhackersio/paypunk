@@ -24,6 +24,7 @@ pub enum PaypunkdRequest {
         encrypted_mnemonic: Vec<u8>,
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32], // Clients public key for further communication
+        birthday_height: Option<u64>,
     },
     // Submit a intent that can be interpreted as a chain operation
     SubmitIntent {

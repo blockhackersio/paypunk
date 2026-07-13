@@ -2,7 +2,9 @@ use blake2::digest::consts::U32;
 use blake2::{Blake2b, Digest};
 use clap::{Parser, Subcommand};
 use paypunk_api::Client;
-use paypunk_config::ConfigLoader;
+use paypunk_config::{
+    default_lightwalletd_host, network_data_dir, network_lightwalletd_default, ConfigLoader,
+};
 use paypunk_tui::run_tui;
 use paypunk_types::{
     ArtifactSummary, EthereumIntent, Intent, ProtocolId, SubmitIntentResult, ZcashIntent,
@@ -123,6 +125,48 @@ impl Drop for DaemonGuard {
     }
 }
 
+/// Resolved network configuration after merging CLI args, config file, and
+/// network-specific defaults.
+struct ResolvedConfig {
+    zcash_network: String,
+    lightwalletd_host: String,
+    data_dir: String,
+}
+
+/// Resolve the final network, lightwalletd host, and data directory.
+///
+/// Priority (highest first):
+/// - `cli_network` / `cli_lwd` / `cli_data_dir` — explicit CLI flags
+/// - `config.lightwalletd_host` — if the user changed it from the default
+/// - network-specific defaults
+fn resolve_network_config(
+    network: &str,
+    cli_lwd: Option<&str>,
+    cli_data_dir: Option<&str>,
+    config: &paypunk_config::PaypunkConfig,
+) -> ResolvedConfig {
+    let lightwalletd_host = cli_lwd
+        .map(String::from)
+        .or_else(|| {
+            if config.lightwalletd_host != default_lightwalletd_host() {
+                Some(config.lightwalletd_host.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| network_lightwalletd_default(network));
+
+    let data_dir = cli_data_dir
+        .map(String::from)
+        .unwrap_or_else(|| network_data_dir(&config.data_dir, network));
+
+    ResolvedConfig {
+        zcash_network: network.to_string(),
+        lightwalletd_host,
+        data_dir,
+    }
+}
+
 /// Spawn keypunkd/paypunkd (or bridge in signer mode) if the paypunkd socket
 /// doesn't already exist with a live daemon. Returns a guard that kills the
 /// daemons on drop.
@@ -131,6 +175,9 @@ async fn ensure_daemons(
     keypunkd_socket: &str,
     bridge_socket: &str,
     signer_mode: bool,
+    zcash_network: &str,
+    lightwalletd_host: &str,
+    data_dir: &str,
 ) -> Result<DaemonGuard, Box<dyn std::error::Error>> {
     // If socket exists, try a quick connect to see if it's live
     if Path::new(paypunkd_socket).exists() {
@@ -149,7 +196,6 @@ async fn ensure_daemons(
 
     let exe =
         std::env::current_exe().map_err(|e| format!("Failed to get current exe path: {e}"))?;
-    let config = ConfigLoader::load_or_default();
 
     // Clean stale sockets before spawning
     let _ = fs::remove_file(keypunkd_socket);
@@ -180,7 +226,9 @@ async fn ensure_daemons(
         let keypunkd = Command::new(&exe)
             .arg("keypunkd")
             .arg("--zcash-network")
-            .arg(&config.zcash_network)
+            .arg(zcash_network)
+            .arg("--data-dir")
+            .arg(data_dir)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -210,9 +258,11 @@ async fn ensure_daemons(
         .arg("--keypunkd-socket")
         .arg(signer_socket)
         .arg("--lightwalletd-host")
-        .arg(&config.lightwalletd_host)
+        .arg(lightwalletd_host)
         .arg("--zcash-network")
-        .arg(&config.zcash_network)
+        .arg(zcash_network)
+        .arg("--data-dir")
+        .arg(data_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let paypunkd = paypunkd_cmd
@@ -246,6 +296,20 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     signer: bool,
 
+    /// Zcash network: regtest (default), mainnet, or testnet.
+    /// Selecting a network also sets the default lightwalletd host and
+    /// uses a separate data directory.
+    #[arg(long)]
+    zcash_network: Option<String>,
+
+    /// Override the lightwalletd host (defaults to the network-specific server).
+    #[arg(long)]
+    lightwalletd_host: Option<String>,
+
+    /// Override the data directory (defaults to data_dir/<network>/).
+    #[arg(long)]
+    data_dir: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -263,6 +327,10 @@ enum Commands {
         mnemonic: String,
         #[arg(short, long)]
         password: String,
+        /// Wallet birthday block height (required for mainnet, optional for regtest/testnet).
+        /// Speeds up initial sync by avoiding scanning from genesis.
+        #[arg(long)]
+        birthday_height: Option<u64>,
     },
     /// Submit a transfer intent for preview
     SubmitTransfer {
@@ -378,16 +446,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => {
             // paypunk without arguments autolaunches daemons
             let config = ConfigLoader::load_or_default();
-            let paypunkd_socket = cli.socket_path.unwrap_or(config.paypunkd_socket_path);
+            let paypunkd_socket = cli
+                .socket_path
+                .clone()
+                .unwrap_or(config.paypunkd_socket_path.clone());
             let keypunkd_socket = config.keypunkd_socket_path.clone();
             let bridge_socket = config.bridge_socket_path.clone();
             let signer_mode = cli.signer || config.offline_signer;
+
+            let network = cli
+                .zcash_network
+                .clone()
+                .unwrap_or(config.zcash_network.clone());
+            let resolved = resolve_network_config(
+                &network,
+                cli.lightwalletd_host.as_deref(),
+                cli.data_dir.as_deref(),
+                &config,
+            );
 
             let _guard = ensure_daemons(
                 &paypunkd_socket,
                 &keypunkd_socket,
                 &bridge_socket,
                 signer_mode,
+                &resolved.zcash_network,
+                &resolved.lightwalletd_host,
+                &resolved.data_dir,
             )
             .await?;
 
@@ -416,14 +501,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             zcash_network,
         }) => {
             let config = ConfigLoader::load_or_default();
-            let socket = socket_path.unwrap_or(config.keypunkd_socket_path);
-            let dir = data_dir.unwrap_or(config.data_dir);
-            let znet = zcash_network.unwrap_or(config.zcash_network);
+            let socket = socket_path.unwrap_or(config.keypunkd_socket_path.clone());
+            let network = zcash_network
+                .or(cli.zcash_network.clone())
+                .unwrap_or(config.zcash_network.clone());
+            let resolved = resolve_network_config(
+                &network,
+                None,
+                data_dir.as_deref().or(cli.data_dir.as_deref()),
+                &config,
+            );
 
             keypunkd::run::run(keypunkd::run::Config {
                 socket_path: socket,
-                data_dir: dir,
-                zcash_network: znet,
+                data_dir: resolved.data_dir,
+                zcash_network: resolved.zcash_network,
             })
             .await
         }
@@ -436,20 +528,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             zcash_network,
         }) => {
             let config = ConfigLoader::load_or_default();
-            let socket = socket_path.unwrap_or(config.paypunkd_socket_path);
-            let ks = keypunkd_socket.unwrap_or(config.keypunkd_socket_path);
-            let url = ethereum_rpc_url.unwrap_or(config.ethereum_rpc_url);
-            let dir = data_dir.unwrap_or(config.data_dir);
-            let lwd = lightwalletd_host.unwrap_or(config.lightwalletd_host);
-            let znet = zcash_network.unwrap_or(config.zcash_network);
+            let socket = socket_path.unwrap_or(config.paypunkd_socket_path.clone());
+            let ks = keypunkd_socket.unwrap_or(config.keypunkd_socket_path.clone());
+            let url = ethereum_rpc_url.unwrap_or(config.ethereum_rpc_url.clone());
+            let network = zcash_network
+                .or(cli.zcash_network.clone())
+                .unwrap_or(config.zcash_network.clone());
+            let resolved = resolve_network_config(
+                &network,
+                lightwalletd_host
+                    .as_deref()
+                    .or(cli.lightwalletd_host.as_deref()),
+                data_dir.as_deref().or(cli.data_dir.as_deref()),
+                &config,
+            );
 
             paypunkd::run::run(paypunkd::run::Config {
                 socket_path: socket,
                 keypunkd_socket: ks,
                 ethereum_rpc_url: url,
-                data_dir: dir,
-                lightwalletd_host: lwd,
-                zcash_network: znet,
+                data_dir: resolved.data_dir,
+                lightwalletd_host: resolved.lightwalletd_host,
+                zcash_network: resolved.zcash_network,
             })
             .await
         }
@@ -520,16 +620,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let paypunkd_socket = cli
                 .socket_path
                 .clone()
-                .unwrap_or(config.paypunkd_socket_path);
-            let keypunkd_socket = config.keypunkd_socket_path;
+                .unwrap_or(config.paypunkd_socket_path.clone());
+            let keypunkd_socket = config.keypunkd_socket_path.clone();
             let bridge_socket = config.bridge_socket_path.clone();
             let signer_mode = cli.signer || config.offline_signer;
+
+            let network = cli
+                .zcash_network
+                .clone()
+                .unwrap_or(config.zcash_network.clone());
+            let resolved = resolve_network_config(
+                &network,
+                cli.lightwalletd_host.as_deref(),
+                cli.data_dir.as_deref(),
+                &config,
+            );
 
             let _guard = ensure_daemons(
                 &paypunkd_socket,
                 &keypunkd_socket,
                 &bridge_socket,
                 signer_mode,
+                &resolved.zcash_network,
+                &resolved.lightwalletd_host,
+                &resolved.data_dir,
             )
             .await?;
             let client = Client::connect(&paypunkd_socket).await?;
@@ -540,10 +654,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mnemonic = client.generate_seed(password).await?;
                     println!("{}", *mnemonic);
                 }
-                Commands::RestoreSeed { mnemonic, password } => {
+                Commands::RestoreSeed {
+                    mnemonic,
+                    password,
+                    birthday_height,
+                } => {
                     let mnemonic = Zeroizing::new(mnemonic);
                     let password = Zeroizing::new(password);
-                    client.restore_seed(mnemonic, password).await?;
+                    client
+                        .restore_seed(mnemonic, password, birthday_height)
+                        .await?;
                     println!("Seed restored successfully");
                 }
                 Commands::SubmitTransfer {

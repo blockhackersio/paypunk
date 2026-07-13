@@ -28,6 +28,10 @@ impl ProtocolService {
             .ok_or_else(|| format!("unsupported protocol: {id:?}"))
     }
 
+    pub fn get_lightwalletd_host(&self, id: ProtocolId) -> Option<String> {
+        self.protocols.get(&id).and_then(|p| p.lightwalletd_host())
+    }
+
     pub fn protocols(&self) -> Vec<ProtocolId> {
         self.protocols.keys().copied().collect()
     }

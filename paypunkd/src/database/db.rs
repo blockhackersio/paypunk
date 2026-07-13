@@ -4,8 +4,8 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 
 use super::migration::{
-    AccountsMigration, AddressBookMigration, Migration, Migrator, PreDerivedKeysMigration,
-    SettingsMigration, SignerStateMigration,
+    AccountsBirthdayMigration, AccountsMigration, AddressBookMigration, Migration, Migrator,
+    PreDerivedKeysMigration, SettingsMigration, SignerStateMigration,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -92,6 +92,7 @@ impl Database {
         migrator.register(Box::new(AddressBookMigration));
         migrator.register(Box::new(SettingsMigration));
         migrator.register(Box::new(SignerStateMigration));
+        migrator.register(Box::new(AccountsBirthdayMigration));
         migrator.migrate(&conn).map_err(DbError::Migration)?;
         Ok(())
     }
@@ -140,7 +141,7 @@ mod tests {
             .unwrap()
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 6);
+        assert_eq!(count, 7);
         db.close().unwrap();
     }
 
@@ -155,8 +156,8 @@ mod tests {
                 .lock()
                 .unwrap()
                 .execute(
-                    "INSERT INTO accounts (id, protocol, derivation_path, name, viewing_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    rusqlite::params!["test-id", "Zcash", "m/44'/133'/0'", "test", vec![1u8, 2u8, 3u8], 1000u64],
+                    "INSERT INTO accounts (id, protocol, derivation_path, name, viewing_key, created_at, birthday_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params!["test-id", "Zcash", "m/44'/133'/0'", "test", vec![1u8, 2u8, 3u8], 1000u64, Option::<u64>::None],
                 )
                 .unwrap();
             db.close().unwrap();

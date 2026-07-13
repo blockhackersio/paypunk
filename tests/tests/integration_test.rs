@@ -132,6 +132,7 @@ impl TestBuilder {
             None,
             None,
             None,
+            None,
         );
         let paypunkd_ethereum = EthereumProtocol::new(self.eth_mock);
         let mut paypunkd_protocols = ProtocolService::new();
@@ -216,7 +217,7 @@ async fn test_restore_seed_via_api() {
     let client = Client::with_recipient(recipient);
 
     let result = client
-        .restore_seed(mnemonic.clone(), password.clone())
+        .restore_seed(mnemonic.clone(), password.clone(), None)
         .await;
 
     assert!(result.is_ok());
@@ -231,6 +232,7 @@ async fn test_restore_seed_invalid_mnemonic_fails() {
         .restore_seed(
             Zeroizing::new("not a valid bip39 mnemonic phrase".to_string()),
             Zeroizing::new("password".to_string()),
+            None,
         )
         .await;
 

@@ -154,3 +154,16 @@ impl Migration for AccountsMigration {
         .map_err(|e| e.to_string())
     }
 }
+
+pub struct AccountsBirthdayMigration;
+
+impl Migration for AccountsBirthdayMigration {
+    fn version(&self) -> u32 {
+        7
+    }
+
+    fn up(&self, conn: &Connection) -> Result<(), String> {
+        conn.execute_batch("ALTER TABLE accounts ADD COLUMN birthday_height INTEGER;")
+            .map_err(|e| e.to_string())
+    }
+}

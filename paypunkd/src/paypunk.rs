@@ -93,6 +93,7 @@ impl Paypunk {
         encrypted_mnemonic: Vec<u8>,
         encrypted_password: Vec<u8>,
         client_public_key: [u8; 32],
+        birthday_height: Option<u64>,
     ) -> PaypunkdResponse {
         info!("forwarding RestoreSeed to keypunkd");
         match usecases::restore_seed(
@@ -104,6 +105,11 @@ impl Paypunk {
         .await
         {
             Ok(()) => {
+                if let Some(height) = birthday_height {
+                    if let Err(e) = self.save_birthday_height(height) {
+                        warn!(error = %e, "restore_seed: failed to save birthday_height");
+                    }
+                }
                 if let Err(e) = self.db.mark_initialized() {
                     warn!(error = %e, "restore_seed: failed to write marker");
                 }
@@ -254,6 +260,11 @@ impl Paypunk {
             "creating account"
         );
 
+        let birthday = match birthday_height {
+            Some(h) => Some(h),
+            None => self.auto_birthday(protocol).await,
+        };
+
         let result = usecases::create_account(
             &self.db,
             &self.protocols,
@@ -262,14 +273,14 @@ impl Paypunk {
             derivation_path,
             account_index,
             name,
-            birthday_height,
+            birthday,
         )
         .await;
 
         match result {
             Ok(account) => {
                 if let Ok(proto) = self.protocols.get(protocol) {
-                    let birthday = birthday_height.unwrap_or(0);
+                    let birthday = account.birthday_height.unwrap_or(0);
                     if let Err(e) = proto
                         .sync_account(&account.viewing_key, birthday, &account.address)
                         .await
@@ -439,6 +450,53 @@ impl Paypunk {
         )
     }
 
+    fn save_birthday_height(&self, height: u64) -> Result<(), String> {
+        let conn = self.db.conn.as_ref().ok_or("database is locked")?;
+        let conn = conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('birthday_height', ?1)",
+            rusqlite::params![height.to_string()],
+        )
+        .map_err(|e| format!("failed to save birthday_height: {e}"))?;
+        Ok(())
+    }
+
+    fn get_birthday_height(&self) -> Option<u64> {
+        let conn = self.db.conn.as_ref().ok_or("database is locked").ok()?;
+        let conn = conn.lock().ok()?;
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = 'birthday_height'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+    }
+
+    /// Auto-fetch the current chain tip from the protocol to use as birthday.
+    async fn auto_birthday(&self, protocol: ProtocolId) -> Option<u64> {
+        let lightwalletd_host = match self.protocols.get_lightwalletd_host(protocol) {
+            Some(h) => h,
+            None => return None,
+        };
+        match self
+            .protocols
+            .get(protocol)
+            .ok()?
+            .get_current_block_height(lightwalletd_host)
+            .await
+        {
+            Ok(height) => {
+                info!(?protocol, height = height.0, "auto-birthday fetched tip");
+                Some(height.0)
+            }
+            Err(e) => {
+                warn!(?protocol, error = %e, "auto-birthday: failed to fetch tip");
+                None
+            }
+        }
+    }
+
     async fn reveal_phrase(
         &self,
         encrypted_password: Vec<u8>,
@@ -574,6 +632,24 @@ impl Paypunk {
                         );
                     }
 
+                    // Resolve birthday: stored from restore-seed, or auto-fetch tip.
+                    let birthday = match self.get_birthday_height() {
+                        Some(h) => Some(h),
+                        None => {
+                            let mut height = None;
+                            for pid in self.protocols.protocols() {
+                                if height.is_none() {
+                                    height = self.auto_birthday(pid).await;
+                                }
+                            }
+                            height
+                        }
+                    };
+                    info!(
+                        ?birthday,
+                        "unlock: resolved birthday for first-time accounts"
+                    );
+
                     for pid in self.protocols.protocols() {
                         let proto = match self.protocols.get(pid) {
                             Ok(p) => p,
@@ -591,7 +667,7 @@ impl Paypunk {
                                 path,
                                 account_index,
                                 name,
-                                None,
+                                birthday,
                             )
                             .await;
                         }
@@ -603,8 +679,9 @@ impl Paypunk {
                         for pid in self.protocols.protocols() {
                             if let Ok(proto) = self.protocols.get(pid) {
                                 for account in accounts.iter().filter(|a| a.protocol == pid) {
+                                    let bday = account.birthday_height.unwrap_or(0);
                                     if let Err(e) = proto
-                                        .sync_account(&account.viewing_key, 0, &account.address)
+                                        .sync_account(&account.viewing_key, bday, &account.address)
                                         .await
                                     {
                                         warn!(
@@ -632,21 +709,15 @@ impl Paypunk {
                 },
             }
         } else {
-            if let Ok(accounts) = usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
+            if let Ok(_accounts) = usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
                 for pid in self.protocols.protocols() {
                     if let Ok(proto) = self.protocols.get(pid) {
-                        for account in accounts.iter().filter(|a| a.protocol == pid) {
-                            if let Err(e) = proto
-                                .sync_account(&account.viewing_key, 0, &account.address)
-                                .await
-                            {
-                                warn!(
-                                    ?pid,
-                                    account = %account.id,
-                                    error = %e,
-                                    "sync_account after unlock failed"
-                                );
-                            }
+                        if let Err(e) = proto.sync_incremental().await {
+                            warn!(
+                                ?pid,
+                                error = %e,
+                                "sync_incremental after unlock failed"
+                            );
                         }
                     }
                 }
@@ -735,9 +806,15 @@ impl Paypunk {
                 encrypted_mnemonic,
                 encrypted_password,
                 client_public_key,
+                birthday_height,
             } => {
-                self.restore_seed(encrypted_mnemonic, encrypted_password, client_public_key)
-                    .await
+                self.restore_seed(
+                    encrypted_mnemonic,
+                    encrypted_password,
+                    client_public_key,
+                    birthday_height,
+                )
+                .await
             }
             PaypunkdRequest::SubmitIntent {
                 intent,
