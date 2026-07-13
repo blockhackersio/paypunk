@@ -15,7 +15,7 @@ Paypunk is building toward a different future: **one wallet framework, every pri
 
 Imagine a wallet where:
 
-- Your **Zcash, Monero, and Ethereum** live side by side, managed from a single interface
+- Your **Zcash, Monero, Ethereum, Bitcoin** live side by side, managed from a single interface
 - Your keys never touch an internet-connected device — **air-gapped signing via QR codes** is a first-class flow, not an afterthought
 - **Agents** can transact on your behalf via a scriptable CLI and IPC API, with human approval for sensitive operations
 - **Swapping** between ZEC and ETH happens in-wallet, routed through decentralized protocols, without surrendering custody
