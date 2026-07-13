@@ -8,13 +8,13 @@ use crate::screens::help::HelpScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
-use std::time::Instant;
 use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
+use std::time::Instant;
 
 struct AddressBookEntryItem {
     entry: AddressBookEntry,
@@ -44,10 +44,7 @@ impl Component<()> for AddressBookEntryItem {
                     format!(" {} ", self.entry.name),
                     Style::new().fg(Color::Black).bold(),
                 ),
-                Span::styled(
-                    &self.entry.address,
-                    Style::new().fg(Color::Black),
-                ),
+                Span::styled(&self.entry.address, Style::new().fg(Color::Black)),
             ]))
         } else {
             Paragraph::new(Line::from(vec![

@@ -33,7 +33,20 @@ fn days_to_ymd(days_since_epoch: i64) -> (i64, u32, u32) {
         year += 1;
     }
     let leap = is_leap(year);
-    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mdays = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut month = 0u32;
     for (i, &md) in mdays.iter().enumerate() {
         if days < md as i64 {

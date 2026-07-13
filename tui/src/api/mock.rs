@@ -334,7 +334,9 @@ impl WalletApi for MockWalletApi {
 
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let tx_hash: String = "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b".into();
+            let tx_hash: String =
+                "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b"
+                    .into();
             let _ = tx.send(Ok(SendResult {
                 tx_hash: tx_hash.clone(),
                 status: "broadcasted".into(),
