@@ -8,6 +8,7 @@ use crate::screens::help::HelpScreen;
 use crate::screens::Screen;
 use crate::ui;
 use async_trait::async_trait;
+use std::time::Instant;
 use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Style};
@@ -93,7 +94,7 @@ pub struct SendScreen {
     focus: usize,
     copied_feedback: Option<String>,
     send_data: ApiState<SendData>,
-    spinner_frame: u32,
+    spinner_start: Option<Instant>,
 }
 
 impl SendScreen {
@@ -132,7 +133,7 @@ impl SendScreen {
             focus: 0,
             copied_feedback: None,
             send_data: ApiState::Loading,
-            spinner_frame: 0,
+            spinner_start: None,
         }
     }
 }
@@ -326,7 +327,7 @@ impl Screen for SendScreen {
                                 .unwrap_or(false)
                             {
                                 self.step = SendStep::Sending;
-                                self.spinner_frame = 0;
+                                self.spinner_start = Some(Instant::now());
                             } else {
                                 self.step = SendStep::Review;
                             }
@@ -373,7 +374,7 @@ impl Screen for SendScreen {
                             .await;
                         if result.status == "pending" {
                             self.step = SendStep::Sending;
-                            self.spinner_frame = 0;
+                            self.spinner_start = Some(Instant::now());
                         } else {
                             self.result = Some(result);
                             self.step = SendStep::Confirm;
@@ -634,13 +635,20 @@ impl SendScreen {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        self.spinner_frame += 1;
-        let spinner = match self.spinner_frame % 4 {
-            0 => "◐",
-            1 => "◓",
-            2 => "◑",
-            3 => "◒",
-            _ => "◐",
+        let elapsed = self
+            .spinner_start
+            .map(|s| s.elapsed().as_millis())
+            .unwrap_or(0);
+        let spinner = match (elapsed / 80) % 8 {
+            0 => "⠙",
+            1 => "⠹",
+            2 => "⠸",
+            3 => "⠼",
+            4 => "⠴",
+            5 => "⠦",
+            6 => "⠧",
+            7 => "⠇",
+            _ => "⠙",
         };
 
         let lines = vec![

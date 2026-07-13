@@ -71,7 +71,12 @@ impl App {
         if let Some(screen) = self.screen_stack.last_mut() {
             screen.tick(api).await;
         }
-        self.sync_status = api.get_sync_status("Zcash").await;
+        if let Ok(status) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), api.get_sync_status("Zcash"))
+                .await
+        {
+            self.sync_status = status;
+        }
     }
 
     async fn process_nav(&mut self, nav: Nav) {
