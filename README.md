@@ -2,12 +2,49 @@
 
 _This is experimental software and should not be used with real funds_
 
-> **Warning:** This project is a work in progress. The architecture is designed for extensibility, but only simple transfers (send/receive) are currently supported. Several features — DB encryption, interactive password prompts, environment-variable passphrase input — are planned but not yet implemented. Expect breaking changes.
-
 [![CI](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml/badge.svg)](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![Status](https://img.shields.io/badge/status-alpha-yellow.svg)]()
+
+## The Dream
+
+Privacy is under threat. The tools people use to transact privately are fragmented, hard to integrate, and locked behind walled gardens. Every privacy coin has its own wallet, its own architecture, its own signing model — and none of them talk to each other.
+
+Paypunk is building toward a different future: **one wallet framework, every privacy protocol, fully extensible.**
+
+Imagine a wallet where:
+
+- Your **Zcash, Monero, and Ethereum** live side by side, managed from a single interface
+- Your keys never touch an internet-connected device — **air-gapped signing via QR codes** is a first-class flow, not an afterthought
+- **Agents** can transact on your behalf via a scriptable CLI and IPC API, with human approval for sensitive operations
+- **Swapping** between ZEC and ETH happens in-wallet, routed through decentralized protocols, without surrendering custody
+- New privacy protocols — **Aleo, Aztec, Railgun** — plug in by implementing two traits, not by forking the wallet
+- The same backend powers a **terminal UI, a desktop app, a mobile app, and an agent SDK** — because the architecture is frontend-agnostic from day one
+
+The architecture is built. The trait system works. Zcash and Ethereum are proven. The foundation is solid. What's missing is the work to harden it, polish it, and extend it to the protocols that matter.
+
+### We need help
+
+This is an ambitious project and it's early. If any of this resonates, there's meaningful work for you here:
+
+- **Rust developers** — implement new chain protocols, harden existing ones, improve the IPC layer
+- **Security researchers** — review the threat model, audit the crypto, find the gaps before they're exploited
+- **Tauri/frontend developers** — build the desktop and mobile UIs that will replace the throwaway TUI
+- **Zcash protocol experts** — help with Sapling/transparent support, ZSAs, and PCZT edge cases
+- **Privacy advocates** — help shape the product, test the flows, and make sure the UX serves real people
+
+Every issue is tracked at **[github.com/blockhackersio/paypunk/issues](https://github.com/blockhackersio/paypunk/issues)** — architecture improvements, security hardening, new chain integrations, and UI work are all written up and ready to be picked up.
+
+Read the [architecture docs](docs/ARCHITECTURE.md), the [contributing guide](CONTRIBUTING.md), and the [add-a-protocol guide](docs/ADD_PROTOCOL.md). Pick an issue. Open a PR.
+
+Privacy shouldn't be hard. Let's build the tools that make it easy.
+
+---
+
+> **Warning:** This project is a work in progress. The architecture is designed for extensibility, but only simple transfers (send/receive) are currently supported. Several features — DB encryption, interactive password prompts, environment-variable passphrase input — are planned but not yet implemented. Expect breaking changes.
+
+## What is Paypunk?
 
 Paypunk began as an entry for the Zcash Hackathon — an opportunity to build the privacy wallet I'd been wanting to make for years. But the goal was never just a wallet. It's an **extensible framework for building privacy-preserving crypto wallets**, designed so that adding new chains (Monero, Bitcoin, and beyond) is a lighter lift than starting from scratch.
 
