@@ -8,7 +8,7 @@ use zcash_protocol::consensus::BlockHeight;
 use zcash_protocol::local_consensus::LocalNetwork;
 
 use crate::lsp_client::LspClient;
-use crate::wallet_actor::{GetChainTip, ScanBlocks};
+use crate::wallet_actor::{GetChainTip, GetMinBirthday, ScanBlocks};
 
 const SCAN_CHUNK_SIZE: u32 = 20;
 
@@ -34,6 +34,7 @@ pub struct ScanActor {
     params: LocalNetwork,
     lightwalletd_host: String,
     get_chain_tip: Recipient<GetChainTip>,
+    get_min_birthday: Recipient<GetMinBirthday>,
     scan_blocks: Recipient<ScanBlocks>,
     is_syncing: bool,
 }
@@ -43,12 +44,14 @@ impl ScanActor {
         params: LocalNetwork,
         lightwalletd_host: String,
         get_chain_tip: Recipient<GetChainTip>,
+        get_min_birthday: Recipient<GetMinBirthday>,
         scan_blocks: Recipient<ScanBlocks>,
     ) -> Self {
         Self {
             params,
             lightwalletd_host,
             get_chain_tip,
+            get_min_birthday,
             scan_blocks,
             is_syncing: false,
         }
@@ -72,8 +75,18 @@ impl ScanActor {
             info!("scan_actor: current chain tip is {chain_tip}, fetching from {next:?}");
             next
         } else {
-            info!("scan_actor: no chain tip, nothing to sync");
-            return Ok("no chain tip, nothing to sync".to_string());
+            let min_birthday: u64 = self.get_min_birthday.ask(GetMinBirthday).await?;
+            if min_birthday == 0 {
+                info!("scan_actor: no chain tip and no registered accounts, nothing to sync");
+                return Ok("no chain tip, nothing to sync".to_string());
+            }
+            let birthday = if min_birthday <= 1 {
+                BlockHeight::from_u32(2)
+            } else {
+                BlockHeight::from_u32(min_birthday as u32)
+            };
+            info!("scan_actor: no chain tip, scanning from account birthday {birthday:?}");
+            birthday
         };
 
         if from_height > latest {

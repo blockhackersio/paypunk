@@ -267,7 +267,10 @@ impl Paypunk {
 
         let birthday = match birthday_height {
             Some(h) => Some(h),
-            None => self.auto_birthday(protocol).await,
+            None => match self.get_birthday_height() {
+                Some(h) => Some(h),
+                None => self.auto_birthday(protocol).await,
+            },
         };
 
         let result = usecases::create_account(
@@ -754,6 +757,7 @@ impl Paypunk {
         paths: Vec<(ProtocolId, String)>,
     ) -> PaypunkdResponse {
         info!("handling BulkDeriveAccounts");
+        let birthday = self.get_birthday_height();
         self.respond(
             "bulk_derive_accounts",
             usecases::bulk_derive_accounts(
@@ -764,6 +768,7 @@ impl Paypunk {
                 encrypted_password,
                 client_public_key,
                 paths,
+                birthday,
             )
             .await,
             |accounts| PaypunkdResponse::AccountsBulkDerived { accounts },
@@ -773,6 +778,7 @@ impl Paypunk {
     async fn register_signer(&self, paths: Vec<(ProtocolId, String)>) -> PaypunkdResponse {
         info!("handling RegisterSigner");
 
+        let birthday = self.get_birthday_height();
         self.respond(
             "register_signer",
             usecases::register_signer(
@@ -783,6 +789,7 @@ impl Paypunk {
                 self.signer_state_repo.as_ref(),
                 &self.keystore,
                 paths,
+                birthday,
             )
             .await,
             |accounts_count| PaypunkdResponse::SignerRegistered { accounts_count },

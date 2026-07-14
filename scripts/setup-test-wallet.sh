@@ -8,6 +8,7 @@ MNEMONIC_DEFAULT="${SCRIPT_DIR}/.mnemonic.example"
 PAYPUNK="${PAYPUNK_BIN:-cargo run --quiet --package paypunk --}"
 
 BIRTHDAY_ARG="${1:-}"
+BIRTHDAY_FLAG=""
 if [ -f "$MNEMONIC_FILE" ]; then
   MNEMONIC=$(cat "$MNEMONIC_FILE")
   NETWORK_ARGS="--zcash-network mainnet"
@@ -21,6 +22,8 @@ if [ -f "$MNEMONIC_FILE" ]; then
     echo ""
     echo "  Continuing in 5 seconds (Ctrl-C to abort)..."
     sleep 5
+  else
+    BIRTHDAY_FLAG="--birthday-height $BIRTHDAY_ARG"
   fi
 else
   MNEMONIC=$(cat "$MNEMONIC_DEFAULT")
@@ -30,12 +33,12 @@ fi
 PASSWORD="test"
 
 echo "Resetting wallet data..."
-$PAYPUNK reset $NETWORK_ARGS
+$PAYPUNK $NETWORK_ARGS reset
 
 echo "Restoring wallet with test mnemonic..."
-$PAYPUNK restore-seed --mnemonic "$MNEMONIC" --password "$PASSWORD" $NETWORK_ARGS $BIRTHDAY_ARG
+$PAYPUNK $NETWORK_ARGS restore-seed --mnemonic "$MNEMONIC" --password "$PASSWORD" $BIRTHDAY_FLAG
 
 echo "Unlocking wallet and deriving accounts..."
-$PAYPUNK unlock --password "$PASSWORD" $NETWORK_ARGS
+$PAYPUNK $NETWORK_ARGS unlock --password "$PASSWORD"
 
 echo "Done. Test wallet ready — password: $PASSWORD"

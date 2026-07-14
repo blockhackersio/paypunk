@@ -211,7 +211,7 @@ Database tables: `accounts`, `pre_derived_keys`, `address_book`, `settings`, `si
 
 ## Background Sync
 
-`paypunkd` spawns a background sync loop on startup that sends `Sync` messages to the Zcash `ScanActor` every 10 seconds. The `ScanActor` fetches compact blocks from lightwalletd via gRPC and feeds them to the `WalletDbActor` in 20-block chunks.
+`paypunkd` spawns a background sync loop on startup that sends `Sync` messages to the Zcash `ScanActor` every 10 seconds. The `ScanActor` fetches compact blocks from lightwalletd via gRPC and feeds them to the `WalletDbActor` in 20-block chunks. When the wallet DB has no scanned blocks yet (`chain_tip == 0`), the `Sync` handler falls back to the minimum account birthday (via `GetMinBirthday`) so historical scanning starts from the account birthday rather than silently no-oping.
 
 Ethereum has no background sync — it queries the RPC node on demand.
 

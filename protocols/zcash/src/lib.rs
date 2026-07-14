@@ -31,8 +31,9 @@ use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 pub use scan_actor::{Sync, SyncNewAccount};
 #[cfg(feature = "wallet")]
 pub use wallet_actor::{
-    EstimateFee, GetBalance, GetBlockHeight, GetChainTip, GetHistory, GetStatus, GetTxStatus,
-    ProposeAndBuild, RegisterAccount, ScanBlocks, ScanUpdate, StoreTransaction, WalletDbActor,
+    EstimateFee, GetBalance, GetBlockHeight, GetChainTip, GetHistory, GetMinBirthday, GetStatus,
+    GetTxStatus, ProposeAndBuild, RegisterAccount, ScanBlocks, ScanUpdate, StoreTransaction,
+    WalletDbActor,
 };
 
 /// Patch the orchard shard scan range views for regtest, where all upgrades activate
@@ -266,11 +267,13 @@ pub async fn create_protocol(
 
     // Start the scan actor (fetches blocks, delegates DB writes to WalletDbActor)
     let get_chain_tip: Recipient<GetChainTip> = wallet_actor.clone().recipient();
+    let get_min_birthday: Recipient<GetMinBirthday> = wallet_actor.clone().recipient();
     let scan_blocks: Recipient<ScanBlocks> = wallet_actor.clone().recipient();
     let scan_actor = scan_actor::ScanActor::new(
         to_local_params(params, network_type),
         lightwalletd_host.clone(),
         get_chain_tip,
+        get_min_birthday,
         scan_blocks,
     )
     .start();

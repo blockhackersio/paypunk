@@ -113,6 +113,11 @@ pub struct ScanUpdate(pub SyncStatus);
 #[response(Result<u64, String>)]
 pub struct GetChainTip;
 
+/// Get the minimum birthday height across all registered accounts.
+#[derive(Debug, Message)]
+#[response(Result<u64, String>)]
+pub struct GetMinBirthday;
+
 /// Scan blocks that have been fetched from lightwalletd.
 #[derive(Debug, Message)]
 #[response(Result<String, String>)]
@@ -512,6 +517,16 @@ impl Handler<GetChainTip> for WalletDbActor {
             .map_err(|e| format!("chain_height failed: {e}"))?;
         info!("trace: WalletDbActor.GetChainTip: {:?}", tip);
         Ok(tip.map(|h| h.into()).unwrap_or(0))
+    }
+}
+
+impl Handler<GetMinBirthday> for WalletDbActor {
+    async fn handle(&mut self, _msg: GetMinBirthday, _ctx: &Ctx<Self>) -> Result<u64, String> {
+        if self.accounts.is_empty() {
+            return Ok(0);
+        }
+        let min = self.accounts.iter().map(|(_, b)| *b).min().unwrap_or(0);
+        Ok(min)
     }
 }
 
