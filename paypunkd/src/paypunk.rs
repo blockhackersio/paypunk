@@ -709,15 +709,22 @@ impl Paypunk {
                 },
             }
         } else {
-            if let Ok(_accounts) = usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
+            if let Ok(accounts) = usecases::list_accounts(&self.db, self.accounts_repo.as_ref()) {
                 for pid in self.protocols.protocols() {
                     if let Ok(proto) = self.protocols.get(pid) {
-                        if let Err(e) = proto.sync_incremental().await {
-                            warn!(
-                                ?pid,
-                                error = %e,
-                                "sync_incremental after unlock failed"
-                            );
+                        for account in accounts.iter().filter(|a| a.protocol == pid) {
+                            let bday = account.birthday_height.unwrap_or(0);
+                            if let Err(e) = proto
+                                .sync_account(&account.viewing_key, bday, &account.address)
+                                .await
+                            {
+                                warn!(
+                                    ?pid,
+                                    account = %account.id,
+                                    error = %e,
+                                    "sync_account after unlock failed"
+                                );
+                            }
                         }
                     }
                 }
