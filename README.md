@@ -29,6 +29,7 @@ Imagine a wallet where:
 - **Swapping** between ZEC and ETH happens in-wallet, routed through decentralized protocols, without surrendering custody
 - New privacy protocols — **Aleo, Aztec, Railgun** — plug in by implementing a couple of traits, not by forking the wallet
 - The same backend powers a **terminal UI, a desktop app, a mobile app, and an agent SDK** — because the architecture is frontend-agnostic from day one
+- As new decentralized cross chain swap mechanisms come up they are integrated (eg near-intents / thorchain etc.)
 
 The architecture is functional. The trait system works. Zcash and Ethereum are proven. The foundation is solid. What's missing is the work to harden it, polish it, and extend it to the protocols that matter.
 
