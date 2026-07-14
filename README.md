@@ -1,4 +1,8 @@
-# Paypunk Project
+<p align="center">
+  <img src="docs/paypunk.png" alt="Paypunk logo" width="100" />
+</p>
+
+<h1 align="center">Paypunk Project</h1>
 
 _This is experimental software and should not be used with real funds_
 
