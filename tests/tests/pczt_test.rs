@@ -44,6 +44,7 @@ fn test_orchard_shielded_pczt_full_pipeline() {
         nu5: Some(BlockHeight::from_u32(1)),
         nu6: Some(BlockHeight::from_u32(1)),
         nu6_1: Some(BlockHeight::from_u32(1)),
+        nu6_2: Some(BlockHeight::from_u32(1)),
     };
     let target_height = BlockHeight::from_u32(10);
 
@@ -165,6 +166,7 @@ fn test_construct_raw_pczt_inline() {
         nu5: Some(BlockHeight::from_u32(1)),
         nu6: Some(BlockHeight::from_u32(1)),
         nu6_1: Some(BlockHeight::from_u32(1)),
+        nu6_2: Some(BlockHeight::from_u32(1)),
     };
     let target_height = BlockHeight::from_u32(10);
 
