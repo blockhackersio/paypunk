@@ -11,7 +11,7 @@ use paypunk_types::{
 };
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -202,6 +202,23 @@ async fn ensure_daemons(
     let _ = fs::remove_file(paypunkd_socket);
     let _ = fs::remove_file(bridge_socket);
 
+    // Create log directory and open log files for daemon output (append mode)
+    let log_dir = Path::new(data_dir).join("logs");
+    fs::create_dir_all(&log_dir)?;
+
+    let keypunkd_log = fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(log_dir.join("keypunkd.log"))?;
+    let paypunkd_log = fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(log_dir.join("paypunkd.log"))?;
+    let bridge_log = fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(log_dir.join("bridge.log"))?;
+
     let mut guard = DaemonGuard::new();
 
     if signer_mode {
@@ -210,8 +227,8 @@ async fn ensure_daemons(
             .arg("bridge")
             .arg("--socket-path")
             .arg(bridge_socket)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(bridge_log.try_clone()?)
+            .stderr(bridge_log)
             .spawn()
             .map_err(|e| format!("Failed to spawn bridge: {e}"))?;
         guard.add_child(bridge, "bridge");
@@ -229,8 +246,8 @@ async fn ensure_daemons(
             .arg(zcash_network)
             .arg("--data-dir")
             .arg(data_dir)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(keypunkd_log.try_clone()?)
+            .stderr(keypunkd_log)
             .spawn()
             .map_err(|e| format!("Failed to spawn keypunkd: {e}"))?;
         guard.add_child(keypunkd, "keypunkd");
@@ -263,8 +280,8 @@ async fn ensure_daemons(
         .arg(zcash_network)
         .arg("--data-dir")
         .arg(data_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(paypunkd_log.try_clone()?)
+        .stderr(paypunkd_log);
     let paypunkd = paypunkd_cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn paypunkd: {e}"))?;
