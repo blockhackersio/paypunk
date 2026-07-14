@@ -5,6 +5,7 @@
 <h1 align="center">Paypunk Project</h1>
 
 <p align="center">
+  Polyglot framework for creating multichain privacy wallet applications. <br/><br/>
   <em>This is experimental software and should not be used with real funds</em>
 </p>
 
@@ -16,6 +17,8 @@
 </p>
 
 ---
+
+
 
 ## Quickstart
 
