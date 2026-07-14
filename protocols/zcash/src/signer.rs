@@ -2,19 +2,18 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use orchard::circuit::ProvingKey;
-use orchard::keys::SpendAuthorizingKey;
+use orchard::keys::{FullViewingKey, SpendAuthorizingKey, SpendingKey};
 use paypunk_types::{ArtifactSummary, OutputEntry, SignerProtocol, ZcashArtifactSummary};
 use pczt::roles::prover::Prover;
 use pczt::roles::signer::Signer;
 use pczt::roles::verifier::Verifier;
 use pczt::Pczt;
-use zcash_keys::keys::UnifiedSpendingKey;
-use zcash_protocol::consensus::NetworkType;
+use zcash_protocol::consensus::{NetworkConstants, NetworkType};
 use zcash_protocol::local_consensus::LocalNetwork;
 use zip32::fingerprint::SeedFingerprint;
 use zip32::ChildIndex;
 
-use crate::common::{account_from_path, decode_orchard_recipient, ZCASH_COIN_TYPE};
+use crate::common::{account_from_path, decode_orchard_recipient};
 
 pub struct ZcashSignerProtocol {
     pub params: LocalNetwork,
@@ -36,11 +35,10 @@ impl SignerProtocol for ZcashSignerProtocol {
         let account = account_from_path(path)?;
         let account_id = zip32::AccountId::try_from(account)
             .map_err(|_| format!("invalid account: {account}"))?;
-        let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
+        let sk = SpendingKey::from_zip32_seed(seed, self.network_type.coin_type(), account_id)
             .map_err(|e| format!("USK derivation failed: {e}"))?;
-        let fvk = usk.to_unified_full_viewing_key();
-        let orchard_fvk = fvk.orchard().ok_or_else(|| "no Orchard FVK".to_string())?;
-        Ok(orchard_fvk.to_bytes().to_vec())
+        let fvk = FullViewingKey::from(&sk);
+        Ok(fvk.to_bytes().to_vec())
     }
 
     fn parse_artifact(&self, artifact: &[u8]) -> Result<Vec<u8>, String> {
@@ -88,12 +86,12 @@ impl ZcashSignerProtocol {
 
         let account_id = zip32::AccountId::try_from(account)
             .map_err(|_| format!("invalid account: {account}"))?;
-        let usk = UnifiedSpendingKey::from_seed(&self.params, seed, account_id)
+        let sk = SpendingKey::from_zip32_seed(seed, self.network_type.coin_type(), account_id)
             .map_err(|e| format!("USK derivation failed: {e}"))?;
 
         let seed_fp = SeedFingerprint::from_seed(seed)
             .ok_or_else(|| "seed too short for fingerprint".to_string())?;
-        let coin_type = ChildIndex::hardened(ZCASH_COIN_TYPE);
+        let coin_type = ChildIndex::hardened(self.network_type.coin_type());
         let mut keys: BTreeMap<zip32::AccountId, Vec<KeyRef>> = BTreeMap::new();
 
         let pczt = Verifier::new(pczt)
@@ -122,7 +120,7 @@ impl ZcashSignerProtocol {
             .map_err(|e| format!("Prover::create_orchard_proof failed: {e:?}"))?
             .finish();
 
-        let ask = SpendAuthorizingKey::from(usk.orchard());
+        let ask = SpendAuthorizingKey::from(&sk);
 
         if keys.is_empty() {
             let num_actions = pczt.orchard().actions().len();
