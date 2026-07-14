@@ -92,6 +92,7 @@ pub struct SendScreen {
     copied_feedback: Option<String>,
     send_data: ApiState<SendData>,
     spinner_start: Option<Instant>,
+    send_phase: String,
 }
 
 impl SendScreen {
@@ -131,6 +132,7 @@ impl SendScreen {
             copied_feedback: None,
             send_data: ApiState::Loading,
             spinner_start: None,
+            send_phase: String::new(),
         }
     }
 }
@@ -156,6 +158,7 @@ impl Screen for SendScreen {
 
     async fn tick(&mut self, api: &mut dyn WalletApi) -> Nav {
         if let SendStep::Sending = self.step {
+            self.send_phase = api.poll_send_phase().await;
             if let Some(result) = api.poll_send_result().await {
                 self.result = Some(result);
                 self.step = SendStep::Confirm;
@@ -192,7 +195,7 @@ impl Screen for SendScreen {
         let step_name = match self.step {
             SendStep::Form => "Send — Enter Details",
             SendStep::Review => "Send — Review",
-            SendStep::Sending => "Send — Broadcasting",
+            SendStep::Sending => "Send — Processing",
             SendStep::Confirm => "Send — Confirmed",
         };
 
@@ -228,7 +231,7 @@ impl Screen for SendScreen {
             SendStep::Review => {
                 theme.help_line([("Enter", "Send"), ("Esc", "Edit"), ("?", "Help")])
             }
-            SendStep::Sending => theme.help_line([("", "Sending...")]),
+            SendStep::Sending => theme.help_line([("", "Processing...")]),
             SendStep::Confirm => {
                 theme.help_line([("c", "Copy TX Hash"), ("Enter", "Done"), ("?", "Help")])
             }
@@ -413,6 +416,7 @@ impl Screen for SendScreen {
                 }
             },
             SendStep::Sending => {
+                self.send_phase = api.poll_send_phase().await;
                 if let Some(result) = api.poll_send_result().await {
                     self.result = Some(result);
                     self.step = SendStep::Confirm;
@@ -655,7 +659,12 @@ impl SendScreen {
 
     fn render_sending(&mut self, frame: &mut Frame, area: Rect) {
         let theme = ui::theme();
-        let block = theme.titled_block("Broadcasting");
+        let phase_label = if self.send_phase.is_empty() {
+            "Processing..."
+        } else {
+            self.send_phase.as_str()
+        };
+        let block = theme.titled_block(phase_label);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -676,13 +685,10 @@ impl SendScreen {
         };
 
         let lines = vec![
-            Line::from(vec![
-                theme.accent(format!(" {} Broadcasting transaction... ", spinner))
-            ])
-            .centered(),
+            Line::from(vec![theme.accent(format!(" {} {} ", spinner, phase_label))]).centered(),
             Line::from(""),
             Line::from(vec![
-                theme.muted("Please wait while your transaction is sent")
+                theme.muted("Please wait while your transaction is processed")
             ])
             .centered(),
             Line::from(""),

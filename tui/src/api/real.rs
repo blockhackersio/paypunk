@@ -25,9 +25,10 @@ pub struct RealWalletApi {
     client: Arc<Client>,
     pending: std::sync::Mutex<Option<PendingSend>>,
     pending_mnemonic: std::sync::Mutex<Option<Zeroizing<String>>>,
-    protocol_metadata: std::sync::Mutex<HashMap<ProtocolId, ProtocolMetadata>>,
+    protocol_metadata: Arc<std::sync::Mutex<HashMap<ProtocolId, ProtocolMetadata>>>,
     signer_mode: bool,
     pending_send_result: std::sync::Mutex<Option<oneshot::Receiver<Result<SendResult, String>>>>,
+    send_phase: Arc<std::sync::Mutex<String>>,
 }
 
 impl RealWalletApi {
@@ -37,9 +38,10 @@ impl RealWalletApi {
             client: Arc::new(client),
             pending: std::sync::Mutex::new(None),
             pending_mnemonic: std::sync::Mutex::new(None),
-            protocol_metadata: std::sync::Mutex::new(HashMap::new()),
+            protocol_metadata: Arc::new(std::sync::Mutex::new(HashMap::new())),
             signer_mode,
             pending_send_result: std::sync::Mutex::new(None),
+            send_phase: Arc::new(std::sync::Mutex::new(String::new())),
         })
     }
 
@@ -48,9 +50,10 @@ impl RealWalletApi {
             client: Arc::new(client),
             pending: std::sync::Mutex::new(None),
             pending_mnemonic: std::sync::Mutex::new(None),
-            protocol_metadata: std::sync::Mutex::new(HashMap::new()),
+            protocol_metadata: Arc::new(std::sync::Mutex::new(HashMap::new())),
             signer_mode,
             pending_send_result: std::sync::Mutex::new(None),
+            send_phase: Arc::new(std::sync::Mutex::new(String::new())),
         }
     }
 }
@@ -75,6 +78,17 @@ impl RealWalletApi {
                 cache.insert(m.id, m);
             }
         }
+    }
+
+    fn explorer_url_from_cache(
+        cache: &HashMap<ProtocolId, ProtocolMetadata>,
+        protocol: &ProtocolId,
+        tx_hash: &str,
+    ) -> String {
+        cache
+            .get(protocol)
+            .map(|m| m.block_explorer_template.replace("{tx_hash}", tx_hash))
+            .unwrap_or_default()
     }
 
     async fn protocol_chain(&self, protocol: &ProtocolId) -> String {
@@ -113,10 +127,7 @@ impl RealWalletApi {
     async fn protocol_block_explorer_url(&self, protocol: &ProtocolId, tx_hash: &str) -> String {
         self.ensure_metadata().await;
         let cache = self.protocol_metadata.lock().unwrap();
-        cache
-            .get(protocol)
-            .map(|m| m.block_explorer_template.replace("{tx_hash}", tx_hash))
-            .unwrap_or_default()
+        Self::explorer_url_from_cache(&cache, protocol, tx_hash)
     }
 }
 
@@ -414,25 +425,40 @@ impl WalletApi for RealWalletApi {
             let protocol_id = protocol;
             let intent = intent;
             let derivation_path = derivation_path;
+            let send_phase = self.send_phase.clone();
+            let metadata_cache = self.protocol_metadata.clone();
 
             tokio::spawn(async move {
+                *send_phase.lock().unwrap() = match protocol_id {
+                    ProtocolId::Zcash => "Proving & Signing...".to_string(),
+                    ProtocolId::Ethereum => "Signing...".to_string(),
+                };
                 let result = match client.submit_intent(intent, &derivation_path).await {
                     Ok(SubmitIntentResult::SignatureApproved { signed_artifact }) => {
+                        *send_phase.lock().unwrap() = "Broadcasting...".to_string();
                         match client
                             .broadcast_transaction(protocol_id, signed_artifact)
                             .await
                         {
-                            Ok(tx_hash) => Ok(SendResult {
-                                tx_hash,
-                                status: "broadcasted".to_string(),
-                                block_explorer_url: String::new(),
-                            }),
+                            Ok(tx_hash) => {
+                                let url = Self::explorer_url_from_cache(
+                                    &metadata_cache.lock().unwrap(),
+                                    &protocol_id,
+                                    &tx_hash,
+                                );
+                                Ok(SendResult {
+                                    tx_hash,
+                                    status: "broadcasted".to_string(),
+                                    block_explorer_url: url,
+                                })
+                            }
                             Err(e) => Err(e),
                         }
                     }
                     Ok(_) => Err("unexpected preview in signer mode".to_string()),
                     Err(e) => Err(e),
                 };
+                *send_phase.lock().unwrap() = String::new();
                 let _ = tx.send(result);
             });
 
@@ -568,8 +594,14 @@ impl WalletApi for RealWalletApi {
                 let keypunkd_signature = p.keypunkd_signature;
                 let derivation_path = p.derivation_path;
                 let protocol = p.protocol;
+                let send_phase = self.send_phase.clone();
+                let metadata_cache = self.protocol_metadata.clone();
 
                 tokio::spawn(async move {
+                    *send_phase.lock().unwrap() = match protocol {
+                        ProtocolId::Zcash => "Proving & Signing...".to_string(),
+                        ProtocolId::Ethereum => "Signing...".to_string(),
+                    };
                     let result = match client
                         .approve_signature(
                             &raw_artifact,
@@ -579,19 +611,30 @@ impl WalletApi for RealWalletApi {
                         )
                         .await
                     {
-                        Ok(signed_artifact) => match client
-                            .broadcast_transaction(protocol, signed_artifact)
-                            .await
-                        {
-                            Ok(tx_hash) => Ok(SendResult {
-                                tx_hash,
-                                status: "broadcasted".into(),
-                                block_explorer_url: String::new(),
-                            }),
-                            Err(e) => Err(format!("broadcast failed: {e}")),
-                        },
+                        Ok(signed_artifact) => {
+                            *send_phase.lock().unwrap() = "Broadcasting...".to_string();
+                            match client
+                                .broadcast_transaction(protocol, signed_artifact)
+                                .await
+                            {
+                                Ok(tx_hash) => {
+                                    let url = Self::explorer_url_from_cache(
+                                        &metadata_cache.lock().unwrap(),
+                                        &protocol,
+                                        &tx_hash,
+                                    );
+                                    Ok(SendResult {
+                                        tx_hash,
+                                        status: "broadcasted".into(),
+                                        block_explorer_url: url,
+                                    })
+                                }
+                                Err(e) => Err(format!("broadcast failed: {e}")),
+                            }
+                        }
                         Err(e) => Err(format!("signing failed: {e}")),
                     };
+                    *send_phase.lock().unwrap() = String::new();
                     let _ = tx.send(result);
                 });
 
@@ -623,11 +666,12 @@ impl WalletApi for RealWalletApi {
                     *guard = None;
                     return Some(result);
                 }
-                Ok(Err(_e)) => {
+                Ok(Err(e)) => {
                     *guard = None;
+                    *self.send_phase.lock().unwrap() = String::new();
                     return Some(SendResult {
                         tx_hash: String::new(),
-                        status: "failed".to_string(),
+                        status: format!("failed: {e}"),
                         block_explorer_url: String::new(),
                     });
                 }
@@ -638,6 +682,10 @@ impl WalletApi for RealWalletApi {
             }
         }
         None
+    }
+
+    async fn poll_send_phase(&self) -> String {
+        self.send_phase.lock().unwrap().clone()
     }
 
     async fn get_lock(&self) -> LockData {

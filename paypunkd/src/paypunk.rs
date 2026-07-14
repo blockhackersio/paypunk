@@ -237,11 +237,16 @@ impl Paypunk {
         raw_tx: Vec<u8>,
     ) -> PaypunkdResponse {
         info!(?protocol, "broadcasting transaction");
-        self.respond(
-            "broadcast_transaction",
-            usecases::broadcast_transaction(&self.protocols, protocol, &raw_tx).await,
-            |tx_hash| PaypunkdResponse::TransactionBroadcasted { tx_hash },
-        )
+        let result = usecases::broadcast_transaction(&self.protocols, protocol, &raw_tx).await;
+        match &result {
+            Ok(ref tx_hash) => {
+                info!(?protocol, tx_hash = %tx_hash, "transaction broadcast successfully")
+            }
+            Err(ref e) => warn!(?protocol, error = %e, "broadcast_transaction failed"),
+        }
+        self.respond("broadcast_transaction", result, |tx_hash| {
+            PaypunkdResponse::TransactionBroadcasted { tx_hash }
+        })
     }
 
     async fn create_account(
