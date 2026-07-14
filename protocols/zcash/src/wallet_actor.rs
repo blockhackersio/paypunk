@@ -210,13 +210,6 @@ impl WalletDbActor {
         // If the DB file was deleted out from under us, reinitialize first.
         self.ensure_db_file_exists()?;
 
-        let birthday = if birthday_height == 0 {
-            info!("register_account: birthday_height is 0, defaulting to block 2");
-            BlockHeight::from_u32(2)
-        } else {
-            BlockHeight::from_u32(birthday_height as u32)
-        };
-
         info!("register_account: parsing 96-byte Orchard FVK");
         let fvk_bytes: [u8; 96] = fvk
             .try_into()
@@ -230,14 +223,32 @@ impl WalletDbActor {
         let ufvk = UnifiedFullViewingKey::parse(&ufvk_container)
             .map_err(|e| format!("failed to parse UFVK: {e}"))?;
 
-        // Fetch tree state at birthday-1 for the account birthday
-        info!("register_account: getting tree state from lightwalletd");
+        // Connect to lightwalletd early — we need it for birthday resolution and tree state
+        info!("register_account: connecting to lightwalletd");
         let mut lsp = LspClient::connect(&self.lightwalletd_host, self.params).await?;
+
+        // Resolve birthday: if 0, use the latest chain tip so tree state is available
+        let birthday = if birthday_height == 0 {
+            let latest = lsp.get_latest_height().await?;
+            info!(
+                "register_account: birthday_height is 0, using latest chain tip {}",
+                u32::from(latest)
+            );
+            latest
+        } else {
+            BlockHeight::from_u32(birthday_height as u32)
+        };
+
+        // Fetch tree state at birthday-1 for the account birthday
         let prev_height = if birthday > BlockHeight::from_u32(0) {
             birthday - 1
         } else {
             birthday
         };
+        info!(
+            "register_account: getting tree state at height {}",
+            u32::from(prev_height)
+        );
         let tree_state = lsp.get_tree_state(prev_height).await?;
         let chain_state = tree_state
             .to_chain_state()

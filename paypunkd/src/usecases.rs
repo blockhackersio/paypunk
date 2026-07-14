@@ -659,7 +659,17 @@ pub async fn broadcast_transaction(
 ) -> Result<String, String> {
     let (finalized, stored_txid) = protocols.get(protocol)?.store_and_finalize(raw_tx).await?;
     let broadcast_hash = protocols.get(protocol)?.broadcast(&finalized).await?;
-    let tx_hash = stored_txid.unwrap_or(broadcast_hash);
+    let tx_hash = stored_txid.clone().unwrap_or(broadcast_hash.clone());
+    if let Some(ref stored) = &stored_txid {
+        if stored != &broadcast_hash {
+            tracing::warn!(
+                ?protocol,
+                stored_txid = %stored,
+                broadcast_txid = %broadcast_hash,
+                "txid mismatch between wallet DB and broadcast"
+            );
+        }
+    }
     tracing::info!(?protocol, tx_hash = %tx_hash, "transaction broadcast");
     Ok(tx_hash)
 }

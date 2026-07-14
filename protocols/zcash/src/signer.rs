@@ -126,7 +126,12 @@ impl ZcashSignerProtocol {
             let num_actions = pczt.orchard().actions().len();
             let mut signer = Signer::new(pczt).map_err(|e| format!("Signer::new failed: {e:?}"))?;
             for i in 0..num_actions {
-                let _ = signer.sign_orchard(i, &ask);
+                match signer.sign_orchard(i, &ask) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::debug!(action = i, error = ?e, "sign_orchard failed for action (may be dummy spend)");
+                    }
+                }
             }
             let pczt = signer.finish();
             return Ok(pczt.serialize());

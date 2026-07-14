@@ -4,21 +4,23 @@ use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxS
 use zcash_client_backend::proto::service::{
     BlockId, BlockRange, ChainSpec, RawTransaction, TreeState,
 };
-use zcash_protocol::consensus::BlockHeight;
+use zcash_primitives::transaction::Transaction;
+use zcash_protocol::consensus::{BlockHeight, BranchId};
 use zcash_protocol::local_consensus::LocalNetwork;
 
 /// Lightwalletd gRPC client for Zcash chain interaction.
 pub struct LspClient {
     inner: CompactTxStreamerClient<Channel>,
+    params: LocalNetwork,
 }
 
 impl LspClient {
     /// Connect to a lightwalletd endpoint.
-    pub async fn connect(host: &str, _params: LocalNetwork) -> Result<Self, String> {
+    pub async fn connect(host: &str, params: LocalNetwork) -> Result<Self, String> {
         let inner = CompactTxStreamerClient::connect(host.to_string())
             .await
             .map_err(|e| format!("failed to connect to lightwalletd: {e}"))?;
-        Ok(Self { inner })
+        Ok(Self { inner, params })
     }
 
     /// Get the latest block height from lightwalletd.
@@ -82,6 +84,7 @@ impl LspClient {
     }
 
     /// Broadcast a raw transaction to the network.
+    /// Returns the transaction hash (txid) as a hex string.
     pub async fn broadcast_tx(&mut self, tx_bytes: &[u8]) -> Result<String, String> {
         let response = self
             .inner
@@ -98,6 +101,11 @@ impl LspClient {
                 result.error_code, result.error_message
             ));
         }
-        Ok("broadcast successful".to_string())
+
+        let height = self.get_latest_height().await?;
+        let branch_id = BranchId::for_height(&self.params, height);
+        let tx = Transaction::read(tx_bytes, branch_id)
+            .map_err(|e| format!("failed to parse broadcast tx for txid: {e}"))?;
+        Ok(hex::encode(tx.txid().as_ref()))
     }
 }
