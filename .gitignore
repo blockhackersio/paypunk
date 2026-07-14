@@ -1,4 +1,6 @@
 .pnpm-store/
+.mnemonic
+
 # Devenv
 .devenv*
 devenv.local.nix
