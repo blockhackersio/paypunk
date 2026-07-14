@@ -106,6 +106,7 @@ pub fn to_local_params(params: Network, network_type: NetworkType) -> LocalNetwo
             nu5: Some(BlockHeight::from_u32(1)),
             nu6: Some(BlockHeight::from_u32(1)),
             nu6_1: Some(BlockHeight::from_u32(1)),
+            nu6_2: Some(BlockHeight::from_u32(1)),
         },
         _ => LocalNetwork {
             overwinter: params.activation_height(NetworkUpgrade::Overwinter),
@@ -116,6 +117,7 @@ pub fn to_local_params(params: Network, network_type: NetworkType) -> LocalNetwo
             nu5: params.activation_height(NetworkUpgrade::Nu5),
             nu6: params.activation_height(NetworkUpgrade::Nu6),
             nu6_1: params.activation_height(NetworkUpgrade::Nu6_1),
+            nu6_2: params.activation_height(NetworkUpgrade::Nu6_2),
         },
     }
 }
