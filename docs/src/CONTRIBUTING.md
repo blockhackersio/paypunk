@@ -66,7 +66,7 @@ make fund UA=<your-orchard-ua>       # mine + shield funds to your wallet
 make info                            # check height + Orchard pool value
 ```
 
-See [`support/zcash/README.md`](support/zcash/README.md) for details.
+See [`support/zcash/README.md`](../../support/zcash/README.md) for details.
 
 ### Ethereum (anvil)
 
@@ -74,7 +74,7 @@ See [`support/zcash/README.md`](support/zcash/README.md) for details.
 cd support/ethereum && docker compose up
 ```
 
-10 pre-funded accounts at `http://127.0.0.1:8545`. See [`support/ethereum/README.md`](support/ethereum/README.md).
+10 pre-funded accounts at `http://127.0.0.1:8545`. See [`support/ethereum/README.md`](../../support/ethereum/README.md).
 
 ## Testing
 
@@ -137,7 +137,7 @@ See [`docs/ADD_PROTOCOL.md`](ADD_PROTOCOL.md) for a step-by-step guide.
 
 ## Architecture decisions
 
-See [`adr/`](adr/) for architecture decision records. Current:
+See [`adr/`](../../adr/) for architecture decision records. Current:
 
 - [ADR-001: IPC Authentication Model](../../adr/001-ipc-auth-model.md)
 
@@ -153,4 +153,4 @@ CI runs `cargo fmt --all --check` and `cargo test` on all PRs to `master`.
 
 ## The signer subproject
 
-The `signer/` directory is a separate Tauri v2 mobile app with its own `devenv.nix`, `Cargo.lock`, and build tooling (Android SDK, NDK, Node, JDK). It is excluded from the Cargo workspace. See [`signer/README.md`](signer/README.md) for build instructions.
+The `signer/` directory is a separate Tauri v2 mobile app with its own `devenv.nix`, `Cargo.lock`, and build tooling (Android SDK, NDK, Node, JDK). It is excluded from the Cargo workspace. See [`signer/README.md`](../../signer/README.md) for build instructions.
