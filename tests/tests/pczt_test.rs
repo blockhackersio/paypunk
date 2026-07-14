@@ -121,10 +121,10 @@ fn test_orchard_shielded_pczt_full_pipeline() {
 
     let signer = ZcashSignerProtocol::new(
         to_local_params(
-            zcash_protocol::consensus::Network::MainNetwork,
-            zcash_protocol::consensus::NetworkType::Main,
+            zcash_protocol::consensus::Network::TestNetwork,
+            zcash_protocol::consensus::NetworkType::Regtest,
         ),
-        zcash_protocol::consensus::NetworkType::Main,
+        zcash_protocol::consensus::NetworkType::Regtest,
     );
 
     // ── 5. Sign via ZcashSignerProtocol (SignerProtocol::sign) ───────────
@@ -134,10 +134,10 @@ fn test_orchard_shielded_pczt_full_pipeline() {
     // ── 6. Finalize via ZcashProtocol (Protocol::finalize) ──────────────
     let wallet_protocol = ZcashProtocol::new(
         to_local_params(
-            zcash_protocol::consensus::Network::MainNetwork,
-            zcash_protocol::consensus::NetworkType::Main,
+            zcash_protocol::consensus::Network::TestNetwork,
+            zcash_protocol::consensus::NetworkType::Regtest,
         ),
-        zcash_protocol::consensus::NetworkType::Main,
+        zcash_protocol::consensus::NetworkType::Regtest,
         None,
         None,
         None,

@@ -263,6 +263,7 @@ pub async fn bulk_derive_accounts(
     encrypted_password: Vec<u8>,
     client_public_key: [u8; 32],
     paths: Vec<(ProtocolId, String)>,
+    birthday_height: Option<u64>,
 ) -> Result<Vec<Account>, String> {
     info!("bulk_derive_accounts() with {paths:?}");
 
@@ -302,7 +303,11 @@ pub async fn bulk_derive_accounts(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            birthday_height: None,
+            birthday_height: if proto.chain_id().reference == "regtest" {
+                Some(0)
+            } else {
+                birthday_height
+            },
         };
 
         let conn = db.conn.as_ref().ok_or("database is locked")?;
@@ -324,6 +329,7 @@ pub async fn register_signer(
     signer_repo: &dyn SignerStateRepository,
     keystore: &Keypair,
     paths: Vec<(ProtocolId, String)>,
+    birthday_height: Option<u64>,
 ) -> Result<u32, String> {
     info!("register_signer() with {} paths", paths.len());
 
@@ -402,7 +408,11 @@ pub async fn register_signer(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            birthday_height: None,
+            birthday_height: if proto.chain_id().reference == "regtest" {
+                Some(0)
+            } else {
+                birthday_height
+            },
         };
 
         {
@@ -427,14 +437,7 @@ pub async fn register_signer(
                 let h = if proto.chain_id().reference == "regtest" {
                     Some(0)
                 } else {
-                    match protocols.get_lightwalletd_host(*protocol) {
-                        Some(host) => proto
-                            .get_current_block_height(host)
-                            .await
-                            .ok()
-                            .map(|bh| bh.0),
-                        None => None,
-                    }
+                    birthday_height
                 };
                 if let Some(height) = h {
                     birthday_cache.insert(*protocol, height);

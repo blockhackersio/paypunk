@@ -97,7 +97,7 @@ scripts/setup-test-wallet.sh    # reset + restore + unlock with test mnemonic
 
 Uses the standard BIP39 test mnemonic (`test test ... junk`) with password `test`.
 
-For mainnet (when a `.mnemonic` file exists), pass a birthday block height as the first argument so the wallet scans from that block instead of auto-fetching the chain tip:
+For mainnet (when a `.mnemonic` file exists), pass a birthday block height as the first argument so the wallet scans from that block instead of auto-fetching the chain tip as a fallback:
 
 ```bash
 scripts/setup-test-wallet.sh 1234567

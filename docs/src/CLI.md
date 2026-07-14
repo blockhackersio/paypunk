@@ -85,7 +85,7 @@ paypunk restore-seed -m "word1 word2 ... word12" -p <password> --birthday-height
 
 Birthday height speeds up initial sync by avoiding scanning from genesis. Recommended for mainnet.
 
-On mainnet, if `--birthday-height` is omitted the wallet auto-fetches the current chain tip as the birthday. This is fine for fresh wallets, but existing funds below that height will not be detected. Always provide a birthday block when restoring a mainnet wallet with prior activity.
+On mainnet, if `--birthday-height` is omitted the wallet auto-fetches the current chain tip as the birthday. This is fine for fresh wallets, but existing funds below that height will not be detected. Always provide a birthday block when restoring a mainnet wallet with prior activity. The stored birthday is consulted by `create_account`, `register_signer`, and `bulk_derive_accounts` before falling back to the tip, and the background sync loop falls back to the minimum account birthday when no blocks have been scanned yet.
 
 ### `unlock`
 

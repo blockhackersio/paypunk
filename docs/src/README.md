@@ -218,7 +218,7 @@ When restoring a mainnet wallet that has prior activity, provide a **birthday bl
 paypunk restore-seed -m "word1 ... word12" -p <password> --zcash-network mainnet --birthday-height 1234567
 ```
 
-If omitted on mainnet, the wallet auto-fetches the current chain tip as the birthday — fine for fresh wallets, but existing funds below that height will not be detected.
+If omitted on mainnet, the wallet auto-fetches the current chain tip as the birthday — fine for fresh wallets, but existing funds below that height will not be detected. The stored birthday is consulted by `create_account`, `register_signer`, and `bulk_derive_accounts` before falling back to the tip. The background sync loop also falls back to the minimum account birthday when the wallet DB has no scanned blocks yet, so historical scanning will eventually occur even if the initial `SyncNewAccount` is missed.
 
 When using the devenv `setup` script with a `.mnemonic` file (mainnet mode), pass the birthday block as the first argument:
 

@@ -572,7 +572,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Reset) => {
             let config = ConfigLoader::load_or_default();
-            let data_dir = &config.data_dir;
+            let network = cli
+                .zcash_network
+                .clone()
+                .unwrap_or(config.zcash_network.clone());
+            let resolved = resolve_network_config(
+                &network,
+                cli.lightwalletd_host.as_deref(),
+                cli.data_dir.as_deref(),
+                &config,
+            );
+            let data_dir = &resolved.data_dir;
             if Path::new(data_dir).exists() {
                 fs::remove_dir_all(data_dir)
                     .map_err(|e| format!("Failed to remove {data_dir}: {e}"))?;
