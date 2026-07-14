@@ -261,45 +261,71 @@ impl Screen for SendScreen {
                 let max_focus = if is_zcash { 2 } else { 1 };
                 match key.code {
                     KeyCode::Tab => {
-                        if self.focus == 0 && self.to_picker.is_open() {
+                        if self.focus == 0
+                            && self.to_picker.is_open()
+                            && self.to_picker.has_filtered()
+                        {
                             self.to_picker.handle_event(key);
                         } else {
+                            if self.focus == 0 {
+                                self.to_picker.close();
+                            }
                             self.focus = (self.focus + 1).min(max_focus);
                         }
                     }
                     KeyCode::Down => {
-                        if self.focus == 0 {
+                        if self.focus == 0 && self.to_picker.has_items() {
                             self.to_picker.handle_event(key);
+                            if self.to_picker.is_open() && !self.to_picker.has_filtered() {
+                                self.to_picker.close();
+                                self.focus = (self.focus + 1).min(max_focus);
+                            }
                         } else {
                             self.focus = (self.focus + 1).min(max_focus);
                         }
                     }
                     KeyCode::BackTab => {
-                        if self.focus == 0 && self.to_picker.is_open() {
+                        if self.focus == 0
+                            && self.to_picker.is_open()
+                            && self.to_picker.has_filtered()
+                        {
                             self.to_picker.handle_event(key);
                         } else {
+                            if self.focus == 0 {
+                                self.to_picker.close();
+                            }
                             self.focus = self.focus.saturating_sub(1);
                         }
                     }
                     KeyCode::Up => {
-                        if self.focus == 0 {
+                        if self.focus == 0
+                            && self.to_picker.is_open()
+                            && self.to_picker.has_filtered()
+                        {
                             self.to_picker.handle_event(key);
+                        } else if self.focus == 0 && self.to_picker.is_open() {
+                            self.to_picker.close();
+                        } else if self.focus == 0 {
                         } else {
                             self.focus = self.focus.saturating_sub(1);
                         }
                     }
                     KeyCode::Enter => {
                         if self.focus == 0 && self.to_picker.is_open() {
-                            if let Some(DropdownAction::Selected(idx)) =
-                                self.to_picker.handle_event(key)
-                            {
-                                let addr = self
-                                    .to_picker
-                                    .get_item(idx)
-                                    .map(|item| item.entry.address.clone());
-                                if let Some(address) = addr {
-                                    self.to_picker.set_value(&address);
+                            if self.to_picker.has_filtered() {
+                                if let Some(DropdownAction::Selected(idx)) =
+                                    self.to_picker.handle_event(key)
+                                {
+                                    let addr = self
+                                        .to_picker
+                                        .get_item(idx)
+                                        .map(|item| item.entry.address.clone());
+                                    if let Some(address) = addr {
+                                        self.to_picker.set_value(&address);
+                                    }
                                 }
+                            } else {
+                                self.to_picker.close();
                             }
                         } else {
                             let memo = if is_zcash {

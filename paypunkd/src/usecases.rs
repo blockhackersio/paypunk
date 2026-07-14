@@ -424,13 +424,17 @@ pub async fn register_signer(
             let bday = if let Some(&h) = birthday_cache.get(protocol) {
                 h
             } else {
-                let h = match protocols.get_lightwalletd_host(*protocol) {
-                    Some(host) => proto
-                        .get_current_block_height(host)
-                        .await
-                        .ok()
-                        .map(|bh| bh.0),
-                    None => None,
+                let h = if proto.chain_id().reference == "regtest" {
+                    Some(0)
+                } else {
+                    match protocols.get_lightwalletd_host(*protocol) {
+                        Some(host) => proto
+                            .get_current_block_height(host)
+                            .await
+                            .ok()
+                            .map(|bh| bh.0),
+                        None => None,
+                    }
                 };
                 if let Some(height) = h {
                     birthday_cache.insert(*protocol, height);

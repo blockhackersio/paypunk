@@ -473,19 +473,25 @@ impl Paypunk {
         .and_then(|s| s.parse::<u64>().ok())
     }
 
-    /// Auto-fetch the current chain tip from the protocol to use as birthday.
+    /// Auto-determine a birthday height for a new account.
+    ///
+    /// For regtest, returns 0 (scan from block 2) because regtest has very
+    /// few blocks and notes may exist at any height.  For mainnet/testnet,
+    /// fetches the current chain tip so the initial scan is short — the
+    /// background sync loop will keep up with new blocks.
     async fn auto_birthday(&self, protocol: ProtocolId) -> Option<u64> {
-        let lightwalletd_host = match self.protocols.get_lightwalletd_host(protocol) {
-            Some(h) => h,
-            None => return None,
-        };
-        match self
-            .protocols
-            .get(protocol)
-            .ok()?
-            .get_current_block_height(lightwalletd_host)
-            .await
-        {
+        let proto = self.protocols.get(protocol).ok()?;
+
+        if proto.chain_id().reference == "regtest" {
+            info!(
+                ?protocol,
+                "auto-birthday: regtest — using 0 (full scan from block 2)"
+            );
+            return Some(0);
+        }
+
+        let lightwalletd_host = self.protocols.get_lightwalletd_host(protocol)?;
+        match proto.get_current_block_height(lightwalletd_host).await {
             Ok(height) => {
                 info!(?protocol, height = height.0, "auto-birthday fetched tip");
                 Some(height.0)

@@ -66,11 +66,25 @@ impl<T: Searchable + Component<A> + 'static, A> DropdownPicker<T, A> {
         self.open
     }
 
+    pub fn has_items(&self) -> bool {
+        !self.items.is_empty()
+    }
+
+    pub fn has_filtered(&self) -> bool {
+        !self.filtered.is_empty()
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
     pub fn handle_paste(&mut self, text: &str) {
         self.text_field.handle_paste(text);
-        self.open = true;
-        self.selected = 0;
-        self.filter();
+        if !self.items.is_empty() {
+            self.open = true;
+            self.selected = 0;
+            self.filter();
+        }
     }
 
     pub fn max_visible(mut self, n: usize) -> Self {
@@ -191,6 +205,10 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
         if self.open {
             match key.code {
                 KeyCode::Down | KeyCode::Tab => {
+                    if self.filtered.is_empty() {
+                        self.open = false;
+                        return None;
+                    }
                     if self.selected + 1 < self.filtered.len() {
                         self.selected += 1;
                     }
@@ -210,6 +228,7 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
                         self.open = false;
                         return Some(DropdownAction::Selected(idx));
                     }
+                    self.open = false;
                     return None;
                 }
                 KeyCode::Esc => {
@@ -223,9 +242,11 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
         if let Some(action) = self.text_field.handle_event(key) {
             match action {
                 TextFieldAction::Changed(_) => {
-                    self.open = true;
-                    self.selected = 0;
-                    self.filter();
+                    if !self.items.is_empty() {
+                        self.open = true;
+                        self.selected = 0;
+                        self.filter();
+                    }
                     return None;
                 }
                 TextFieldAction::Submitted => {
@@ -241,7 +262,7 @@ impl<T: Searchable + Component<A> + 'static, A> Component<DropdownAction<A>>
             }
         }
 
-        if key.code == KeyCode::Down && !self.open {
+        if key.code == KeyCode::Down && !self.open && !self.items.is_empty() {
             self.open = true;
             self.filter();
         }

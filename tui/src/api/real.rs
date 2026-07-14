@@ -541,18 +541,25 @@ impl WalletApi for RealWalletApi {
         let pending = self.pending.lock().unwrap().take();
         let password = input.auth_confirmation.value.clone();
 
-        // Save recipient to address book
-        let to_addr = input.reviewed.to_address.clone();
-        let _ = self
-            .add_address_book_entry(
-                format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
-                to_addr,
-                "Wallet".into(),
-            )
-            .await;
-
         match pending {
             Some(p) => {
+                let to_addr = input.reviewed.to_address.clone();
+                let is_own_account = self
+                    .client
+                    .list_accounts()
+                    .await
+                    .map(|accs| accs.iter().any(|a| a.address == to_addr))
+                    .unwrap_or(false);
+                if !is_own_account {
+                    let _ = self
+                        .add_address_book_entry(
+                            format!("Sent to {}", &to_addr[..to_addr.len().min(20)]),
+                            to_addr,
+                            format!("{:?}", p.protocol),
+                        )
+                        .await;
+                }
+
                 let (tx, rx) = oneshot::channel();
                 *self.pending_send_result.lock().unwrap() = Some(rx);
 
