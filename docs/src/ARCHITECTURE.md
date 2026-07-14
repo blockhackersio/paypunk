@@ -170,7 +170,7 @@ The crate carries raw bytes — serialization (postcard) is done by callers. Thi
 | `0x03` | `MSG_REGISTER_CLIENT_ACK` | none |
 | `0x04` | `MSG_APPLICATION` | `[postcard bytes][32-byte Blake2b MAC]` |
 
-See [ADR-001](../adr/001-ipc-auth-model.md) for the authentication design.
+See [ADR-001](../../adr/001-ipc-auth-model.md) for the authentication design.
 
 ## Trait System
 
@@ -224,4 +224,4 @@ The `tests/` workspace crate wires up the full actor chain (keypunkd + paypunkd)
 - [CONTEXT.md](CONTEXT.md) — domain glossary and terminology
 - [ADD_PROTOCOL.md](ADD_PROTOCOL.md) — guide for adding new chains
 - [SECURITY.md](SECURITY.md) — threat model and security boundaries
-- [ADR-001](../adr/001-ipc-auth-model.md) — IPC authentication design
+- [ADR-001](../../adr/001-ipc-auth-model.md) — IPC authentication design

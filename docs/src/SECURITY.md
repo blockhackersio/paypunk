@@ -47,7 +47,7 @@ The core security boundary is between `keypunkd` (which holds keys) and everythi
 - Per-message Blake2b-256 MAC (keyed-hash: `Blake2b(hmac_key || payload)`)
 - MAC mismatch drops the connection immediately
 - Keypairs are ephemeral — regenerated on each daemon restart
-- See [ADR-001](../adr/001-ipc-auth-model.md) for the full design
+- See [ADR-001](../../adr/001-ipc-auth-model.md) for the full design
 
 ### Password sealing
 

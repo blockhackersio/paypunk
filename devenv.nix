@@ -7,7 +7,11 @@
 }: {
   languages.rust.enable = true;
 
-  packages = with pkgs; [bc];
+  packages = with pkgs; [
+    bc
+    mdbook
+    mdbook-mermaid
+  ];
 
   scripts = {
     setup.exec = "${pkgs.bash}/bin/bash scripts/setup-test-wallet.sh";
@@ -19,5 +23,7 @@
     tui.exec = "${pkgs.bash}/bin/bash scripts/ui.sh";
     cb.exec = "cargo build";
     ct.exec = "cargo test";
+    docs.exec = "mdbook build docs";
+    docs-serve.exec = "mdbook serve docs --open";
   };
 }

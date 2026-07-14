@@ -175,5 +175,5 @@ See [SECURITY.md](SECURITY.md) for the full threat model.
 ## See also
 
 - [SECURITY.md](SECURITY.md) — threat model and security boundaries
-- [signer/README.md](../signer/README.md) — Tauri v2 mobile signer app
-- [ADR-001](../adr/001-ipc-auth-model.md) — IPC authentication design
+- [signer/README.md](../../signer/README.md) — Tauri v2 mobile signer app
+- [ADR-001](../../adr/001-ipc-auth-model.md) — IPC authentication design
