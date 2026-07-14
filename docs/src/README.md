@@ -210,6 +210,24 @@ paypunk --zcash-network mainnet --lightwalletd-host https://my-lwd.example.com:4
 PAYPUNK_ZCASH_NETWORK=mainnet PAYPUNK_LIGHTWALLETD_HOST=https://my-lwd.example.com:443 paypunk
 ```
 
+##### Birthday block
+
+When restoring a mainnet wallet that has prior activity, provide a **birthday block height** so the initial sync starts from that block instead of scanning from genesis (or auto-fetching the chain tip, which skips historical blocks entirely):
+
+```bash
+paypunk restore-seed -m "word1 ... word12" -p <password> --zcash-network mainnet --birthday-height 1234567
+```
+
+If omitted on mainnet, the wallet auto-fetches the current chain tip as the birthday — fine for fresh wallets, but existing funds below that height will not be detected.
+
+When using the devenv `setup` script with a `.mnemonic` file (mainnet mode), pass the birthday block as the first argument:
+
+```bash
+devenv shell -- run setup 1234567
+```
+
+The script will warn and prompt you if a mainnet wallet is restored without a birthday block.
+
 #### Ethereum
 
 Ethereum uses an RPC URL (JSON-RPC over HTTP). The default points to a local node (`http://127.0.0.1:8545`); override it for mainnet or testnet:

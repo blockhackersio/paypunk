@@ -48,7 +48,7 @@ If using devenv, these shortcuts are available:
 |--------|---------|---------|
 | `cb` | `cargo build` | Build |
 | `ct` | `cargo test` | Test |
-| `setup` | `scripts/setup-test-wallet.sh` | Reset + restore test wallet |
+| `setup` | `scripts/setup-test-wallet.sh` | Reset + restore test wallet (pass a block height as the first arg for mainnet birthday) |
 | `ethereum` | `scripts/start-ethereum.sh` | Start anvil Docker stack |
 | `zcash` | `scripts/start-zcash.sh` | Start zcashd + lightwalletd regtest |
 | `kp` | `scripts/key-daemon.sh` | Run keypunkd |
@@ -96,6 +96,16 @@ scripts/setup-test-wallet.sh    # reset + restore + unlock with test mnemonic
 ```
 
 Uses the standard BIP39 test mnemonic (`test test ... junk`) with password `test`.
+
+For mainnet (when a `.mnemonic` file exists), pass a birthday block height as the first argument so the wallet scans from that block instead of auto-fetching the chain tip:
+
+```bash
+scripts/setup-test-wallet.sh 1234567
+# or via devenv:
+devenv shell -- run setup 1234567
+```
+
+Without a birthday block on mainnet, the script will warn you and continue after 5 seconds.
 
 ## Code style
 
