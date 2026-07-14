@@ -4,12 +4,16 @@
 
 <h1 align="center">Paypunk Project</h1>
 
-_This is experimental software and should not be used with real funds_
+<p align="center">
+  <em>This is experimental software and should not be used with real funds</em>
+</p>
 
-[![CI](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml/badge.svg)](https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
-[![Status](https://img.shields.io/badge/status-alpha-yellow.svg)]()
+<p align="center">
+  <a href="https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml"><img src="https://github.com/blockhackersio/paypunk/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0" /></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-stable-orange.svg" alt="Rust" /></a>
+  <img src="https://img.shields.io/badge/status-alpha-yellow.svg" alt="Status" />
+</p>
 
 ## The Dream
 
