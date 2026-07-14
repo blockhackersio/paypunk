@@ -109,7 +109,8 @@ impl ScanActor {
         let latest_u64: u64 = latest.into();
 
         let birthday = if birthday_height == 0 {
-            BlockHeight::from_u32(2)
+            info!("scan_actor: birthday_height is 0, using latest chain tip {latest_u64}");
+            latest
         } else {
             BlockHeight::from_u32(birthday_height as u32)
         };

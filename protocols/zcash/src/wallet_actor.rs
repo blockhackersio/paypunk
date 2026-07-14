@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use rand_core::OsRng;
 use tactix::{Actor, Ctx, Handler, Message};
-use tracing::info;
+use tracing::{info, warn};
 use zcash_address::unified::{Encoding, Fvk, Ufvk};
 use zcash_client_backend::data_api::chain::scan_cached_blocks;
 use zcash_client_backend::data_api::chain::BlockSource;
@@ -171,6 +171,141 @@ impl WalletDbActor {
     /// Return the appropriate consensus parameters for transaction building and scanning.
     fn build_params(&self) -> LocalNetwork {
         self.params
+    }
+
+    /// Log diagnostics about why notes may not be spendable.
+    fn log_spendability_diagnostics(&self, account_id: AccountUuid) {
+        let conn = match rusqlite::Connection::open(&self.db_path) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("diagnostics: failed to open DB: {e}");
+                return;
+            }
+        };
+
+        let uuid = account_id.expose_uuid();
+
+        // 1. Chain tip from scan_queue
+        let chain_tip: Option<u32> = conn
+            .query_row(
+                "SELECT MAX(block_range_end) - 1 FROM scan_queue",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(None);
+        info!("diagnostics: chain_tip={chain_tip:?}");
+
+        // 2. Scan queue entries
+        match conn.prepare(
+            "SELECT block_range_start, block_range_end, priority FROM scan_queue ORDER BY block_range_start",
+        ) {
+            Ok(mut stmt) => {
+                if let Ok(mut rows) = stmt.query([]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        let start: u32 = row.get::<_, u32>(0).unwrap_or(0);
+                        let end: u32 = row.get::<_, u32>(1).unwrap_or(0);
+                        let priority: i64 = row.get::<_, i64>(2).unwrap_or(0);
+                        info!("diagnostics: scan_queue {start}..{end} priority={priority}");
+                    }
+                }
+            }
+            Err(e) => warn!("diagnostics: scan_queue prepare failed: {e}"),
+        }
+
+        // 3. Orchard tree checkpoints (last 10)
+        match conn.prepare(
+            "SELECT checkpoint_id, position FROM orchard_tree_checkpoints ORDER BY checkpoint_id DESC LIMIT 10",
+        ) {
+            Ok(mut stmt) => {
+                if let Ok(mut rows) = stmt.query([]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        let height: u32 = row.get::<_, u32>(0).unwrap_or(0);
+                        let position: Option<u64> = row.get::<_, Option<u64>>(1).unwrap_or(None);
+                        info!("diagnostics: orchard_checkpoint height={height} position={position:?}");
+                    }
+                }
+            }
+            Err(e) => warn!("diagnostics: checkpoints prepare failed: {e}"),
+        }
+
+        // 4. Orchard received notes for this account
+        match conn.prepare(
+            "SELECT rn.id, rn.value, rn.is_change, rn.witness_stabilized,
+                    rn.commitment_tree_position, t.mined_height
+             FROM orchard_received_notes rn
+             INNER JOIN accounts ON accounts.id = rn.account_id
+             INNER JOIN transactions t ON t.id_tx = rn.transaction_id
+             WHERE accounts.uuid = ?1
+             AND rn.id NOT IN (
+                 SELECT orchard_received_note_id FROM orchard_received_note_spends
+             )",
+        ) {
+            Ok(mut stmt) => {
+                if let Ok(mut rows) = stmt.query([uuid]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        let id: i64 = row.get::<_, i64>(0).unwrap_or(0);
+                        let value: i64 = row.get::<_, i64>(1).unwrap_or(0);
+                        let is_change: bool = row.get::<_, bool>(2).unwrap_or(false);
+                        let witness_stabilized: bool = row.get::<_, bool>(3).unwrap_or(false);
+                        let position: Option<u64> = row.get::<_, Option<u64>>(4).unwrap_or(None);
+                        let mined_height: Option<u32> =
+                            row.get::<_, Option<u32>>(5).unwrap_or(None);
+                        info!(
+                            "diagnostics: orchard_note id={id} value={value} is_change={is_change} \
+                             witness_stabilized={witness_stabilized} position={position:?} mined_height={mined_height:?}"
+                        );
+                    }
+                }
+            }
+            Err(e) => warn!("diagnostics: notes prepare failed: {e}"),
+        }
+
+        // 5. Orchard shard scan state
+        match conn.prepare(
+            "SELECT shard_index, subtree_start_height, subtree_end_height, max_priority
+             FROM v_orchard_shards_scan_state
+             ORDER BY shard_index",
+        ) {
+            Ok(mut stmt) => {
+                if let Ok(mut rows) = stmt.query([]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        let shard_index: u64 = row.get::<_, u64>(0).unwrap_or(0);
+                        let start_height: Option<u32> =
+                            row.get::<_, Option<u32>>(1).unwrap_or(None);
+                        let end_height: Option<u32> = row.get::<_, Option<u32>>(2).unwrap_or(None);
+                        let max_priority: Option<i64> =
+                            row.get::<_, Option<i64>>(3).unwrap_or(None);
+                        info!(
+                            "diagnostics: orchard_shard idx={shard_index} start={start_height:?} end={end_height:?} max_priority={max_priority:?}"
+                        );
+                    }
+                }
+            }
+            Err(e) => warn!("diagnostics: shard_state prepare failed: {e}"),
+        }
+
+        // 6. Unscanned ranges in orchard shards
+        let unscanned_res = conn.prepare(
+            "SELECT shard_index, block_range_start, block_range_end, priority
+             FROM v_orchard_shard_unscanned_ranges
+             ORDER BY block_range_start",
+        );
+        match unscanned_res {
+            Ok(mut stmt) => {
+                if let Ok(mut rows) = stmt.query([]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        let shard_index: u64 = row.get::<_, u64>(0).unwrap_or(0);
+                        let start: u32 = row.get::<_, u32>(1).unwrap_or(0);
+                        let end: u32 = row.get::<_, u32>(2).unwrap_or(0);
+                        let priority: i64 = row.get::<_, i64>(3).unwrap_or(0);
+                        info!(
+                            "diagnostics: orchard_unscanned shard={shard_index} {start}..{end} priority={priority}"
+                        );
+                    }
+                }
+            }
+            Err(e) => warn!("diagnostics: unscanned prepare failed: {e}"),
+        }
     }
 
     /// If the wallet DB file was deleted (e.g. by `paypunk reset` while the
@@ -453,6 +588,9 @@ impl Handler<ProposeAndBuild> for WalletDbActor {
             .map(zcash_protocol::memo::MemoBytes::from);
 
         let params = self.build_params();
+
+        self.log_spendability_diagnostics(account_id);
+
         let proposal = propose_standard_transfer_to_address::<
             WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
             LocalNetwork,
@@ -471,7 +609,9 @@ impl Handler<ProposeAndBuild> for WalletDbActor {
         )
         .map_err(
             |e: DataApiError<SqliteClientError, _, _, _, _, ReceivedNoteId>| {
-                format!("propose_transfer failed: {e}")
+                let msg = format!("propose_transfer failed: {e}");
+                warn!("{msg}");
+                msg
             },
         )?;
 

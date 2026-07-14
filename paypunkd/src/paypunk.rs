@@ -150,8 +150,14 @@ impl Paypunk {
             Ok(KeypunkdResponse::ArtifactAuthorized { signed_artifact }) => {
                 PaypunkdResponse::SignatureApproved { signed_artifact }
             }
-            Ok(KeypunkdResponse::Error { message }) => PaypunkdResponse::Error { message },
-            Err(e) => PaypunkdResponse::Error { message: e },
+            Ok(KeypunkdResponse::Error { message }) => {
+                info!("submit_intent: keypunkd error: {message}");
+                PaypunkdResponse::Error { message }
+            }
+            Err(e) => {
+                info!("submit_intent: error: {e}");
+                PaypunkdResponse::Error { message: e }
+            }
             _ => PaypunkdResponse::Error {
                 message: "unexpected response from keypunkd".to_string(),
             },
