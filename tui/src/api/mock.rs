@@ -513,6 +513,7 @@ impl WalletApi for MockWalletApi {
                     amount: "0.05000000 ZEC".into(),
                     status: "Confirmed".into(),
                     timestamp: Some(1700000000),
+                    memo: Some("Payment for services".into()),
                 },
                 HistoryRow {
                     hash: "0xef01...5678".into(),
@@ -521,6 +522,7 @@ impl WalletApi for MockWalletApi {
                     amount: "0.10000000 ZEC".into(),
                     status: "Pending".into(),
                     timestamp: Some(1699900000),
+                    memo: None,
                 },
             ],
             next_cursor: None,

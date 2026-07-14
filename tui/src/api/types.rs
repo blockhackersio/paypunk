@@ -266,6 +266,7 @@ pub struct HistoryRow {
     pub amount: String,
     pub status: String,
     pub timestamp: Option<u64>,
+    pub memo: Option<String>,
 }
 
 #[derive(Debug, Clone)]

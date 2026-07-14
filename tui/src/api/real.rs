@@ -881,6 +881,7 @@ impl WalletApi for RealWalletApi {
                                     amount,
                                     status,
                                     timestamp: e.timestamp,
+                                    memo: e.memo,
                                 }
                             })
                             .collect();

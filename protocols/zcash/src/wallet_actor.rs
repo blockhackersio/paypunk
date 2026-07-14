@@ -27,7 +27,7 @@ use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_protocol::consensus::BlockHeight;
 use zcash_protocol::local_consensus::LocalNetwork;
-use zcash_protocol::memo::Memo;
+use zcash_protocol::memo::{Memo, MemoBytes};
 use zcash_protocol::ShieldedProtocol;
 
 use crate::lsp_client::LspClient;
@@ -439,7 +439,7 @@ impl Handler<ProposeAndBuild> for WalletDbActor {
             .map(Memo::from_str)
             .transpose()
             .map_err(|e| format!("invalid memo: {e}"))?
-            .map(zcash_protocol::memo::MemoBytes::from);
+            .map(MemoBytes::from);
 
         let params = self.build_params();
         let proposal = propose_standard_transfer_to_address::<
@@ -646,6 +646,17 @@ impl Handler<GetBalance> for WalletDbActor {
     }
 }
 
+fn decode_memo(blob: Option<&[u8]>) -> Option<String> {
+    let blob = blob?;
+    let memo_bytes = MemoBytes::from_bytes(blob).ok()?;
+    match Memo::try_from(&memo_bytes) {
+        Ok(Memo::Text(text)) => Some(text.to_string()),
+        Ok(Memo::Empty) => None,
+        Ok(Memo::Arbitrary(_) | Memo::Future(_)) => Some("(binary memo)".to_string()),
+        Err(_) => None,
+    }
+}
+
 impl Handler<GetHistory> for WalletDbActor {
     async fn handle(
         &mut self,
@@ -675,7 +686,24 @@ impl Handler<GetHistory> for WalletDbActor {
                     (SELECT COALESCE(SUM(value), 0) FROM sapling_received_notes
                      WHERE transaction_id = t.id_tx AND account_id = :acct)
                     + (SELECT COALESCE(SUM(value), 0) FROM orchard_received_notes
-                     WHERE transaction_id = t.id_tx AND account_id = :acct) AS received
+                     WHERE transaction_id = t.id_tx AND account_id = :acct) AS received,
+                    (SELECT memo FROM sent_notes
+                     WHERE transaction_id = t.id_tx AND from_account_id = :acct
+                       AND (to_account_id IS NULL OR to_account_id != :acct)
+                       AND memo IS NOT NULL
+                     LIMIT 1) AS outgoing_memo,
+                    (SELECT memo FROM sapling_received_notes
+                     WHERE transaction_id = t.id_tx AND account_id = :acct
+                       AND memo IS NOT NULL
+                     LIMIT 1) AS incoming_memo_sapling,
+                    (SELECT memo FROM orchard_received_notes
+                     WHERE transaction_id = t.id_tx AND account_id = :acct
+                       AND memo IS NOT NULL
+                     LIMIT 1) AS incoming_memo_orchard,
+                    (SELECT to_address FROM sent_notes
+                     WHERE transaction_id = t.id_tx AND from_account_id = :acct
+                       AND (to_account_id IS NULL OR to_account_id != :acct)
+                     LIMIT 1) AS outgoing_counterparty
                  FROM transactions t
                  LEFT JOIN blocks b ON t.block = b.height
                  WHERE t.id_tx IN (
@@ -703,15 +731,40 @@ impl Handler<GetHistory> for WalletDbActor {
                     let sent_away: i64 = row.get(3)?;
                     let sent_self: i64 = row.get(4)?;
                     let received: i64 = row.get(5)?;
-                    Ok((txid_blob, block, block_time, sent_away, sent_self, received))
+                    let outgoing_memo: Option<Vec<u8>> = row.get(6)?;
+                    let incoming_memo_sapling: Option<Vec<u8>> = row.get(7)?;
+                    let incoming_memo_orchard: Option<Vec<u8>> = row.get(8)?;
+                    let outgoing_counterparty: Option<String> = row.get(9)?;
+                    Ok((
+                        txid_blob,
+                        block,
+                        block_time,
+                        sent_away,
+                        sent_self,
+                        received,
+                        outgoing_memo,
+                        incoming_memo_sapling,
+                        incoming_memo_orchard,
+                        outgoing_counterparty,
+                    ))
                 },
             )
             .map_err(|e| format!("query failed: {e}"))?;
 
         let mut entries: Vec<HistoryEntry> = Vec::new();
         for row in tx_rows {
-            let (txid_blob, block, block_time, sent_away, sent_self, received) =
-                row.map_err(|e| format!("row error: {e}"))?;
+            let (
+                txid_blob,
+                block,
+                block_time,
+                sent_away,
+                sent_self,
+                received,
+                outgoing_memo,
+                incoming_memo_sapling,
+                incoming_memo_orchard,
+                outgoing_counterparty,
+            ) = row.map_err(|e| format!("row error: {e}"))?;
 
             let (direction, amount) = if sent_away > 0 {
                 (TxDirection::Outgoing, Amount(sent_away as u128))
@@ -731,13 +784,27 @@ impl Handler<GetHistory> for WalletDbActor {
             let hash = hex::encode(&txid_blob);
             let timestamp = block_time.map(|t| t as u64);
 
+            let memo_blob = match direction {
+                TxDirection::Outgoing | TxDirection::SelfTransfer => outgoing_memo,
+                TxDirection::Incoming => incoming_memo_sapling.or(incoming_memo_orchard),
+            };
+            let memo = decode_memo(memo_blob.as_deref());
+
+            let counterparty = match direction {
+                TxDirection::Outgoing | TxDirection::SelfTransfer => {
+                    Address(outgoing_counterparty.unwrap_or_default())
+                }
+                TxDirection::Incoming => Address(String::new()),
+            };
+
             entries.push(HistoryEntry {
                 hash,
                 direction,
-                counterparty: Address(String::new()),
+                counterparty,
                 amount,
                 status,
                 timestamp,
+                memo,
             });
         }
 
@@ -828,7 +895,7 @@ impl Handler<EstimateFee> for WalletDbActor {
             .map(Memo::from_str)
             .transpose()
             .map_err(|e| format!("invalid memo: {e}"))?
-            .map(zcash_protocol::memo::MemoBytes::from);
+            .map(MemoBytes::from);
 
         let proposal = propose_standard_transfer_to_address::<
             WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,

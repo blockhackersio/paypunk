@@ -66,9 +66,12 @@ fn is_leap(y: i64) -> bool {
 #[derive(Debug, Clone)]
 struct HistoryRow {
     date: String,
-    tx_type: String, // "Sent" or "Received"
+    tx_type: String,
     amount: String,
     status: String,
+    hash: String,
+    counterparty: String,
+    memo: Option<String>,
 }
 
 pub struct HistoryScreen {
@@ -110,6 +113,9 @@ impl Screen for HistoryScreen {
                     tx_type: r.direction,
                     amount: r.amount,
                     status: r.status,
+                    hash: r.hash,
+                    counterparty: r.counterparty,
+                    memo: r.memo,
                 }
             })
             .collect();
@@ -125,12 +131,14 @@ impl Screen for HistoryScreen {
         let chunks = Layout::vertical([
             Constraint::Length(5),
             Constraint::Min(5),
+            Constraint::Length(6),
             Constraint::Length(3),
         ])
         .split(area);
         let header = chunks[0];
         let body = chunks[1];
-        let footer = chunks[2];
+        let detail = chunks[2];
+        let footer = chunks[3];
 
         // Header
         let title_text = format!(" Transaction History — {} ", self.account_name);
@@ -195,6 +203,36 @@ impl Screen for HistoryScreen {
                     }),
                 );
             }
+        }
+
+        // Detail pane
+        let detail_block = theme.titled_block("Details");
+        let detail_inner = detail_block.inner(detail);
+        frame.render_widget(detail_block, detail);
+        if let Some(row) = self.rows.get(self.selected) {
+            let mut lines: Vec<Line> = Vec::new();
+            lines.push(Line::from(vec![
+                Span::styled(" TxID:          ", Style::new().fg(ui::palette().muted)),
+                Span::raw(&row.hash),
+            ]));
+            let cp = if row.counterparty.is_empty() {
+                "—".to_string()
+            } else {
+                row.counterparty.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::styled(" Counterparty:  ", Style::new().fg(ui::palette().muted)),
+                Span::raw(cp),
+            ]));
+            let memo_text = row.memo.clone().unwrap_or_else(|| "—".to_string());
+            lines.push(Line::from(vec![
+                Span::styled(" Memo:          ", Style::new().fg(ui::palette().muted)),
+                Span::raw(memo_text),
+            ]));
+            frame.render_widget(
+                Paragraph::new(lines).style(Style::new().bg(ui::BG)),
+                detail_inner,
+            );
         }
 
         // Footer

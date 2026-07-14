@@ -431,6 +431,7 @@ pub struct HistoryEntry {
     pub amount: Amount,
     pub status: TxStatus,
     pub timestamp: Option<u64>,
+    pub memo: Option<String>,
 }
 
 /// Whether a history entry is incoming, outgoing, or a self-transfer.
