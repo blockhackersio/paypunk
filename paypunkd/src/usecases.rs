@@ -654,8 +654,10 @@ pub async fn broadcast_transaction(
     protocol: ProtocolId,
     raw_tx: &[u8],
 ) -> Result<String, String> {
-    let finalized = protocols.get(protocol)?.store_and_finalize(raw_tx).await?;
-    let tx_hash = protocols.get(protocol)?.broadcast(&finalized).await?;
+    let (finalized, stored_txid) = protocols.get(protocol)?.store_and_finalize(raw_tx).await?;
+    let broadcast_hash = protocols.get(protocol)?.broadcast(&finalized).await?;
+    let tx_hash = stored_txid.unwrap_or(broadcast_hash);
+    tracing::info!(?protocol, tx_hash = %tx_hash, "transaction broadcast");
     Ok(tx_hash)
 }
 

@@ -131,22 +131,27 @@ impl Protocol for ZcashProtocol {
         Ok(raw_tx)
     }
 
-    async fn store_and_finalize(&self, signed_pczt: &[u8]) -> Result<Vec<u8>, String> {
+    async fn store_and_finalize(
+        &self,
+        signed_pczt: &[u8],
+    ) -> Result<(Vec<u8>, Option<String>), String> {
         tracing::info!(
             "store_and_finalize: first bytes {:?} len={}",
             &signed_pczt[..signed_pczt.len().min(8)],
             signed_pczt.len()
         );
-        // Store the transaction in the wallet DB
+        let mut txid_hex: Option<String> = None;
         if let Some(wallet) = &self.wallet_addr {
-            wallet
+            let txid = wallet
                 .ask(StoreTransaction {
                     pczt_bytes: signed_pczt.to_vec(),
                 })
                 .await?;
+            tracing::info!(txid = %txid, "stored transaction in wallet db");
+            txid_hex = Some(txid);
         }
-        // Then finalize and return raw tx bytes
-        self.finalize(signed_pczt)
+        let finalized = self.finalize(signed_pczt)?;
+        Ok((finalized, txid_hex))
     }
 
     async fn get_balance(

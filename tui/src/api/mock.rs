@@ -2,7 +2,7 @@ use super::types::*;
 use super::WalletApi;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
 struct MockData {
@@ -23,6 +23,7 @@ pub struct MockWalletApi {
     receive_cache: Mutex<HashMap<String, ReceiveData>>,
     pending_account_id: Mutex<Option<String>>,
     pending_send_result: Mutex<Option<oneshot::Receiver<Result<SendResult, String>>>>,
+    send_phase: Arc<Mutex<String>>,
 }
 
 impl MockWalletApi {
@@ -72,6 +73,7 @@ impl MockWalletApi {
             receive_cache: Mutex::new(HashMap::new()),
             pending_account_id: Mutex::new(None),
             pending_send_result: Mutex::new(None),
+            send_phase: Arc::new(Mutex::new(String::new())),
         }
     }
 
@@ -331,12 +333,17 @@ impl WalletApi for MockWalletApi {
 
         let (tx, rx) = oneshot::channel();
         *self.pending_send_result.lock().unwrap() = Some(rx);
+        let send_phase = self.send_phase.clone();
 
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            *send_phase.lock().unwrap() = "Signing...".to_string();
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            *send_phase.lock().unwrap() = "Broadcasting...".to_string();
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
             let tx_hash: String =
                 "0x02f8b00182002a8459682f00851b572f4e9a7b3c8d2e1f0a4b6c8d0e1f2a3b4c5d6e7f8a9b"
                     .into();
+            *send_phase.lock().unwrap() = String::new();
             let _ = tx.send(Ok(SendResult {
                 tx_hash: tx_hash.clone(),
                 status: "broadcasted".into(),
@@ -529,11 +536,12 @@ impl WalletApi for MockWalletApi {
                     *guard = None;
                     return Some(result);
                 }
-                Ok(Err(_e)) => {
+                Ok(Err(e)) => {
                     *guard = None;
+                    *self.send_phase.lock().unwrap() = String::new();
                     return Some(SendResult {
                         tx_hash: String::new(),
-                        status: "failed".to_string(),
+                        status: format!("failed: {e}"),
                         block_explorer_url: String::new(),
                     });
                 }
@@ -544,5 +552,9 @@ impl WalletApi for MockWalletApi {
             }
         }
         None
+    }
+
+    async fn poll_send_phase(&self) -> String {
+        self.send_phase.lock().unwrap().clone()
     }
 }

@@ -58,4 +58,5 @@ pub trait WalletApi {
     async fn get_history(&self, account_id: &str) -> HistoryData;
 
     async fn poll_send_result(&self) -> Option<SendResult>;
+    async fn poll_send_phase(&self) -> String;
 }
