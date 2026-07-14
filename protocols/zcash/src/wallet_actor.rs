@@ -366,13 +366,14 @@ impl WalletDbActor {
         let mut lsp = LspClient::connect(&self.lightwalletd_host, self.params).await?;
 
         // Resolve birthday: 0 means "no explicit birthday known".
-        // For regtest, scan from block 1 (few blocks, safe to rescan).
+        // For regtest, scan from block 2 (tree state at block 1 is the first
+        // block with Orchard active; block 0 tree state is unreliable).
         // For mainnet/testnet, use the current chain tip to avoid scanning
         // millions of blocks — the background sync will catch new blocks.
         let birthday = if birthday_height == 0 {
             if self.network_type == NetworkType::Regtest {
-                info!("register_account: birthday_height is 0, scanning from block 1 (regtest)");
-                BlockHeight::from_u32(1)
+                info!("register_account: birthday_height is 0, using block 2 (regtest)");
+                BlockHeight::from_u32(2)
             } else {
                 let latest = lsp.get_latest_height().await?;
                 info!(
@@ -402,7 +403,7 @@ impl WalletDbActor {
 
         {
             let account_name = format!("Zcash Account {}", self.fvk_to_account_id.len());
-            let account_birthday = AccountBirthday::from_parts(chain_state, None);
+            let account_birthday = AccountBirthday::from_parts(chain_state.clone(), None);
 
             let account_uuid = match self.db.import_account_ufvk(
                 &account_name,
@@ -417,6 +418,21 @@ impl WalletDbActor {
                 }
                 Err(e) => {
                     info!("register_account: UFVK import skipped (already registered?): {e}");
+
+                    // The account already exists in the wallet DB from a previous
+                    // run. Truncate to the new birthday's chain state so the
+                    // upcoming scan starts fresh. Without this, the existing chain
+                    // tip (e.g. 145) causes update_chain_tip to silently skip
+                    // backwards updates, and put_blocks may fail on tree
+                    // state mismatches.
+                    info!(
+                        "register_account: truncating wallet DB to chain state at block {}",
+                        u32::from(prev_height)
+                    );
+                    self.db
+                        .truncate_to_chain_state(chain_state)
+                        .map_err(|e| format!("truncate_to_chain_state failed: {e}"))?;
+
                     let acct = self
                         .db
                         .get_account_for_ufvk(&ufvk)

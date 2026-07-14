@@ -113,8 +113,8 @@ impl ScanActor {
 
         let birthday = if birthday_height == 0 {
             if self.network_type == NetworkType::Regtest {
-                info!("scan_actor: birthday_height is 0, scanning from block 1 (regtest)");
-                BlockHeight::from_u32(1)
+                info!("scan_actor: birthday_height is 0, scanning from block 2 (regtest)");
+                BlockHeight::from_u32(2)
             } else {
                 info!("scan_actor: birthday_height is 0, using latest chain tip {latest_u64}");
                 latest

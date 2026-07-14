@@ -17,6 +17,7 @@ use crate::wallet_actor::{
     EstimateFee, GetBalance, GetBlockHeight, GetHistory, GetStatus, GetTxStatus, ProposeAndBuild,
     RegisterAccount, StoreTransaction, WalletDbActor,
 };
+use tracing::warn;
 
 pub struct ZcashProtocol {
     pub params: LocalNetwork,
@@ -399,7 +400,9 @@ impl Protocol for ZcashProtocol {
         if let Some(scan) = &self.scan_recipient {
             let scan = scan.clone();
             tokio::spawn(async move {
-                let _ = scan.ask(SyncNewAccount { birthday_height }).await;
+                if let Err(e) = scan.ask(SyncNewAccount { birthday_height }).await {
+                    warn!("SyncNewAccount failed: {e}");
+                }
             });
         }
 
