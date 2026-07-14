@@ -24,11 +24,12 @@ Paypunk is building toward a different future: **one wallet framework, every pri
 Imagine a wallet where:
 
 - Your **Zcash, Monero, Ethereum, Railgun, Bitcoin** live side by side, managed from a single interface
-- Your keys never touch an internet-connected device — **air-gapped signing via QR codes** is a first-class flow, not an afterthought
+- The same backend powers a **terminal UI, a desktop app, a mobile app, and an agent SDK** — because the architecture is frontend-agnostic from day one
+- Your keys never touch an internet-connected device - due to architecture **air-gapped signing via QR codes** is a first-class flow
 - **Agents** can transact on your behalf via a scriptable CLI and IPC API, with human approval for sensitive operations
 - **Swapping** between ZEC and ETH happens in-wallet, routed through decentralized protocols, without surrendering custody
+- Host your wallet on the server approve on your phone
 - New privacy protocols — **Aleo, Aztec, Railgun** — plug in by implementing a couple of traits, not by forking the wallet
-- The same backend powers a **terminal UI, a desktop app, a mobile app, and an agent SDK** — because the architecture is frontend-agnostic from day one
 - As new decentralized cross chain swap mechanisms come up they are integrated (eg near-intents / thorchain etc.)
 
 The architecture is functional. The trait system works. Zcash and Ethereum are proven. The foundation is solid. What's missing is the work to harden it, polish it, and extend it to the protocols that matter.
