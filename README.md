@@ -30,7 +30,7 @@ Imagine a wallet where:
 - New privacy protocols — **Aleo, Aztec, Railgun** — plug in by implementing a couple of traits, not by forking the wallet
 - The same backend powers a **terminal UI, a desktop app, a mobile app, and an agent SDK** — because the architecture is frontend-agnostic from day one
 
-The architecture is built. The trait system works. Zcash and Ethereum are proven. The foundation is solid. What's missing is the work to harden it, polish it, and extend it to the protocols that matter.
+The architecture is functional. The trait system works. Zcash and Ethereum are proven. The foundation is solid. What's missing is the work to harden it, polish it, and extend it to the protocols that matter.
 
 ### We need help
 
