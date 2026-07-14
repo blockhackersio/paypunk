@@ -103,7 +103,7 @@ Three processes with a strict security boundary:
 ### From GitHub
 
 ```bash
-cargo install --git https://github.com/blockhackersio/paypunk
+cargo install --locked --git https://github.com/blockhackersio/paypunk
 ```
 
 ### From source
@@ -111,7 +111,7 @@ cargo install --git https://github.com/blockhackersio/paypunk
 ```bash
 git clone https://github.com/blockhackersio/paypunk.git
 cd paypunk
-cargo install --path cli
+cargo install --locked --path cli
 ```
 
 The `paypunk` binary is installed to `~/.cargo/bin/paypunk`.
