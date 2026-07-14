@@ -15,27 +15,20 @@
   <img src="https://img.shields.io/badge/status-alpha-yellow.svg" alt="Status" />
 </p>
 
+---
+
 ## Quickstart
-Prerequisites:
 
-- nix
-- devenv
+> **Want to just run it?** See the **[Quickstart Guide](QUICKSTART.md)** — 4 commands to a working Zcash wallet on regtest with funds.
 
-### Get the basic TUI wallet running against regtest
+**TL;DR:**
 
-1. `devenv shell` to launch the environemtn with the helper scripts
-2. terminal 1: `zcash` will run a regtest docker environment
-3. terminal 2: `setup` will setup a basic regtest wallet with the `test test test test test test test test test test test junk` mnemonic.
-4. then run `paypunk` to llaunch `paypunkd` `keypunkd` and the `tui` in regtest mode.
-
-### Get the offline signer to work
-
-1. `devenv shell` to launch the environemtn with the helper scripts
-2. terminal 1: `zcash` will run a regtest docker environment
-3. terminal 2: `rm -rf ~/.local/shared/paypunk` just to clear any lingering state.
-4. then run `paypunk --signer` to launch `paypunkd` and the `tui` in "signer" mode.
-5. run the devenv shell in the `./signer` folder and ensure your android device is visible by `adb devices`
-6. build the android signer `cargo tauri android run` which will build the signer to your device. 
+```bash
+devenv shell                    # enter dev environment
+zcash                           # terminal 1: start regtest chain (funds the test wallet)
+setup                           # terminal 2: restore test wallet (password: test)
+cargo run --bin paypunk         # launch the TUI
+```
 
 ## The Goal
 
