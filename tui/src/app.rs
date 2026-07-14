@@ -67,13 +67,18 @@ impl App {
     }
 
     pub async fn tick(&mut self) {
-        let api: &mut dyn WalletApi = &mut *self.api;
-        if let Some(screen) = self.screen_stack.last_mut() {
-            screen.tick(api).await;
-        }
+        let nav = {
+            let api: &mut dyn WalletApi = &mut *self.api;
+            if let Some(screen) = self.screen_stack.last_mut() {
+                screen.tick(api).await
+            } else {
+                Nav::None
+            }
+        };
+        self.process_nav(nav).await;
         if let Ok(status) = tokio::time::timeout(
             std::time::Duration::from_millis(50),
-            api.get_sync_status("Zcash"),
+            self.api.get_sync_status("Zcash"),
         )
         .await
         {

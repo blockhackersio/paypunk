@@ -80,7 +80,7 @@ impl Screen for AssetsScreen {
         self.data = Some(data);
     }
 
-    async fn tick(&mut self, api: &mut dyn WalletApi) {
+    async fn tick(&mut self, api: &mut dyn WalletApi) -> Nav {
         let prev = self.sync_status.is_syncing;
         self.sync_status = api.get_sync_status(&self.protocol).await;
         if prev && !self.sync_status.is_syncing {
@@ -93,6 +93,7 @@ impl Screen for AssetsScreen {
             self.list = List::new(items).row_height(5);
             self.data = Some(data);
         }
+        Nav::None
     }
 
     fn render(&mut self, frame: &mut Frame, _api: &dyn WalletApi) {

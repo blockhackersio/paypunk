@@ -10,6 +10,7 @@ pub mod receive;
 pub mod send;
 pub mod settings;
 pub mod setup;
+pub mod splash;
 
 use crate::api::WalletApi;
 use crate::app::Nav;
@@ -32,5 +33,7 @@ pub trait Screen {
     }
     /// Called on every render tick (every ~50ms). Screens can use this for
     /// polling async operations (e.g. checking if a background send completed).
-    async fn tick(&mut self, _api: &mut dyn WalletApi) {}
+    async fn tick(&mut self, _api: &mut dyn WalletApi) -> Nav {
+        Nav::None
+    }
 }

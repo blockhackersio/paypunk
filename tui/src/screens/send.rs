@@ -154,13 +154,14 @@ impl Screen for SendScreen {
         );
     }
 
-    async fn tick(&mut self, api: &mut dyn WalletApi) {
+    async fn tick(&mut self, api: &mut dyn WalletApi) -> Nav {
         if let SendStep::Sending = self.step {
             if let Some(result) = api.poll_send_result().await {
                 self.result = Some(result);
                 self.step = SendStep::Confirm;
             }
         }
+        Nav::None
     }
 
     async fn init(&mut self, api: &dyn WalletApi) {

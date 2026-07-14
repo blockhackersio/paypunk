@@ -23,3 +23,5 @@ paypunk-types = { path = "../types" }
 zeroize = { workspace = true }
 postcard = { workspace = true }
 qrcode = { workspace = true }
+tachyonfx.workspace = true
+paypunk-logo = { path = "../logo" }

@@ -6,4 +6,4 @@ license.workspace = true
 
 [dependencies]
 ratatui.workspace = true
-tachyonfx = "0.25.1"
+tachyonfx.workspace = true

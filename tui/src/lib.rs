@@ -12,6 +12,7 @@ use screens::connect_signer::ConnectSignerScreen;
 use screens::greeting::GreetingScreen;
 use screens::home::HomeScreen;
 use screens::setup::SetupScreen;
+use screens::splash::SplashScreen;
 use screens::Screen;
 
 use crossterm::event::{self, KeyCode, KeyEventKind, KeyModifiers};
@@ -50,28 +51,19 @@ pub async fn run_tui(
     let wallet_exists = app.api.check_wallet_exists().await;
     println!("wallet exists = {}", wallet_exists);
 
-    if wallet_exists {
+    let next: Box<dyn Screen> = if wallet_exists {
         if signer_mode {
-            // In signer mode the DB is plaintext — no password needed.
-            let mut home = Box::new(HomeScreen::new());
-            home.init(&*app.api).await;
-            app.push_screen(home);
+            Box::new(HomeScreen::new())
         } else {
-            println!("wallet exists...");
-            let mut greeting = Box::new(GreetingScreen::new());
-            greeting.init(&*app.api).await;
-            app.push_screen(greeting);
+            Box::new(GreetingScreen::new())
         }
     } else if signer_mode {
-        let mut connect = Box::new(ConnectSignerScreen::new());
-        connect.init(&*app.api).await;
-        app.push_screen(connect);
+        Box::new(ConnectSignerScreen::new())
     } else {
-        println!("wallet does not exist...");
-        let mut setup = Box::new(SetupScreen::new());
-        setup.init(&*app.api).await;
-        app.push_screen(setup);
-    }
+        Box::new(SetupScreen::new())
+    };
+
+    app.push_screen(Box::new(SplashScreen::new(next)));
     println!("taking hook...");
 
     let prev_hook = std::panic::take_hook();
