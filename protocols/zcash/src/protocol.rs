@@ -81,15 +81,22 @@ impl Protocol for ZcashProtocol {
                     .as_ref()
                     .ok_or_else(|| "WalletDb not initialized — sync required".to_string())?;
 
-                let account = 0;
+                let viewing_key = {
+                    let map = self
+                        .address_viewing_keys
+                        .lock()
+                        .map_err(|e| e.to_string())?;
+                    map.get(from).cloned()
+                }
+                .ok_or_else(|| format!("no viewing key found for from address: {from}"))?;
 
                 let amount_f64: f64 = amount.parse().map_err(|_| "invalid amount".to_string())?;
                 let amount_zat = (amount_f64 * 100_000_000.0) as u64;
 
                 wallet
                     .ask(ProposeAndBuild {
-                        public_key: vec![],
-                        account,
+                        public_key: viewing_key,
+                        account: 0,
                         to: to.clone(),
                         amount: amount_zat,
                         memo: memo.clone(),

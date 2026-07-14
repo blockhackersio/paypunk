@@ -381,29 +381,47 @@ impl Handler<ProposeAndBuild> for WalletDbActor {
         let amount_zat = zcash_protocol::value::Zatoshis::from_u64(msg.amount)
             .map_err(|_| "invalid amount".to_string())?;
 
-        let account_ids = self
-            .db
-            .get_account_ids()
-            .map_err(|e| format!("get_account_ids failed: {e}"))?;
+        let account_id = if !msg.public_key.is_empty() {
+            let target_uuid = self.fvk_to_account_id.get(&msg.public_key).copied();
+            match target_uuid {
+                Some(uuid) => uuid,
+                None => match lookup_account_by_fvk(&mut self.db, &msg.public_key) {
+                    Ok(Some(uuid)) => {
+                        self.fvk_to_account_id.insert(msg.public_key.clone(), uuid);
+                        uuid
+                    }
+                    Ok(None) => {
+                        return Err(
+                            "viewing key not found in wallet — account not registered".to_string()
+                        );
+                    }
+                    Err(e) => return Err(format!("account lookup by FVK failed: {e}")),
+                },
+            }
+        } else {
+            let account_ids = self
+                .db
+                .get_account_ids()
+                .map_err(|e| format!("get_account_ids failed: {e}"))?;
 
-        // Find the first account with sufficient spendable balance
-        let summary = self
-            .db
-            .get_wallet_summary(self.confirmations_policy)
-            .map_err(|e| format!("get_wallet_summary failed: {e}"))?
-            .ok_or("wallet summary not available")?;
+            let summary = self
+                .db
+                .get_wallet_summary(self.confirmations_policy)
+                .map_err(|e| format!("get_wallet_summary failed: {e}"))?
+                .ok_or("wallet summary not available")?;
 
-        let account_id = account_ids
-            .iter()
-            .find(|aid| {
-                summary
-                    .account_balances()
-                    .get(aid)
-                    .map(|b| u64::from(b.orchard_balance().spendable_value()) >= msg.amount)
-                    .unwrap_or(false)
-            })
-            .ok_or("no account with sufficient balance")?
-            .to_owned();
+            account_ids
+                .iter()
+                .find(|aid| {
+                    summary
+                        .account_balances()
+                        .get(aid)
+                        .map(|b| u64::from(b.orchard_balance().spendable_value()) >= msg.amount)
+                        .unwrap_or(false)
+                })
+                .ok_or("no account with sufficient balance")?
+                .to_owned()
+        };
 
         info!(
             "ProposeAndBuild: using account_id={:?} amount={} to={}",
