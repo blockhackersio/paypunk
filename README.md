@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/status-alpha-yellow.svg" alt="Status" />
 </p>
 
-## The Dream
+## The Goal
 
 Privacy is under threat. The tools people use to transact privately are fragmented, hard to integrate, and locked behind walled gardens. Every privacy coin has its own wallet, its own architecture, its own signing model — and none of them talk to each other.
 
