@@ -12,75 +12,75 @@
 ## Process Model
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        paypunk (CLI/TUI)                         │
-│                                                                  │
+┌────────────────────────────────────────────────────────────────┐
+│                      paypunk (CLI/TUI)                         │
+│                                                                │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────────────────┐  │
 │  │  TUI     │  │  CLI     │  │  API Client (paypunk-api)    │  │
 │  │ (ratatui)│  │ (clap)   │  │  Client::connect(socket)     │  │
 │  └────┬─────┘  └────┬─────┘  └──────────┬───────────────────┘  │
-│       │             │                    │                      │
-│       └─────────────┴────────────────────┘                      │
+│       │             │                   │                      │
+│       └─────────────┴───────────────────┘                      │
 │                     │ IpcSender                                │
-└─────────────────────┼─────────────────────────────────────────┘
+└─────────────────────┼──────────────────────────────────────────┘
                       │ Unix socket
                       │ (X25519 handshake + Blake2b MAC)
                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      paypunkd (app daemon)                       │
-│                                                                  │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
-│  │ Paypunkd    │  │ Protocol     │  │ SQLite DB            │   │
-│  │ actor       │──│ Service      │  │ (paypunkd.db)        │   │
-│  │ (tactix)    │  │ (HashMap)    │  │                      │   │
-│  └──────┬──────┘  └──┬───┬───┬──┘  └──────────────────────┘   │
+┌────────────────────────────────────────────────────────────────┐
+│                      paypunkd (app daemon)                     │
+│                                                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────────┐    │
+│  │ Paypunkd    │  │ Protocol    │  │ SQLite DB            │    │
+│  │ actor       │──│ Service     │  │ (paypunkd.db)        │    │
+│  │ (tactix)    │  │ (HashMap)   │  │                      │    │
+│  └──────┬──────┘  └──┬───┬───┬──┘  └──────────────────────┘    │
 │         │            │   │   │                                 │
 │         │     ┌──────┘   │   └──────┐                          │
 │         │     ▼          ▼          ▼                          │
-│  ┌──────┴─────────────────────────────────────────────────┐   │
-│  │ ZcashProtocol    EthereumProtocol    (future chains)   │   │
-│  │ (Protocol trait)  (Protocol trait)                      │   │
-│  └────────────────────────────────────────────────────────┘   │
-│         │ IpcSender (to keypunkd)                               │
-└─────────┼─────────────────────────────────────────────────────┘
+│  ┌──────┴─────────────────────────────────────────────────┐    │
+│  │ ZcashProtocol    EthereumProtocol    (future chains)   │    │
+│  │ (Protocol trait)  (Protocol trait)                     │    │
+│  └────────────────────────────────────────────────────────┘    │
+│         │ IpcSender (to keypunkd)                              │
+└─────────┼──────────────────────────────────────────────────────┘
           │ Unix socket
           │ (X25519 handshake + Blake2b MAC)
           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     keypunkd (key daemon)                        │
-│                                                                  │
+┌────────────────────────────────────────────────────────────────┐
+│                     keypunkd (key daemon)                      │
+│                                                                │
 │  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
 │  │ Keypunkd    │  │ Signer       │  │ Seed Store           │   │
 │  │ actor       │──│ Protocol     │  │ (seed.enc)           │   │
 │  │ (tactix)    │  │ Service      │  │ Argon2id + AES-GCM   │   │
-│  └─────────────┘  └──┬───┬──────┘  └──────────────────────┘   │
-│                      │   │                                    │
-│              ┌───────┘   └───────┐                            │
-│              ▼                   ▼                            │
-│  ┌──────────────────┐  ┌──────────────────┐                  │
-│  │ ZcashSigner      │  │ EthereumSigner   │                  │
-│  │ Protocol         │  │ Protocol         │                  │
-│  │ (SignerProtocol) │  │ (SignerProtocol) │                  │
-│  └──────────────────┘  └──────────────────┘                  │
-└─────────────────────────────────────────────────────────────────┘
+│  └─────────────┘  └──┬───┬───────┘  └──────────────────────┘   │
+│                      │   │                                     │
+│              ┌───────┘   └───────┐                             │
+│              ▼                   ▼                             │
+│  ┌──────────────────┐  ┌──────────────────┐                    │
+│  │ ZcashSigner      │  │ EthereumSigner   │                    │
+│  │ Protocol         │  │ Protocol         │                    │
+│  │ (SignerProtocol) │  │ (SignerProtocol) │                    │
+│  └──────────────────┘  └──────────────────┘                    │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ## Crate Dependency Graph
 
 ```
-                    paypunk-types
-                   /              \
-          paypunk-ipc          paypunk-config
-              |                    |
-         paypunk-api               |
-        /         \               |
-  paypunkd    paypunk-tui         |
-    /  \         |               |
-  /    \    paypunk (CLI) ───────/
+                       paypunk-types
+                      /              \
+             paypunk-ipc          paypunk-config
+                 |                    |
+            paypunk-api               |
+           /         \                |
+     paypunkd    paypunk-tui          |
+       /  \           |               |
+      /    \         paypunk (CLI) ──/
 protocols  keypunkd
  / \         |
-zcash eth   |
-            |
+zcash eth    |
+             |
        paypunk-bridge
 ```
 
@@ -100,7 +100,7 @@ User                CLI/TUI              paypunkd              keypunkd
  │                     │                     ├────────────────────>│
  │                     │                     │                     │ parse_artifact
  │                     │                     │                     │ → summary
- │                     │                     │  ArtifactPreview   │
+ │                     │                     │   ArtifactPreview   │
  │                     │                     │<────────────────────┤
  │                     │  SignablePreview    │                     │
  │                     │<────────────────────┤                     │
@@ -114,7 +114,7 @@ User                CLI/TUI              paypunkd              keypunkd
  │                     │                     │                     │ sign artifact
  │                     │                     │  SignatureApproved  │
  │                     │                     │<────────────────────┤
- │                     │                     │  finalize + broadcast│
+ │                     │                     │ finalize + broadcast│
  │                     │  tx_hash            │                     │
  │                     │<────────────────────┤                     │
  │  show result        │                     │                     │
