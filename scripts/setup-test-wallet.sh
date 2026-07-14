@@ -9,19 +9,21 @@ PAYPUNK="${PAYPUNK_BIN:-cargo run --quiet --package paypunk --}"
 
 if [ -f "$MNEMONIC_FILE" ]; then
   MNEMONIC=$(cat "$MNEMONIC_FILE")
+  NETWORK_ARGS="--zcash-network mainnet"
 else
   MNEMONIC=$(cat "$MNEMONIC_DEFAULT")
+  NETWORK_ARGS=""
 fi
 
 PASSWORD="test"
 
 echo "Resetting wallet data..."
-$PAYPUNK reset
+$PAYPUNK reset $NETWORK_ARGS
 
 echo "Restoring wallet with test mnemonic..."
-$PAYPUNK restore-seed --mnemonic "$MNEMONIC" --password "$PASSWORD"
+$PAYPUNK restore-seed --mnemonic "$MNEMONIC" --password "$PASSWORD" $NETWORK_ARGS
 
 echo "Unlocking wallet and deriving accounts..."
-$PAYPUNK unlock --password "$PASSWORD"
+$PAYPUNK unlock --password "$PASSWORD" $NETWORK_ARGS
 
 echo "Done. Test wallet ready — password: $PASSWORD"
