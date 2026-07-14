@@ -14,7 +14,7 @@
   ];
 
   scripts = {
-    setup.exec = "${pkgs.bash}/bin/bash scripts/setup-test-wallet.sh";
+    setup.exec = "${pkgs.bash}/bin/bash scripts/setup-test-wallet.sh \"$@\"";
     ethereum.exec = "${pkgs.bash}/bin/bash scripts/start-ethereum.sh";
     zcash.exec = "${pkgs.bash}/bin/bash scripts/start-zcash.sh";
     bal.exec = "${pkgs.bash}/bin/bash scripts/get-balance.sh";

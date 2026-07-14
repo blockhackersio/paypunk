@@ -7,8 +7,7 @@ MNEMONIC_DEFAULT="${SCRIPT_DIR}/.mnemonic.example"
 
 PAYPUNK="${PAYPUNK_BIN:-cargo run --quiet --package paypunk --}"
 
-BIRTHDAY_ARG=$1
-
+BIRTHDAY_ARG="${1:-}"
 if [ -f "$MNEMONIC_FILE" ]; then
   MNEMONIC=$(cat "$MNEMONIC_FILE")
   NETWORK_ARGS="--zcash-network mainnet"
