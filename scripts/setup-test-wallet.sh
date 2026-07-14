@@ -7,10 +7,7 @@ MNEMONIC_DEFAULT="${SCRIPT_DIR}/.mnemonic.example"
 
 PAYPUNK="${PAYPUNK_BIN:-cargo run --quiet --package paypunk --}"
 
-BIRTHDAY_ARG=""
-if [[ -n "${1:-}" ]]; then
-  BIRTHDAY_ARG="--birthday-height $1"
-fi
+BIRTHDAY_ARG=$1
 
 if [ -f "$MNEMONIC_FILE" ]; then
   MNEMONIC=$(cat "$MNEMONIC_FILE")
