@@ -4,7 +4,7 @@ use tactix::{Actor, Ctx, Handler, Message, Recipient, Sender};
 use tracing::info;
 use zcash_client_backend::data_api::chain::ChainState;
 use zcash_client_backend::proto::compact_formats::CompactBlock;
-use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::consensus::{BlockHeight, NetworkType};
 use zcash_protocol::local_consensus::LocalNetwork;
 
 use crate::lsp_client::LspClient;
@@ -32,6 +32,7 @@ pub struct SyncNewAccount {
 /// scanning.
 pub struct ScanActor {
     params: LocalNetwork,
+    network_type: NetworkType,
     lightwalletd_host: String,
     get_chain_tip: Recipient<GetChainTip>,
     get_min_birthday: Recipient<GetMinBirthday>,
@@ -42,6 +43,7 @@ pub struct ScanActor {
 impl ScanActor {
     pub fn new(
         params: LocalNetwork,
+        network_type: NetworkType,
         lightwalletd_host: String,
         get_chain_tip: Recipient<GetChainTip>,
         get_min_birthday: Recipient<GetMinBirthday>,
@@ -49,6 +51,7 @@ impl ScanActor {
     ) -> Self {
         Self {
             params,
+            network_type,
             lightwalletd_host,
             get_chain_tip,
             get_min_birthday,
@@ -109,8 +112,13 @@ impl ScanActor {
         let latest_u64: u64 = latest.into();
 
         let birthday = if birthday_height == 0 {
-            info!("scan_actor: birthday_height is 0, using latest chain tip {latest_u64}");
-            latest
+            if self.network_type == NetworkType::Regtest {
+                info!("scan_actor: birthday_height is 0, scanning from block 1 (regtest)");
+                BlockHeight::from_u32(1)
+            } else {
+                info!("scan_actor: birthday_height is 0, using latest chain tip {latest_u64}");
+                latest
+            }
         } else {
             BlockHeight::from_u32(birthday_height as u32)
         };

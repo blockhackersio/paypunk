@@ -261,6 +261,7 @@ pub async fn create_protocol(
     let wallet_actor = WalletDbActor::new(
         wallet_db,
         to_local_params(params, network_type),
+        network_type,
         zcash_db_path.clone(),
         confirmations,
         lightwalletd_host.clone(),
@@ -273,6 +274,7 @@ pub async fn create_protocol(
     let scan_blocks: Recipient<ScanBlocks> = wallet_actor.clone().recipient();
     let scan_actor = scan_actor::ScanActor::new(
         to_local_params(params, network_type),
+        network_type,
         lightwalletd_host.clone(),
         get_chain_tip,
         get_min_birthday,

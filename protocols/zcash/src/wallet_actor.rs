@@ -25,7 +25,7 @@ use zcash_client_sqlite::AccountUuid;
 use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
-use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::consensus::{BlockHeight, NetworkType};
 use zcash_protocol::local_consensus::LocalNetwork;
 use zcash_protocol::memo::Memo;
 use zcash_protocol::ShieldedProtocol;
@@ -136,6 +136,7 @@ pub struct ScanBlocks {
 pub struct WalletDbActor {
     db: WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
     params: LocalNetwork,
+    network_type: NetworkType,
     current_height: u64,
     target_height: u64,
     is_syncing: bool,
@@ -150,6 +151,7 @@ impl WalletDbActor {
     pub fn new(
         db: WalletDb<rusqlite::Connection, LocalNetwork, SystemClock, OsRng>,
         params: LocalNetwork,
+        network_type: NetworkType,
         db_path: PathBuf,
         confirmations_policy: ConfirmationsPolicy,
         lightwalletd_host: String,
@@ -157,6 +159,7 @@ impl WalletDbActor {
         Self {
             db,
             params,
+            network_type,
             is_syncing: false,
             current_height: 0,
             target_height: 0,
@@ -362,14 +365,22 @@ impl WalletDbActor {
         info!("register_account: connecting to lightwalletd");
         let mut lsp = LspClient::connect(&self.lightwalletd_host, self.params).await?;
 
-        // Resolve birthday: if 0, use the latest chain tip so tree state is available
+        // Resolve birthday: 0 means "no explicit birthday known".
+        // For regtest, scan from block 1 (few blocks, safe to rescan).
+        // For mainnet/testnet, use the current chain tip to avoid scanning
+        // millions of blocks — the background sync will catch new blocks.
         let birthday = if birthday_height == 0 {
-            let latest = lsp.get_latest_height().await?;
-            info!(
-                "register_account: birthday_height is 0, using latest chain tip {}",
-                u32::from(latest)
-            );
-            latest
+            if self.network_type == NetworkType::Regtest {
+                info!("register_account: birthday_height is 0, scanning from block 1 (regtest)");
+                BlockHeight::from_u32(1)
+            } else {
+                let latest = lsp.get_latest_height().await?;
+                info!(
+                    "register_account: birthday_height is 0, using latest chain tip {}",
+                    u32::from(latest)
+                );
+                latest
+            }
         } else {
             BlockHeight::from_u32(birthday_height as u32)
         };

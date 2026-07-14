@@ -784,7 +784,18 @@ impl Paypunk {
     async fn register_signer(&self, paths: Vec<(ProtocolId, String)>) -> PaypunkdResponse {
         info!("handling RegisterSigner");
 
-        let birthday = self.get_birthday_height();
+        let birthday = match self.get_birthday_height() {
+            Some(h) => Some(h),
+            None => {
+                let mut height = None;
+                for pid in self.protocols.protocols() {
+                    if height.is_none() {
+                        height = self.auto_birthday(pid).await;
+                    }
+                }
+                height
+            }
+        };
         self.respond(
             "register_signer",
             usecases::register_signer(
