@@ -11,7 +11,7 @@ This guide uses a local regtest network (no real funds, no external services). T
 | Tool | Why | Install |
 |------|-----|---------|
 | **Nix** | Reproducible dev environment | [nixos.org/download](https://nixos.org/download) (enable flakes) |
-| **devenv** | One-command environment setup | `nix profile install devenv` |
+| **devenv** | One-command environment setup | `nix profile add --accept-flake-config github:cachix/devenv` |
 | **Docker** | Runs zcashd + lightwalletd in containers | [docs.docker.com/get-docker](https://docs.docker.com/get-docker/) |
 
 Make sure Docker is running before you start.
